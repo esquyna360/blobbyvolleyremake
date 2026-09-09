@@ -167,7 +167,7 @@ export class Menu {
         el('div', {}, el('kbd', { textContent: 'A' }), el('kbd', { textContent: 'D' }), el('kbd', { textContent: 'W' }),
           ' P1  ·  ',
           el('kbd', { textContent: '←' }), el('kbd', { textContent: '→' }), el('kbd', { textContent: '↑' }), ' P2'),
-        el('div', {}, el('kbd', { textContent: '1' }), el('kbd', { textContent: '2' }), el('kbd', { textContent: '3' }),
+        el('div', {}, el('kbd', { textContent: '1' }), '…', el('kbd', { textContent: '5' }),
           ' emotes  ·  ', el('kbd', { textContent: 'ESC' }), ' pausa')),
     )
   }

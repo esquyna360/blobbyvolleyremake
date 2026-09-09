@@ -62,6 +62,9 @@ export class GameLogic {
   isBallValid = true
   isGameRunning = false
   winner: SideOrNone = NO_PLAYER
+  /** Toques da troca de bola atual e o maior da partida — parte do estado, não da tela. */
+  rally = 0
+  rallyBest = 0
   frames = 0
   rules: RuleSet
   scoreToWin: number
@@ -77,7 +80,7 @@ export class GameLogic {
     this.squishWall--; this.squishGround--
   }
 
-  onServe() { this.isBallValid = true; this.isGameRunning = false }
+  onServe() { this.isBallValid = true; this.isGameRunning = false; this.rally = 0 }
 
   onBallHitsGround(side: Side) {
     if (!(this.squishGround <= 0 && this.isBallValid)) return
@@ -92,6 +95,8 @@ export class GameLogic {
     this.squish[other(side)] = 0
     this.isGameRunning = true
     this.touches[side]++
+    this.rally++
+    if (this.rally > this.rallyBest) this.rallyBest = this.rally
     this.rules.onBallHitsPlayer(this, side)
     this.touches[other(side)] = 0
   }
@@ -118,6 +123,7 @@ export class GameLogic {
   mistake(mistakeSide: Side, serveSide: Side, amount: number) {
     this.score(other(mistakeSide), amount)
     this.lastError = mistakeSide
+    this.rally = 0
     this.isBallValid = false
     this.touches[0] = 0; this.touches[1] = 0
     this.squish[0] = 0; this.squish[1] = 0

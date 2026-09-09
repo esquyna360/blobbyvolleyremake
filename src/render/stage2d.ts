@@ -1,7 +1,7 @@
 import {
   BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, NET_POSITION_X, NET_RADIUS,
-  NET_SPHERE_POSITION, RIGHT_PLANE,
+  NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -9,6 +9,7 @@ import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
 import type { GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
+import { FaceRig, faceEvents, rallyTension } from './face.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const HORIZON = 418
@@ -43,6 +44,8 @@ export class Stage2D implements GameRenderer {
   private craters: { x: number; r: number }[] = []
   private scorch: { x: number; r: number; life: number }[] = []
   private time = 0
+  private tension = 0
+  private faces: FaceRig[] = [new FaceRig(), new FaceRig()]
   private trauma = 0
   private flash = 0
   private sky: CanvasGradient | null = null
@@ -102,6 +105,7 @@ export class Stage2D implements GameRenderer {
 
   onEvents(match: Match, events: MatchEvent[]) {
     const w = match.world
+    faceEvents(this.faces, events, match.logic.scores, match.logic.scoreToWin)
     for (const e of events) {
       switch (e.event) {
         case Ev.BALL_HIT_BLOB: {
@@ -262,6 +266,8 @@ export class Stage2D implements GameRenderer {
   }
 
   celebrate(side: Side) {
+    this.faces[side].set('laugh', 6, 9)
+    this.faces[side === LEFT ? RIGHT : LEFT].set('sad', 6, 9)
     const x = side === LEFT ? RIGHT_PLANE * 0.25 : RIGHT_PLANE * 0.75
     for (let i = 0; i < 3; i++) {
       this.burst(x, 240, 60, 300, `hsl(${Math.floor(Math.random() * 360)} 85% 60%)`, 1.2, 6)
@@ -271,6 +277,7 @@ export class Stage2D implements GameRenderer {
 
   private step(dt: number) {
     this.time += dt
+    for (const f of this.faces) f.update(dt, this.tension, false)
     if (this.pops.length) {
       const alive: Pop[] = []
       for (const e of this.pops) { e.life += dt; if (e.life < e.max) alive.push(e) }
@@ -408,16 +415,98 @@ export class Stage2D implements GameRenderer {
     c.fill()
     c.globalAlpha = 1
 
-    const dx = ball.x - x, dy = ball.y - uy
-    const len = Math.max(1, Math.hypot(dx, dy))
-    const ex = (dx / len) * 2.6, ey = (dy / len) * 2.6
+    const rig = this.faces[p]
+    const f = rig.cur
+    const lid = Math.max(0.05, Math.min(1.6, f.lid * (0.08 + rig.blink * 0.92)))
+    const fac = p === LEFT ? 1 : -1
+    const line = '#171420'
+
+    let ax = ball.x - x, ay = ball.y - uy
+    const alen = Math.max(1, Math.hypot(ax, ay))
+    const amp = Math.min(1, alen / 260) * ru * 0.095
+    ax = (ax / alen) * amp
+    ay = (ay / alen) * amp
+
+    const k = Math.min(1, Math.max(0, (lid - 0.30) / 0.28))
+    const kk = k * k * (3 - 2 * k)
+    const ch = (a: number, b: number) => Math.round(a + (b - a) * kk)
+    const eyeCol = `rgb(${ch(15, 248)},${ch(15, 248)},${ch(20, 255)})`
+
     for (const s of [-1, 1]) {
-      const px = x + s * ru * 0.40, py = uy - ru * 0.16
-      c.beginPath(); c.arc(px, py, ru * 0.30, 0, Math.PI * 2)
-      c.fillStyle = '#fff'; c.fill()
-      c.beginPath(); c.arc(px + ex, py + ey, ru * 0.145, 0, Math.PI * 2)
-      c.fillStyle = '#11151c'; c.fill()
+      const ex = x + ru * (fac * 0.09 + s * 0.38)
+      const ey = uy - ru * 0.24
+      const rx = ru * 0.25
+      const ry = ru * 0.25 * lid
+
+      c.beginPath(); c.ellipse(ex, ey, rx * 1.18, ry * 1.18 + ru * 0.012, 0, 0, Math.PI * 2)
+      c.fillStyle = line; c.fill()
+      c.beginPath(); c.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2)
+      c.fillStyle = eyeCol; c.fill()
+
+      if (lid > 0.42) {
+        const px = ex + ax, py = ey + ay
+        const pr = ru * 0.115
+        c.beginPath(); c.ellipse(px, py, pr, pr * Math.min(1, lid), 0, 0, Math.PI * 2)
+        c.fillStyle = '#08080d'; c.fill()
+        c.beginPath(); c.ellipse(px + ru * 0.045, py - ru * 0.05, ru * 0.038, ru * 0.042, 0, 0, Math.PI * 2)
+        c.fillStyle = '#fff'; c.fill()
+      }
+
+      c.save()
+      c.translate(ex, ey - ru * (0.37 + f.brow * 0.05))
+      c.rotate(s * f.brow * 0.52)
+      c.beginPath()
+      c.ellipse(0, 0, ru * 0.26, ru * 0.062, 0, 0, Math.PI * 2)
+      c.fillStyle = line; c.fill()
+      c.restore()
+
+      if (f.tear > 0.04) {
+        const ph = (this.time * 0.55 + (s + 1) * 0.21) % 1
+        const tr = ru * 0.075 * f.tear * (1 - ph * 0.4)
+        c.beginPath()
+        c.ellipse(ex + s * ru * 0.19, ey + ru * (0.28 + ph * 0.55), tr, tr * 1.5, 0, 0, Math.PI * 2)
+        c.fillStyle = 'rgba(140,214,255,0.92)'
+        c.fill()
+      }
     }
+
+    // boca: mesma parábola do shader — corners sobem no sorriso, descem na careta
+    const mcx = x + ru * fac * 0.09
+    const mcy = uy + ru * 0.34
+    const open = (0.040 + f.open * 0.26) * ru
+    const wid = (0.28 + f.open * 0.06) * ru
+    const arc = (t: number) => -f.curve * 0.30 * (t * t - 0.34) * ru
+    const N = 20
+    c.beginPath()
+    for (let i = 0; i <= N; i++) {
+      const t = -1 + (2 * i) / N
+      const h = Math.sqrt(Math.max(0, 1 - t * t))
+      const px = mcx + t * wid
+      const py = mcy + arc(t) - open * h
+      i === 0 ? c.moveTo(px, py) : c.lineTo(px, py)
+    }
+    for (let i = N; i >= 0; i--) {
+      const t = -1 + (2 * i) / N
+      const h = Math.sqrt(Math.max(0, 1 - t * t))
+      c.lineTo(mcx + t * wid, mcy + arc(t) + open * h)
+    }
+    c.closePath()
+    c.strokeStyle = line
+    c.lineWidth = Math.max(1, ru * 0.055)
+    c.lineJoin = 'round'
+    c.stroke()
+    c.fillStyle = '#3a0710'
+    c.fill()
+
+    if (f.open > 0.42) {
+      c.beginPath()
+      c.ellipse(mcx, mcy + arc(0) + open * 0.40, wid * 0.55, open * 0.36, 0, 0, Math.PI * 2)
+      c.fillStyle = '#c74350'
+      c.globalAlpha = Math.min(1, (f.open - 0.42) * 3)
+      c.fill()
+      c.globalAlpha = 1
+    }
+
     if (stunned) c.restore()
   }
 
@@ -477,6 +566,7 @@ export class Stage2D implements GameRenderer {
 
   render(match: Match, alpha: number, dt: number) {
     this.step(dt)
+    this.tension += (rallyTension(match.logic.rally) - this.tension) * Math.min(1, dt * 2.2)
     const c = this.ctx
     const p = this.prev, q = this.cur
     const lerp = (a: number, b: number) => a + (b - a) * alpha

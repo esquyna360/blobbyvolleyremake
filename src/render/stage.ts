@@ -22,6 +22,7 @@ import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
 import { emoteAt } from '../core/emote.ts'
+import { FaceRig, faceEvents, rallyTension } from './face.ts'
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
@@ -95,8 +96,7 @@ interface BlobAnim {
   squashSpring: number
   squashVel: number
   mouth: number
-  blinkTimer: number
-  blink: number
+  face: FaceRig
   lastVY: number
   wasGrounded: boolean
   flash: number
@@ -217,6 +217,7 @@ export class Stage implements GameRenderer {
   time = 0
   trauma = 0
   hitstop = 0
+  private tension = 0
   private gib = [0, 0]
   flash = 0
   aberration = 0
@@ -361,7 +362,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       scene.add(v.group)
       this.blobs.push({
         visual: v, wobble: 0, squashSpring: 0, squashVel: 0, mouth: 0,
-        blinkTimer: Math.random() * 4, blink: 1, lastVY: 0, wasGrounded: true, flash: 0,
+        face: new FaceRig(), lastVY: 0, wasGrounded: true, flash: 0,
       })
     }
 
@@ -398,6 +399,8 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
 
   onEvents(match: Match, events: MatchEvent[]) {
     const w = match.world
+    faceEvents([this.blobs[0].face, this.blobs[1].face], events,
+      match.logic.scores, match.logic.scoreToWin)
     for (const e of events) {
       switch (e.event) {
         case Ev.BALL_HIT_BLOB: {
@@ -758,14 +761,17 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const upperY = wy + 0.38
     aim.set(bx - wx, by - upperY, 5.5).normalize()
 
-    b.blinkTimer -= dt
-    if (b.blinkTimer <= 0) { b.blinkTimer = 2.5 + Math.random() * 4; b.blink = 0 }
-    b.blink = THREE.MathUtils.clamp(b.blink + dt * 7, 0, 1)
-    u.uBlink.value = 0.08 + b.blink * 0.92
-
     const ballNear = Math.hypot(bx - wx, by - wy) < 1.6
+    b.face.update(dt, this.tension, ballNear)
+    const f = b.face.cur
+    u.uBlink.value = 0.08 + b.face.blink * 0.92
+    u.uLid.value = f.lid
+    u.uCurve.value = f.curve
+    u.uBrow.value = f.brow
+    u.uTear.value = f.tear
+
     b.mouth = Math.max(0, b.mouth - dt * 3.2)
-    u.uMouth.value = Math.max(b.mouth, ballNear ? 0.35 : 0)
+    u.uMouth.value = Math.max(b.mouth, f.open)
 
     b.flash = Math.max(0, b.flash - dt * 3.5)
     u.uHitFlash.value = b.flash
@@ -790,6 +796,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   render(match: Match, alpha: number, dtReal: number) {
     const dt = dtReal
     this.time += dt
+    this.tension += (rallyTension(match.logic.rally) - this.tension) * Math.min(1, dt * 2.2)
 
     if (this.hitstop > 0) { this.hitstop -= dt; alpha = 0 }
 
@@ -936,6 +943,8 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   celebrate(side: Side) {
+    this.blobs[side].face.set('laugh', 6, 9)
+    this.blobs[side === LEFT ? RIGHT : LEFT].face.set('sad', 6, 9)
     const x = side === LEFT ? -COURT_HALF_W * 0.5 : COURT_HALF_W * 0.5
     for (let k = 0; k < 3; k++) {
       this.particles.burst({

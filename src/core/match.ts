@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 22
-export const STATE_INTS = 29
+export const STATE_INTS = 31
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -115,6 +115,7 @@ export class Match {
     i[24] = w.parryActive[0]; i[25] = w.parryActive[1]
     i[26] = w.parryCd[0]; i[27] = w.parryCd[1]
     i[28] = w.parryChain
+    i[29] = g.rally; i[30] = g.rallyBest
   }
 
   restore(s: MatchState) {
@@ -135,6 +136,7 @@ export class Match {
     w.parryActive[0] = i[24]; w.parryActive[1] = i[25]
     w.parryCd[0] = i[26]; w.parryCd[1] = i[27]
     w.parryChain = i[28]
+    g.rally = i[29]; g.rallyBest = i[30]
     g.scores[0] = i[0]; g.scores[1] = i[1]; g.touches[0] = i[2]; g.touches[1] = i[3]
     g.squish[0] = i[4]; g.squish[1] = i[5]; g.squishWall = i[6]; g.squishGround = i[7]
     g.servingPlayer = i[8] as SideOrNone

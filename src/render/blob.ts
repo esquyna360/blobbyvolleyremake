@@ -31,6 +31,10 @@ uniform float uFacing;     // +1 faces +x, -1 faces -x
 uniform vec3  uEyeAim;     // object-space direction the pupils look at
 uniform float uBlink;
 uniform float uMouth;
+uniform float uCurve;
+uniform float uBrow;
+uniform float uLid;
+uniform float uTear;
 uniform float uHitFlash;
 
 float smin(float a, float b, float k){
@@ -52,48 +56,11 @@ float mapBody(vec3 p){
   return d * min(uSquash.x, min(uSquash.y, uSquash.z));
 }
 
-vec3 eyeCenter(float side){
-  vec3 d = normalize(vec3(uFacing * 0.22 + side * 0.40, 0.40, 0.92));
-  return vec3(0.0, uOU, 0.0) + d * (uRU * 0.88);
-}
-
-vec3 mouthCenter(){
-  vec3 d = normalize(vec3(uFacing * 0.34, -0.34, 0.92));
-  return vec3(0.0, uOU, 0.0) + d * (uRU * 0.93);
-}
-
-// returns (dist, matId)  0 = body, 1 = eye white, 2 = pupil, 3 = mouth
-vec2 mapAll(vec3 p){
-  vec2 res = vec2(mapBody(p), 0.0);
-
-  float er = 0.135;
-  vec3 aim = normalize(uEyeAim);
-  for (int i = 0; i < 2; i++){
-    float side = i == 0 ? -1.0 : 1.0;
-    vec3 q = p - eyeCenter(side);
-    vec3 qb = q;
-    qb.y /= max(uBlink, 0.10);
-    float d = sdSphere(qb, er);
-    if (d < res.x) res = vec2(d, 1.0);
-    float dp = sdSphere(q - aim * er * 0.60, er * 0.56);
-    if (dp < res.x && uBlink > 0.55) res = vec2(dp, 2.0);
-  }
-
-  {
-    vec3 q = p - mouthCenter();
-    q.x /= 1.7;
-    q.y /= (0.42 + uMouth * 1.5);
-    float d = sdSphere(q, 0.085);
-    if (d < res.x) res = vec2(d, 3.0);
-  }
-  return res;
-}
-
 vec3 calcNormal(vec3 p){
   vec2 e = vec2(1.0, -1.0) * 0.0015;
   return normalize(
-    e.xyy * mapAll(p + e.xyy).x + e.yyx * mapAll(p + e.yyx).x +
-    e.yxy * mapAll(p + e.yxy).x + e.xxx * mapAll(p + e.xxx).x);
+    e.xyy * mapBody(p + e.xyy) + e.yyx * mapBody(p + e.yyx) +
+    e.yxy * mapBody(p + e.yxy) + e.xxx * mapBody(p + e.xxx));
 }
 
 float calcAO(vec3 p, vec3 n){
@@ -126,6 +93,88 @@ float thickness(vec3 p, vec3 n){
     t += clamp(-mapBody(p - n*h), 0.0, 1.0);
   }
   return t / 6.0;
+}
+
+/**
+ * A cara é pintada na superfície, não esculpida: primitivas soltas no raymarch
+ * davam artefato nas bordas e custavam caro dentro do loop e da normal.
+ * Aqui sai de graça e dá pra desenhar qualquer forma.
+ */
+float ell(vec2 p, vec2 r){ return length(p / r) - 1.0; }
+float ink(float d, float soft){ return 1.0 - smoothstep(-soft, soft, d); }
+
+// devolve albedo da face e, em .a, o quanto ela cobre o corpo
+vec4 faceLayer(vec3 p, out float faceSss, out float faceZone){
+  faceSss = 0.05;
+  faceZone = 0.0;
+  vec3 q = p / uSquash - vec3(0.0, uOU, 0.0);
+  vec2 uv = q.xy / uRU;
+  float depth = q.z / uRU;
+  float front = smoothstep(0.12, 0.42, depth);
+  // o sol estoura um brilho enorme bem em cima do olho: abafa na zona da cara
+  faceZone = smoothstep(-0.10, 0.28, depth) * smoothstep(1.55, 0.45, length((uv - vec2(uFacing * 0.09, -0.06)) / vec2(1.05, 1.15)));
+  if (front <= 0.002) return vec4(0.0);
+
+  float soft = 0.022;
+  float lid = clamp(uBlink * uLid, 0.05, 1.6);
+  vec2 aim = normalize(uEyeAim.xy + vec2(0.0, 0.0001)) * min(1.0, length(uEyeAim.xy) * 1.6);
+
+  vec3 col = vec3(0.0);
+  float a = 0.0;
+  vec3 line = vec3(0.09, 0.07, 0.10);
+
+  for (int i = 0; i < 2; i++){
+    float side = i == 0 ? -1.0 : 1.0;
+    vec2 ec = vec2(uFacing * 0.09 + side * 0.38, 0.24);
+
+    float de = ell(uv - ec, vec2(0.25, 0.25 * lid));
+    float rim = ink(de - 0.18, soft);
+    float me  = ink(de, soft);
+    vec3 eyeCol = mix(vec3(0.06, 0.06, 0.08), vec3(0.97, 0.97, 1.0),
+                      smoothstep(0.30, 0.58, lid));
+    vec2 pc = ec + aim * 0.095;
+    float mp = ink(ell(uv - pc, vec2(0.115, 0.115 * min(1.0, lid))), soft) * step(0.42, lid);
+    float mg = ink(ell(uv - pc - vec2(0.045, 0.05), vec2(0.038, 0.042)), soft) * step(0.50, lid);
+
+    vec2 bp = uv - vec2(ec.x, ec.y + 0.37 + uBrow * 0.05);
+    float ang = -side * uBrow * 0.52;
+    float cs = cos(ang), sn = sin(ang);
+    bp = mat2(cs, -sn, sn, cs) * bp;
+    float mb = ink(ell(bp, vec2(0.26, 0.062)), soft);
+
+    col = mix(col, line, rim);       a = max(a, rim);
+    col = mix(col, eyeCol, me);      a = max(a, me);
+    col = mix(col, vec3(0.03, 0.03, 0.05), mp);
+    col = mix(col, vec3(1.0), mg);
+    col = mix(col, line, mb);        a = max(a, mb);
+
+    if (uTear > 0.03){
+      float ph = fract(uTime * 0.55 + float(i) * 0.41);
+      vec2 tp = uv - vec2(ec.x + side * 0.19, ec.y - 0.28 - ph * 0.55);
+      float mt = ink(ell(tp, vec2(0.075, 0.115) * uTear * (1.0 - ph * 0.4)), soft);
+      col = mix(col, vec3(0.55, 0.85, 1.0), mt);
+      a = max(a, mt);
+    }
+  }
+
+  // boca: uCurve dobra a linha dos lábios, uMouth abre
+  vec2 mo = uv - vec2(uFacing * 0.09, -0.34);
+  float open = 0.040 + uMouth * 0.26;
+  float wid  = 0.28 + uMouth * 0.06;
+  // curvatura normalizada pela largura: o arco lê igual de boca fechada ou aberta
+  float tx = mo.x / wid;
+  mo.y -= uCurve * 0.30 * (tx * tx - 0.34);
+  float dm = ell(mo, vec2(wid, open));
+  float mlip = ink(dm - 0.16, soft);
+  float mm   = ink(dm, soft);
+  float mtg  = ink(ell(mo - vec2(0.0, -open * 0.40), vec2(wid * 0.55, open * 0.36)), soft)
+             * smoothstep(0.40, 0.75, uMouth);
+
+  col = mix(col, line, mlip);              a = max(a, mlip);
+  col = mix(col, vec3(0.22, 0.03, 0.07), mm); a = max(a, mm);
+  col = mix(col, vec3(0.78, 0.26, 0.33), mtg);
+
+  return vec4(col, a * front);
 }
 `
 
@@ -170,18 +219,18 @@ void main(){
   if (span.y < max(span.x, 0.0)) discard;
   float t = max(span.x, 0.0);
   float tEnd = span.y + 0.01;
-  vec2 hit = vec2(1e9, -1.0);
+  bool got = false;
   vec3 p = ro + rd * t;
   for (int i = 0; i < RM_STEPS; i++){
     p = ro + rd * t;
-    vec2 d = mapAll(p);
-    if (d.x < 0.0012) { hit = vec2(t, d.y); break; }
-    t += max(d.x * 0.9, 0.0015);
+    float d = mapBody(p);
+    if (d < 0.0012) { got = true; break; }
+    t += max(d * 0.9, 0.0015);
     if (t > tEnd) break;
   }
-  if (hit.y < 0.0) discard;
+  if (!got) discard;
 
-  p = ro + rd * hit.x;
+  p = ro + rd * t;
   vec3 n = calcNormal(p);
   vec3 v = -rd;
   vec3 l = normalize(uSunDir);
@@ -202,9 +251,10 @@ void main(){
   float rough = 0.24;
   float sssAmt = 1.0;
 
-  if (hit.y == 1.0){ albedo = vec3(0.96, 0.96, 0.99); rough = 0.10; sssAmt = 0.08; }
-  else if (hit.y == 2.0){ albedo = vec3(0.02, 0.02, 0.035); rough = 0.05; sssAmt = 0.0; }
-  else if (hit.y == 3.0){ albedo = vec3(0.28, 0.05, 0.09); rough = 0.28; sssAmt = 0.25; }
+  float faceSss, faceZone;
+  vec4 face = faceLayer(p, faceSss, faceZone);
+  float gloss = 1.0 - faceZone * 0.82;
+  sssAmt = mix(sssAmt, faceSss, face.a);
 
   // key light: real lambert for form, softened a little for the jelly read
   float lam = max(ndl, 0.0);
@@ -229,7 +279,7 @@ void main(){
   float a = rough * rough;
   float ndh = max(dot(n, h), 0.0);
   float d = a * a / (PI * pow(ndh * ndh * (a * a - 1.0) + 1.0, 2.0));
-  float spec = d * 0.25 * lam * sh;
+  float spec = d * 0.25 * lam * sh * gloss;
 
   // environment reflection + fresnel rim
   float fres = pow(1.0 - max(dot(n, v), 0.0), 4.0);
@@ -238,14 +288,18 @@ void main(){
 
   vec3 col = diffuse + amb + sss;
   col += uSunColor * spec * 3.0;
-  col = mix(col, env, clamp(fres * 0.45, 0.0, 0.5));
+  col = mix(col, env, clamp(fres * 0.45, 0.0, 0.5) * gloss);
 
   // rim light from the sky, hugging the silhouette
   float rim = pow(1.0 - max(dot(n, v), 0.0), 2.6) * smoothstep(-0.4, 0.6, n.y);
-  col += uSkyColor * rim * 0.55 * ao;
+  col += uSkyColor * rim * 0.55 * ao * (1.0 - face.a * 0.70);
 
   // bounce light from the warm sand below
   col += uGroundColor * albedo * clamp(-n.y, 0.0, 1.0) * 0.35 * ao;
+
+  // a cara entra depois da luz: senão o brilho do sol apaga o olho
+  float shade = clamp(key * mix(0.35, 1.0, sh) * 1.15 + 0.30, 0.0, 1.30);
+  col = mix(col, face.rgb * shade, face.a);
 
   col += uColor * uHitFlash * 1.6;
   col *= 0.55 + 0.45 * ao;
@@ -284,6 +338,10 @@ export function createBlob(
     uEyeAim: { value: new THREE.Vector3(0, 0, 1) },
     uBlink: { value: 1 },
     uMouth: { value: 0 },
+    uCurve: { value: 0.2 },
+    uBrow: { value: 0 },
+    uLid: { value: 1 },
+    uTear: { value: 0 },
     uHitFlash: { value: 0 },
     uColor: { value: color.clone() },
     uColorDeep: { value: deep },

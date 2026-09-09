@@ -18,6 +18,7 @@ import { NetSession, passHash } from './net/session.ts'
 import { createManualTransport, createRoomTransport, ensureIce, hasTurn, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
 import { syncArena } from './render/mapping.ts'
+import { rallyTension } from './render/face.ts'
 import { matchKey, reportMatch } from './net/rank.ts'
 import { EMOTES } from './core/emote.ts'
 import { Ev } from './core/events.ts'
@@ -210,8 +211,8 @@ class App {
   // ---------- emotes ----------
 
   private bindEmotes() {
-    const P1_KEYS = ['Digit1', 'Digit2', 'Digit3']
-    const P2_KEYS = ['Digit8', 'Digit9', 'Digit0']
+    const P1_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5']
+    const P2_KEYS = ['Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0']
     addEventListener('keydown', e => {
       if (e.repeat || e.target instanceof HTMLInputElement) return
       let id = P1_KEYS.indexOf(e.code)
@@ -701,6 +702,10 @@ class App {
       const alpha = this.acc / TICK_MS
       this.stage.render(m, alpha, dt)
       this.hud.update(m.logic.scores, m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
+      if (this.phase === 'playing') {
+        this.hud.setRally(m.logic.rally, m.logic.rallyBest)
+        this.audio.setTension(rallyTension(m.logic.rally))
+      }
       if (this.live && (m.logic.scores[LEFT] !== this.adScore[0] || m.logic.scores[RIGHT] !== this.adScore[1])) {
         this.adScore = [m.logic.scores[LEFT], m.logic.scores[RIGHT]]
         this.lobby.patchAd({ sl: this.adScore[0], sr: this.adScore[1] })

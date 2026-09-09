@@ -3,6 +3,10 @@ import { LEFT, RIGHT } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { NetStats } from '../net/session.ts'
 
+/** Antes disso é troca normal de bola, não vale ocupar tela. */
+const RALLY_MIN = 6
+const RALLY_HOLD = 1900
+
 export class Hud {
   root: HTMLElement
   private ptsL: HTMLElement
@@ -19,6 +23,11 @@ export class Hud {
   private lastReady = [false, false]
   private netAt = 0
   private netKey = ''
+  private rallyEl: HTMLElement
+  private rallyBase = 0
+  private rallyShown = -1
+  private rallyRec = false
+  private rallyHide = 0 as unknown as ReturnType<typeof setTimeout>
   private barL!: HTMLElement
   private barR!: HTMLElement
   private fillL!: HTMLElement
@@ -37,8 +46,10 @@ export class Hud {
 
     this.fillL = el('i')
     this.fillR = el('i')
-    this.barL = el('div', { class: 'charge l' }, this.fillL)
-    this.barR = el('div', { class: 'charge r' }, this.fillR)
+    this.barL = el('div', { class: 'charge l' }, this.fillL,
+      el('u'), el('b', { textContent: 'ESPECIAL' }))
+    this.barR = el('div', { class: 'charge r' }, this.fillR,
+      el('u'), el('b', { textContent: 'ESPECIAL' }))
 
     const left = el('div', { class: 'side l' }, this.nameL, this.ptsL,
       el('div', { class: 'touches' }, ...this.touchesL))
@@ -52,8 +63,10 @@ export class Hud {
     this.netbar = el('div', { class: 'netbar mono' })
     this.netbar.style.display = 'none'
 
+    this.rallyEl = el('div', { class: 'rally mono' })
+
     this.root = el('div', { class: 'hud' },
-      el('div', { class: 'score-card' }, left, mid, right), this.barL, this.barR)
+      el('div', { class: 'score-card' }, left, mid, right), this.rallyEl, this.barL, this.barR)
     parent.append(this.root, this.netbar)
   }
 
@@ -74,6 +87,8 @@ export class Hud {
         if (ready !== this.lastReady[i]) {
           this.lastReady[i] = ready
           bar.classList.toggle('ready', ready)
+          const lbl = bar.querySelector('b')
+          if (lbl) lbl.textContent = ready ? 'PRONTO' : 'ESPECIAL'
         }
       }
     }
@@ -97,6 +112,44 @@ export class Hud {
       this.touchesL[i].classList.toggle('on', touches[0] > i)
       this.touchesR[i].classList.toggle('on', touches[1] > i)
     }
+  }
+
+  private hideRally() {
+    clearTimeout(this.rallyHide)
+    this.rallyEl.className = 'rally mono'
+    this.rallyEl.textContent = ''
+  }
+
+  /**
+   * Só aparece quando a troca de bola já está longa. Passou do recorde da
+   * partida, vira contador de recorde e sobe a cada toque.
+   */
+  setRally(rally: number, best: number) {
+    if (rally === 0) {
+      this.rallyBase = best
+      if (this.rallyShown !== 0) {
+        this.rallyShown = 0
+        this.rallyRec = false
+        this.hideRally()
+      }
+      return
+    }
+    if (rally === this.rallyShown) return
+    this.rallyShown = rally
+    if (rally < RALLY_MIN) { this.hideRally(); return }
+    const rec = rally > this.rallyBase
+    if (rec && !this.rallyRec) {
+      this.rallyRec = true
+      this.banner('NEW RALLY RECORD', 1500, '#ffd257')
+    }
+    this.rallyEl.textContent = `${rec ? 'RECORD' : 'RALLY'} ${rally}`
+    this.rallyEl.className = `rally mono on${rec ? ' rec' : ''}`
+    // não fica plantado na tela: some sozinho se a bola parar de ser tocada
+    clearTimeout(this.rallyHide)
+    this.rallyHide = setTimeout(() => this.rallyEl.classList.remove('on'), RALLY_HOLD)
+    void this.rallyEl.offsetWidth
+    this.rallyEl.classList.add('bump')
+    setTimeout(() => this.rallyEl.classList.remove('bump'), 180)
   }
 
   showNet(stats: NetStats | null) {
@@ -173,6 +226,10 @@ export class Hud {
     const host = this.root.parentElement
     if (!host) return
     for (const n of host.querySelectorAll('.parry, .fatality, .banner')) n.remove()
+    this.rallyShown = -1
+    this.rallyRec = false
+    this.rallyBase = 0
+    this.hideRally()
   }
 
   scoreOf(side: Side) { return this.lastScore[side] }

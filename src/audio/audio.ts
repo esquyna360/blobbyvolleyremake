@@ -26,6 +26,8 @@ export class GameAudio {
   private noise!: AudioBuffer
   private wet!: GainNode
   private gullTimer = 0
+  private padGain: GainNode | null = null
+  private pulseAt = 0
   private grounded = [true, true]
   private landVel = [0, 0]
 
@@ -171,6 +173,7 @@ export class GameAudio {
     // slow chord drone, voices fading in and out on their own clocks
     const pad = ctx.createGain()
     pad.gain.value = 0.055
+    this.padGain = pad
     const padLp = ctx.createBiquadFilter()
     padLp.type = 'lowpass'
     padLp.Q.value = 0.9
@@ -275,6 +278,39 @@ export class GameAudio {
   }
 
   // ---------- game hooks ----------
+
+  /**
+   * Rally longo vira batida: um pulso grave que acelera de ~1.6 pra ~4 por
+   * segundo conforme a troca cresce, e o pad sobe junto. Chamado todo frame.
+   */
+  setTension(t: number) {
+    const ctx = this.ctx
+    if (!ctx) return
+    if (this.padGain) this.padGain.gain.setTargetAtTime(0.055 + t * 0.05, ctx.currentTime, 0.4)
+    if (t < 0.06) { this.pulseAt = 0; return }
+    const period = 0.62 - t * 0.38
+    const now = ctx.currentTime
+    if (this.pulseAt < now) this.pulseAt = now + 0.03
+    while (this.pulseAt < now + 0.3) {
+      this.pulse(this.pulseAt, t)
+      this.pulseAt += period
+    }
+  }
+
+  private pulse(at: number, t: number) {
+    const ctx = this.ctx!
+    const o = ctx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(84 + t * 30, at)
+    o.frequency.exponentialRampToValueAtTime(44, at + 0.17)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, at)
+    g.gain.exponentialRampToValueAtTime(0.06 + t * 0.13, at + 0.012)
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.24)
+    o.connect(g).connect(this.amb)
+    o.start(at)
+    o.stop(at + 0.28)
+  }
 
   ui() {
     if (!this.ctx) return
