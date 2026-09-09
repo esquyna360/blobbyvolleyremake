@@ -332,6 +332,7 @@ class App {
 
   private begin() {
     this.phase = 'playing'
+    this.winFrame = -1
     this.peerWantsRematch = false
     clearTimeout(this.joinTimer)
     this.startLive()
@@ -636,10 +637,23 @@ class App {
     }
   }
 
+  private winFrame = -1
+
   private checkWin() {
     const m = this.match
     if (!m || this.phase !== 'playing') return
-    if (m.logic.winner === NO_PLAYER) return
+    if (m.logic.winner === NO_PLAYER) { this.winFrame = -1; return }
+    const rb = this.session?.rollback
+    if (rb) {
+      /*
+       * O match anda em frames previstos. Se a previsão do input do outro
+       * errar no lance decisivo, o winner aparece aqui e some no rollback
+       * seguinte — mas 'over' não tem volta, e um lado ficava na revanche
+       * enquanto o outro seguia jogando. Só encerra com o frame confirmado.
+       */
+      if (this.winFrame < 0) this.winFrame = m.frame
+      if (rb.confirmed + 1 < this.winFrame) return
+    }
     const w = m.logic.winner as Side
     this.phase = 'over'
     this.stage.celebrate(w)

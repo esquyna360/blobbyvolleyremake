@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Match, allocState } from '../src/core/match.ts'
 import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
-import { LEFT, RIGHT, SPECIAL_FULL } from '../src/core/constants.ts'
+import { LEFT, NO_PLAYER, RIGHT, SPECIAL_FULL } from '../src/core/constants.ts'
 import { packInput, unpackInput } from '../src/core/input.ts'
 
 function rng(seed: number) {
@@ -30,9 +30,10 @@ test('simulation is deterministic for the same input stream', () => {
   assert.equal(a.logic.scores[LEFT] + a.logic.scores[RIGHT] > 0, true)
 })
 
-function runPair(delay: number, lossSeed: number, frames: number) {
-  const mA = new Match('default', 15, LEFT)
-  const mB = new Match('default', 15, LEFT)
+function runPair(delay: number, lossSeed: number, frames: number,
+  scoreToWin = 15, onTick?: (a: Rollback, b: Rollback, ma: Match, mb: Match) => void) {
+  const mA = new Match('default', scoreToWin, LEFT)
+  const mB = new Match('default', scoreToWin, LEFT)
   const A = new Rollback(mA, LEFT)
   const B = new Rollback(mB, RIGHT)
   const rA = rng(11), rB = rng(29), rNet = rng(lossSeed)
@@ -59,6 +60,7 @@ function runPair(delay: number, lossSeed: number, frames: number) {
     B.advance(randomBits(rB))
     send(A, toB, tick)
     send(B, toA, tick)
+    onTick?.(A, B, mA, mB)
   }
   return { A, B, mA, mB }
 }
@@ -73,6 +75,38 @@ test('rollback peers stay in sync across delay and packet loss', () => {
     assert.ok(ca !== null && cb !== null, `confirmed state dropped at delay ${delay}`)
     assert.equal(ca, cb, `desync at confirmed frame ${common}, delay ${delay}`)
     assert.deepEqual(mA.logic.scores, mB.logic.scores)
+  }
+})
+
+/**
+ * O winner aparece em frame previsto e some no rollback seguinte. Quem
+ * encerrasse ali ficava na tela de revanche com o outro ainda jogando.
+ */
+test('winner só é definitivo quando o frame que decidiu está confirmado', () => {
+  for (const [delay, seed] of [[9, 25], [9, 38], [14, 18], [14, 30], [4, 7]] as [number, number][]) {
+    const winFrame = [-1, -1]
+    const decided = [NO_PLAYER, NO_PLAYER]
+    const retractedAfterDecision = [0, 0]
+
+    runPair(delay, seed, 4000, 3, (A, B, mA, mB) => {
+      const peers: [Rollback, Match][] = [[A, mA], [B, mB]]
+      for (let i = 0; i < 2; i++) {
+        const [rb, m] = peers[i]
+        const w = m.logic.winner
+        if (w === NO_PLAYER) {
+          if (decided[i] !== NO_PLAYER) retractedAfterDecision[i]++
+          winFrame[i] = -1
+          continue
+        }
+        if (winFrame[i] < 0) winFrame[i] = m.frame
+        if (decided[i] === NO_PLAYER && rb.confirmed + 1 >= winFrame[i]) decided[i] = w
+      }
+    })
+
+    assert.equal(retractedAfterDecision[0], 0, `winner confirmado sumiu em A (delay ${delay}, seed ${seed})`)
+    assert.equal(retractedAfterDecision[1], 0, `winner confirmado sumiu em B (delay ${delay}, seed ${seed})`)
+    assert.notEqual(decided[0], NO_PLAYER, `A não encerrou (delay ${delay}, seed ${seed})`)
+    assert.equal(decided[0], decided[1], `lados discordam do vencedor (delay ${delay}, seed ${seed})`)
   }
 })
 
