@@ -1,0 +1,8 @@
+GNU GENERAL PUBLIC LICENSE
+Version 2, June 1991
+
+This project is a remake of Blobby Volley 2 (https://github.com/danielknobe/blobbyvolley2),
+whose game rules and physics were reimplemented from its GPL-2.0 licensed source.
+It is therefore distributed under the same terms.
+
+The full license text is available at https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
