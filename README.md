@@ -36,7 +36,7 @@ A bola fica parada no ar antes do saque: pule nela para começar o ponto.
 
 O signaling usa relays Nostr públicos só para os dois navegadores se acharem. Depois disso a partida é WebRTC direto entre os dois, sem servidor no meio.
 
-**Limitação conhecida:** só há STUN configurado, não TURN. Se um dos lados estiver atrás de CGNAT (rede móvel 4G/5G costuma estar), a conexão direta não fecha e a sala não aparece nem conecta. Wi-Fi doméstico dos dois lados funciona. Um TURN resolveria, mas exigiria um servidor — que é justamente o que este projeto evita.
+**Atravessando NAT:** o jogo usa STUN e, quando isso não basta, TURN da Cloudflare Realtime. STUN sozinho não vaza CGNAT — rede móvel 4G/5G quase sempre está atrás de um — então sem TURN só funcionava Wi-Fi contra Wi-Fi. A credencial TURN é de curta duração e vem de `edge/api/ice.js`, uma function na Vercel que guarda a chave; o bundle nunca a vê. Continua sem servidor de jogo: o endpoint só assina credencial, o tráfego da partida é P2P.
 
 ## Rodando local
 

@@ -12,18 +12,50 @@ export const RELAY_URLS = [
   'wss://nostr.sathoarder.com',
 ]
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
-  ],
-}
+const STUN_ONLY: RTCIceServer[] = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+]
+
+const RTC_CONFIG: RTCConfiguration = { iceServers: STUN_ONLY }
 
 export const ROOM_CONFIG = {
   appId: 'blobbyremake-v1',
   relayUrls: RELAY_URLS,
   rtcConfig: RTC_CONFIG,
+}
+
+/** Credencial TURN de curta duração; a chave fica no backend, nunca no bundle. */
+const ICE_ENDPOINT = 'https://blobby-ice.vercel.app/api/ice'
+
+let iceUntil = 0
+let icePending: Promise<void> | null = null
+let turnOn = false
+
+export const hasTurn = () => turnOn
+
+/** STUN sozinho não atravessa CGNAT de operadora móvel — sem TURN, 4G/5G não conecta. */
+export function ensureIce(): Promise<void> {
+  if (Date.now() < iceUntil) return Promise.resolve()
+  if (icePending) return icePending
+  icePending = (async () => {
+    let ok = false
+    try {
+      const r = await fetch(ICE_ENDPOINT)
+      if (r.ok) {
+        const data = (await r.json()) as { iceServers?: RTCIceServer[] }
+        if (data.iceServers?.length) {
+          RTC_CONFIG.iceServers = [...data.iceServers, ...STUN_ONLY]
+          ok = true
+        }
+      }
+    } catch { /* segue só com STUN */ }
+    turnOn = ok
+    iceUntil = Date.now() + (ok ? 3_600_000 : 60_000)
+    icePending = null
+  })()
+  return icePending
 }
 
 export async function relayHealth(): Promise<{ open: number; total: number }> {
@@ -54,6 +86,7 @@ export async function createRoomTransport(roomId: string, strategy: 'nostr' | 't
       ? await import('trystero/mqtt')
       : await import('trystero/torrent')
 
+  await ensureIce()
   const room = mod.joinRoom(ROOM_CONFIG, roomId)
   const [sendRaw, getRaw] = room.makeAction<Uint8Array>('pkt')
 

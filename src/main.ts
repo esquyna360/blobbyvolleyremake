@@ -15,7 +15,7 @@ import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
 import type { GameConfig } from './ui/menu.ts'
 import { InputManager, P1, P2, SOLO } from './ui/input.ts'
 import { NetSession } from './net/session.ts'
-import { createManualTransport, createRoomTransport, relayHealth } from './net/transport.ts'
+import { createManualTransport, createRoomTransport, ensureIce, hasTurn, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
 import { GameAudio } from './audio/audio.ts'
 import { Lobby } from './net/lobby.ts'
@@ -83,6 +83,7 @@ class App {
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
 
+    void ensureIce()
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
     this.hud = new Hud(this.ui)
     this.hud.root.style.opacity = '0'
@@ -284,7 +285,9 @@ class App {
       const h = await relayHealth()
       this.menu.status(h.open === 0
         ? 'sem conexão com os relays de signaling — rede bloqueando WebSocket?'
-        : `relays ${h.open}/${h.total} ok, mas ninguém apareceu. Se um lado estiver no 4G/5G a conexão direta não fecha (CGNAT) — testem os dois no Wi-Fi ou usem Criar/Colar convite.`)
+        : hasTurn()
+          ? `relays ${h.open}/${h.total} ok e TURN ativo, mas ninguém apareceu. Confere se o código da sala bate dos dois lados.`
+          : `relays ${h.open}/${h.total} ok, mas o TURN não respondeu — sem ele o 4G/5G não conecta. Testem os dois no Wi-Fi ou usem Criar/Colar convite.`)
     }, 14000) as unknown as number
   }
 
