@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 
-const MAX = 60000
+
 
 const vert = /* glsl */`
 uniform float uTime;
@@ -79,7 +79,7 @@ export interface Particles {
   }): void
 }
 
-export function createParticles(): Particles {
+export function createParticles(MAX = 60000): Particles {
   const geo = new THREE.BufferGeometry()
   const origin = new Float32Array(MAX * 3)
   const vel = new Float32Array(MAX * 3)

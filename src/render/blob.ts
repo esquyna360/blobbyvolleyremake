@@ -109,7 +109,7 @@ float calcAO(vec3 p, vec3 n){
 
 float softShadow(vec3 ro, vec3 rd){
   float res = 1.0, t = 0.03;
-  for(int i=0;i<24;i++){
+  for(int i=0;i<SS_STEPS;i++){
     float h = mapBody(ro + rd*t);
     res = min(res, 9.0*h/t);
     t += clamp(h, 0.015, 0.14);
@@ -172,7 +172,7 @@ void main(){
   float tEnd = span.y + 0.01;
   vec2 hit = vec2(1e9, -1.0);
   vec3 p = ro + rd * t;
-  for (int i = 0; i < 80; i++){
+  for (int i = 0; i < RM_STEPS; i++){
     p = ro + rd * t;
     vec2 d = mapAll(p);
     if (d.x < 0.0012) { hit = vec2(t, d.y); break; }
@@ -187,8 +187,16 @@ void main(){
   vec3 l = normalize(uSunDir);
 
   float ndl = dot(n, l);
+#if AO_ON
   float ao  = calcAO(p, n);
+#else
+  float ao  = 1.0;
+#endif
+#if SHADOW_ON
   float sh  = softShadow(p + n*0.02, l);
+#else
+  float sh  = 1.0;
+#endif
 
   vec3 albedo = uColor;
   float rough = 0.24;
@@ -208,7 +216,11 @@ void main(){
   vec3 amb = mix(uGroundColor, uSkyColor, n.y * 0.5 + 0.5) * albedo * ao * 0.30;
 
   // subsurface scattering: light bleeding through thin parts
+#if SSS_ON
   float th = thickness(p, n);
+#else
+  float th = 0.45;
+#endif
   float back = pow(clamp(dot(v, -l), 0.0, 1.0), 3.0);
   vec3 sss = uColorDeep * uSunColor * (back * 1.1 + 0.18) * (1.0 - th) * sssAmt * 0.9;
 
@@ -254,7 +266,13 @@ export interface BlobVisual {
   setColor(main: THREE.Color, deep: THREE.Color): void
 }
 
-export function createBlob(color: THREE.Color, envMap: THREE.CubeTexture | THREE.Texture | null): BlobVisual {
+export interface BlobQuality { steps: number; shadow: boolean; ao: boolean; sss: boolean }
+
+export function createBlob(
+  color: THREE.Color,
+  envMap: THREE.CubeTexture | THREE.Texture | null,
+  q: BlobQuality = { steps: 80, shadow: true, ao: true, sss: true },
+): BlobVisual {
   const deep = color.clone().multiplyScalar(0.55).offsetHSL(0.02, 0.15, -0.05)
   const uniforms: Record<string, THREE.IUniform> = {
     uRU: { value: RU }, uRL: { value: RL }, uOU: { value: OU }, uOL: { value: OL },
@@ -290,6 +308,13 @@ export function createBlob(color: THREE.Color, envMap: THREE.CubeTexture | THREE
     transparent: false,
     side: THREE.BackSide,
     glslVersion: THREE.GLSL3,
+    defines: {
+      RM_STEPS: String(q.steps),
+      SS_STEPS: q.shadow ? '24' : '1',
+      SHADOW_ON: q.shadow ? '1' : '0',
+      AO_ON: q.ao ? '1' : '0',
+      SSS_ON: q.sss ? '1' : '0',
+    },
   })
 
   const w = (RL + 0.35) * 2

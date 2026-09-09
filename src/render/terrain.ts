@@ -3,7 +3,8 @@ import { heightToNormal, tileableFbm } from './noise.ts'
 import { COURT_HALF_W, COURT_DEPTH } from './mapping.ts'
 
 export const MAX_CRATERS = 28
-const NOISE_SIZE = 512
+
+export interface TerrainQuality { segments: number; craters: number; noiseSize: number }
 
 export interface Terrain {
   mesh: THREE.Mesh
@@ -12,7 +13,11 @@ export interface Terrain {
   update(dt: number): void
 }
 
-export function createTerrain(): Terrain {
+export function createTerrain(
+  q: TerrainQuality = { segments: 200, craters: MAX_CRATERS, noiseSize: 512 },
+): Terrain {
+  const NOISE_SIZE = q.noiseSize
+  const CRATERS = Math.max(4, Math.min(MAX_CRATERS, q.craters))
   const h = tileableFbm(NOISE_SIZE, 6, 1337)
   const nrm = heightToNormal(h, NOISE_SIZE, 6.0)
   const sandTex = new THREE.DataTexture(nrm, NOISE_SIZE, NOISE_SIZE, THREE.RGBAFormat)
@@ -24,7 +29,7 @@ export function createTerrain(): Terrain {
   sandTex.colorSpace = THREE.NoColorSpace
   sandTex.needsUpdate = true
 
-  const W = 130, D = 90, SEG = 200
+  const W = 130, D = 90, SEG = q.segments
   const geo = new THREE.PlaneGeometry(W, D, SEG, SEG)
   geo.rotateX(-Math.PI / 2)
 
@@ -43,7 +48,7 @@ export function createTerrain(): Terrain {
   }
   geo.computeVertexNormals()
 
-  const craterData = new Float32Array(MAX_CRATERS * 4)
+  const craterData = new Float32Array(CRATERS * 4)
   const uCraters = { value: craterData }
   const uCraterCount = { value: 0 }
   const uTimeT = { value: 0 }
@@ -74,7 +79,7 @@ export function createTerrain(): Terrain {
       .replace('#include <common>', /* glsl */`#include <common>
 varying vec3 vWorldPos;
 varying vec3 vWorldNrm;
-uniform vec4 uCraters[${MAX_CRATERS}];
+uniform vec4 uCraters[${CRATERS}];
 uniform int uCraterCount;
 uniform float uTimeT;
 uniform sampler2D uSandN;
@@ -84,7 +89,7 @@ float sandHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.545
 float craterField(vec2 wp, out vec2 grad){
   float total = 0.0;
   grad = vec2(0.0);
-  for (int i = 0; i < ${MAX_CRATERS}; i++) {
+  for (int i = 0; i < ${CRATERS}; i++) {
     if (i >= uCraterCount) break;
     vec4 c = uCraters[i];
     if (c.w <= 0.001) continue;
@@ -152,13 +157,13 @@ float craterField(vec2 wp, out vec2 grad){
   return {
     mesh, material,
     addCrater(x, z, radius, depth) {
-      const i = count % MAX_CRATERS
+      const i = count % CRATERS
       craterData[i * 4] = x
       craterData[i * 4 + 1] = z
       craterData[i * 4 + 2] = radius
       craterData[i * 4 + 3] = depth
       count++
-      uCraterCount.value = Math.min(count, MAX_CRATERS)
+      uCraterCount.value = Math.min(count, CRATERS)
     },
     update(dt) {
       uTimeT.value += dt

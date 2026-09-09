@@ -1,6 +1,9 @@
 import { el, clear } from './dom.ts'
 import { RULES } from '../core/logic.ts'
+import { VOLUMES } from '../audio/audio.ts'
+import type { VolumeId } from '../audio/audio.ts'
 import type { Difficulty } from '../ai/bot.ts'
+import type { RoomAd } from '../net/lobby.ts'
 
 export interface GameConfig {
   mode: 'bot' | 'local' | 'online'
@@ -24,7 +27,7 @@ const DIFFS: [Difficulty, string, string][] = [
 ]
 
 const QUALITIES: [GameConfig['quality'], string, string][] = [
-  ['low', 'Baixa', 'sem sombra/pós'],
+  ['low', 'Baixa', 'PC fraco'],
   ['medium', 'Média', 'sombra + bloom'],
   ['high', 'Alta', 'god rays'],
   ['ultra', 'Ultra', 'tudo no talo'],
@@ -44,6 +47,11 @@ export interface MenuHandlers {
   }
   onResume?(): void
   onQuit?(): void
+  getVolume(): VolumeId
+  onVolume(v: VolumeId): void
+  onQuality(q: GameConfig['quality']): void
+  onWatchRooms(cb: (rooms: RoomAd[]) => void): () => void
+  onLeaveOnline(): void
 }
 
 export class Menu {
@@ -63,9 +71,13 @@ export class Menu {
 
   hide() { this.container.style.display = 'none' }
   show() { this.container.style.display = '' }
-  destroy() { this.container.remove() }
+  destroy() { this.cleanup?.(); this.container.remove() }
+  release() { this.cleanup?.(); this.cleanup = null }
+
+  private cleanup: (() => void) | null = null
 
   private panel(...children: (Node | string)[]) {
+    if (this.cleanup) { this.cleanup(); this.cleanup = null }
     clear(this.container)
     this.container.append(el('div', { class: 'panel' }, ...children))
   }
@@ -87,6 +99,26 @@ export class Menu {
       wrap.append(b)
     }
     return wrap
+  }
+
+  private graphicsSection() {
+    return [
+      el('h2', { class: 'sec', textContent: 'Gráficos' }),
+      this.selector(QUALITIES, this.cfg.quality, v => {
+        this.cfg.quality = v
+        this.handlers.onQuality(v)
+      }),
+    ]
+  }
+
+  private soundSection() {
+    return [
+      el('h2', { class: 'sec', textContent: 'Som' }),
+      this.selector(
+        VOLUMES as [VolumeId, string, string][],
+        this.handlers.getVolume(),
+        v => this.handlers.onVolume(v)),
+    ]
   }
 
   private currentScreen: () => void = () => this.main()
@@ -118,12 +150,8 @@ export class Menu {
           cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin
         }, 'grid two'),
 
-      el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, cfg.quality, v => {
-        cfg.quality = v
-        localStorage.setItem('bv.quality', v)
-        location.reload()
-      }),
+      ...this.graphicsSection(),
+      ...this.soundSection(),
 
       el('div', { class: 'hint', style: 'margin-top:18px' },
         el('div', {}, 'P1 ', el('kbd', { textContent: 'A' }), ' ', el('kbd', { textContent: 'D' }),
@@ -141,11 +169,33 @@ export class Menu {
     const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16 })
     const status = el('div', { class: 'status' })
 
+    const list = el('div', { class: 'grid rooms' })
+    const enter = (roomCode: string) => {
+      cfg.name = nameIn.value.trim() || 'Blobby'
+      cfg.mode = 'online'
+      status.textContent = `entrando em ${roomCode}…`
+      this.handlers.onJoinRoom(roomCode, cfg)
+    }
+    const render = (rooms: RoomAd[]) => {
+      clear(list)
+      if (!rooms.length) {
+        list.append(el('div', { class: 'hint', textContent: 'nenhuma sala aberta agora — crie a sua abaixo' }))
+        return
+      }
+      for (const r of rooms) {
+        list.append(el('button', { class: 'center room', onclick: () => enter(r.code) },
+          `🎾 ${r.name}`, el('small', { textContent: `${r.code} · ${r.rule}` })))
+      }
+    }
+    render([])
+
     this.panel(
       this.brand(),
       el('h2', { class: 'sec', textContent: 'Seu nome' }),
       nameIn,
-      el('h2', { class: 'sec', textContent: 'Código da sala' }),
+      el('h2', { class: 'sec', textContent: 'Salas abertas' }),
+      list,
+      el('h2', { class: 'sec', textContent: 'Criar / entrar por código' }),
       el('div', { class: 'row' },
         code,
         el('button', {
@@ -153,24 +203,23 @@ export class Menu {
           onclick: () => { code.value = randomCode() },
         }, '⟳')),
       el('div', { class: 'hint', style: 'margin-top:9px' },
-        'Quem entrar no mesmo código cai na sua partida. Signaling via relays Nostr, o jogo em si é WebRTC direto.'),
+        'Sua sala aparece na lista de todo mundo enquanto você espera. Signaling via relays Nostr, o jogo em si é WebRTC direto.'),
       el('div', { style: 'margin-top:16px' },
         el('button', {
-          class: 'primary', onclick: () => {
-            cfg.name = nameIn.value.trim() || 'Blobby'
-            cfg.mode = 'online'
-            status.textContent = 'procurando oponente…'
-            this.handlers.onJoinRoom(code.value.trim().toUpperCase(), cfg)
-          },
-        }, 'ENTRAR NA SALA')),
+          class: 'primary', onclick: () => enter(code.value.trim().toUpperCase() || 'BLOBBY'),
+        }, 'ABRIR SALA')),
       status,
       el('h2', { class: 'sec', textContent: 'Sem relay (conexão direta)' }),
       el('div', { class: 'grid two' },
         el('button', { class: 'center', onclick: () => this.manual(true) }, 'Criar convite', el('small', { textContent: 'você é o host' })),
         el('button', { class: 'center', onclick: () => this.manual(false) }, 'Colar convite', el('small', { textContent: 'você entra' }))),
       el('div', { style: 'margin-top:16px' },
-        el('button', { class: 'ghost center', onclick: () => this.main() }, '← Voltar')),
+        el('button', {
+          class: 'ghost center',
+          onclick: () => { this.handlers.onLeaveOnline(); this.main() },
+        }, '← Voltar')),
     )
+    this.cleanup = this.handlers.onWatchRooms(render)
     return status
   }
 
@@ -219,6 +268,8 @@ export class Menu {
       el('div', { class: 'grid' },
         el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'CONTINUAR'),
         el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair para o menu')),
+      ...this.graphicsSection(),
+      ...this.soundSection(),
     )
   }
 

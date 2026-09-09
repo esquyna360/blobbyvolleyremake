@@ -196,7 +196,18 @@ export interface Scenery {
   update(t: number, dt: number): void
 }
 
-export function createScenery(seed = 7): Scenery {
+export interface SceneryQuality {
+  palms: number
+  rocks: number
+  spectators: number
+  birds: number
+  umbrellas: number
+}
+
+export function createScenery(
+  seed = 7,
+  quality: SceneryQuality = { palms: 22, rocks: 22, spectators: 48, birds: 18, umbrellas: 4 },
+): Scenery {
   const rng = makeRng(seed)
   const group = new THREE.Group()
 
@@ -209,7 +220,7 @@ export function createScenery(seed = 7): Scenery {
     [-20, -32, 1.25], [21, -31, 1.26], [-9, -24, 1.1], [10, -25, 1.12],
     [-56, -20, 1.5], [57, -19, 1.48],
   ]
-  for (const [x, z, s] of palmSpots) {
+  for (const [x, z, s] of palmSpots.slice(0, quality.palms)) {
     const p = makePalm(rng)
     p.position.set(x + (rng() - 0.5) * 2, 0, z + (rng() - 0.5) * 2)
     p.scale.setScalar(s * (0.9 + rng() * 0.25))
@@ -218,7 +229,7 @@ export function createScenery(seed = 7): Scenery {
   }
 
   // --- rocks ---
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < quality.rocks; i++) {
     const far = rng() > 0.5
     const r = makeRock(rng, far ? 1.4 + rng() * 3.6 : 0.26 + rng() * 0.6)
     const ang = rng() * Math.PI * 2
@@ -256,7 +267,7 @@ export function createScenery(seed = 7): Scenery {
   }
 
   // --- umbrellas & towels ---
-  for (const [x, z] of [[-16.5, -8], [17, -7], [-24, -17], [24.5, -16]] as [number, number][]) {
+  for (const [x, z] of ([[-16.5, -8], [17, -7], [-24, -17], [24.5, -16]] as [number, number][]).slice(0, quality.umbrellas)) {
     const u = makeUmbrella(rng)
     u.position.set(x, 0, z)
     group.add(u)
@@ -276,8 +287,8 @@ export function createScenery(seed = 7): Scenery {
   const specGeo = new THREE.SphereGeometry(0.26, 14, 10)
   specGeo.scale(1, 1.15, 1)
   const specMat = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.0 })
-  const SPEC = 48
-  const spectators = new THREE.InstancedMesh(specGeo, specMat, SPEC)
+  const SPEC = quality.spectators
+  const spectators = new THREE.InstancedMesh(specGeo, specMat, Math.max(1, SPEC))
   spectators.castShadow = true
   spectators.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   const specBase: { x: number; y: number; z: number; phase: number; amp: number }[] = []
@@ -292,8 +303,8 @@ export function createScenery(seed = 7): Scenery {
     col.setHSL(Math.random(), 0.34, 0.46)
     spectators.setColorAt(i, col)
   }
-  spectators.instanceColor!.needsUpdate = true
-  group.add(spectators)
+  if (spectators.instanceColor) spectators.instanceColor.needsUpdate = true
+  if (SPEC > 0) group.add(spectators)
 
   // --- birds ---
   const birdGeo = new THREE.BufferGeometry()
@@ -303,12 +314,12 @@ export function createScenery(seed = 7): Scenery {
   birdGeo.setIndex([0, 1, 2])
   const birds = new THREE.InstancedMesh(
     birdGeo,
-    new THREE.MeshBasicMaterial({ color: 0x2a2f38, side: THREE.DoubleSide }), 18)
-  const birdData = Array.from({ length: 18 }, () => ({
+    new THREE.MeshBasicMaterial({ color: 0x2a2f38, side: THREE.DoubleSide }), Math.max(1, quality.birds))
+  const birdData = Array.from({ length: Math.max(1, quality.birds) }, () => ({
     r: 60 + Math.random() * 90, y: 26 + Math.random() * 22,
     sp: 0.05 + Math.random() * 0.06, ph: Math.random() * 7, sc: 1.2 + Math.random() * 1.4,
   }))
-  group.add(birds)
+  if (quality.birds > 0) group.add(birds)
 
   const m = new THREE.Matrix4()
   const q = new THREE.Quaternion()

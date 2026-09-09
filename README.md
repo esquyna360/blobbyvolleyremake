@@ -11,6 +11,9 @@ Remake em Three.js do [Blobby Volley 2](https://github.com/danielknobe/blobbyvol
 - Praia procedural: areia com crateras dinâmicas onde a bola cai, mar com ondas de Gerstner, céu atmosférico, palmeiras balançando ao vento, 60 mil partículas na GPU.
 - Rollback netcode estilo GGPO sobre WebRTC: predição de input, resimulação, detecção de desync por checksum. Sem servidor de jogo.
 - Quatro conjuntos de regras: Clássico, Tennis, Blitz e Jumping Jack.
+- Lista de salas abertas em tempo real, também sem servidor: os hosts anunciam a sala pelo próprio relay de signaling.
+- Áudio procedural (mar, vento, pad, sons de toque) gerado em WebAudio — nenhum arquivo de som no repositório.
+- Quatro presets gráficos (Baixa → Ultra), detecção automática do preset na primeira vez e queda automática se o FPS não segurar.
 
 ## Controles
 
@@ -25,7 +28,9 @@ A bola fica parada no ar antes do saque: pule nela para começar o ponto.
 
 ## Multiplayer
 
-**Com sala (o jeito normal).** `Online P2P` → escolha um código de sala → `ENTRAR NA SALA`. Quem digitar o mesmo código cai na sua partida. Cada código é uma sala diferente, então dá para ter vários jogos rolando ao mesmo tempo.
+**Entrar numa sala aberta.** `Online P2P` → a lista `SALAS ABERTAS` mostra quem está esperando oponente agora. Clique no nome e a partida começa.
+
+**Abrir a sua.** `Online P2P` → escreva seu nome → `ABRIR SALA`. Sua sala entra na lista de todo mundo enquanto você espera. O código também serve sozinho: quem digitar o mesmo código cai na sua partida, então dá para combinar uma sala privada com os amigos e ter vários jogos rolando ao mesmo tempo.
 
 **Sem relay (conexão direta).** `Criar convite` gera um bloco de texto; mande para a outra pessoa, ela cola em `Colar convite`, devolve o código de resposta e você cola de volta. Útil quando o signaling está bloqueado.
 
@@ -39,6 +44,10 @@ pnpm dev        # http://localhost:5173
 pnpm test       # determinismo da simulação + sincronia do rollback
 pnpm build
 ```
+
+## Ajustes
+
+`Gráficos` e `Som` ficam no menu principal e também na pausa (`ESC`), então dá para mexer no meio da partida. `M` liga e desliga o som direto.
 
 ## Créditos
 

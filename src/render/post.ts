@@ -102,20 +102,21 @@ export function createPost(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
+  opts: { bloom?: boolean; smaa?: boolean } = {},
 ): Post {
   const size = renderer.getSize(new THREE.Vector2())
   const composer = new EffectComposer(renderer)
   composer.addPass(new RenderPass(scene, camera))
 
   const bloom = new UnrealBloomPass(size, 0.42, 0.62, 1.0)
+  bloom.enabled = opts.bloom !== false
   composer.addPass(bloom)
 
   const grade = new ShaderPass(GradeShader)
   composer.addPass(grade)
 
   composer.addPass(new OutputPass())
-  const smaa = new SMAAPass()
-  composer.addPass(smaa)
+  if (opts.smaa !== false) composer.addPass(new SMAAPass())
 
   return {
     composer, bloom, grade,

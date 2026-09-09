@@ -28,15 +28,49 @@ export interface Quality {
   post: boolean
   bloom: boolean
   godRays: boolean
+  smaa: boolean
   pixelRatio: number
-  oceanSegments: number
+  envSize: number
+  ocean: [number, number]
+  terrain: { segments: number; craters: number; noiseSize: number }
+  blob: { steps: number; shadow: boolean; ao: boolean; sss: boolean }
+  particles: number
+  scenery: { palms: number; rocks: number; spectators: number; birds: number; umbrellas: number }
 }
 
 export const QUALITY_PRESETS: Record<string, Quality> = {
-  low:    { shadows: false, shadowSize: 1024, post: false, bloom: false, godRays: false, pixelRatio: 1.0, oceanSegments: 80 },
-  medium: { shadows: true,  shadowSize: 1024, post: true,  bloom: true,  godRays: false, pixelRatio: 1.0, oceanSegments: 150 },
-  high:   { shadows: true,  shadowSize: 2048, post: true,  bloom: true,  godRays: true,  pixelRatio: 1.5, oceanSegments: 220 },
-  ultra:  { shadows: true,  shadowSize: 4096, post: true,  bloom: true,  godRays: true,  pixelRatio: 2.0, oceanSegments: 300 },
+  low: {
+    shadows: false, shadowSize: 512, post: true, bloom: false, godRays: false, smaa: false,
+    pixelRatio: 1.0, envSize: 64, ocean: [48, 28],
+    terrain: { segments: 48, craters: 6, noiseSize: 256 },
+    blob: { steps: 34, shadow: false, ao: false, sss: false },
+    particles: 6000,
+    scenery: { palms: 8, rocks: 8, spectators: 0, birds: 0, umbrellas: 2 },
+  },
+  medium: {
+    shadows: true, shadowSize: 1024, post: true, bloom: true, godRays: false, smaa: false,
+    pixelRatio: 1.0, envSize: 128, ocean: [110, 70],
+    terrain: { segments: 110, craters: 14, noiseSize: 512 },
+    blob: { steps: 56, shadow: false, ao: true, sss: true },
+    particles: 20000,
+    scenery: { palms: 14, rocks: 14, spectators: 32, birds: 10, umbrellas: 4 },
+  },
+  high: {
+    shadows: true, shadowSize: 2048, post: true, bloom: true, godRays: true, smaa: true,
+    pixelRatio: 1.5, envSize: 256, ocean: [200, 130],
+    terrain: { segments: 170, craters: 22, noiseSize: 512 },
+    blob: { steps: 80, shadow: true, ao: true, sss: true },
+    particles: 45000,
+    scenery: { palms: 22, rocks: 22, spectators: 48, birds: 18, umbrellas: 4 },
+  },
+  ultra: {
+    shadows: true, shadowSize: 4096, post: true, bloom: true, godRays: true, smaa: true,
+    pixelRatio: 2.0, envSize: 256, ocean: [280, 180],
+    terrain: { segments: 220, craters: 28, noiseSize: 512 },
+    blob: { steps: 110, shadow: true, ao: true, sss: true },
+    particles: 60000,
+    scenery: { palms: 22, rocks: 22, spectators: 48, birds: 18, umbrellas: 4 },
+  },
 }
 
 const BLOB_COLORS: [THREE.Color, THREE.Color][] = [
@@ -124,7 +158,7 @@ export class Stage {
     scene.add(sky)
 
     // environment cube captured from the sky
-    const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType })
+    const cubeRT = new THREE.WebGLCubeRenderTarget(this.quality.envSize, { type: THREE.HalfFloatType })
     const cubeCam = new THREE.CubeCamera(0.1, 2000, cubeRT)
     cubeCam.position.set(0, 6, 0)
     const skyOnly = new THREE.Scene()
@@ -161,14 +195,14 @@ export class Stage {
     scene.add(bounce)
 
     // --- world ---
-    this.terrain = createTerrain()
+    this.terrain = createTerrain(this.quality.terrain)
     scene.add(this.terrain.mesh)
 
-    const ocean = createOcean(this.envCube)
+    const ocean = createOcean(this.envCube, this.quality.ocean[0], this.quality.ocean[1])
     this.oceanUniforms = ocean.uniforms
     scene.add(ocean.mesh)
 
-    this.scenery = createScenery(7)
+    this.scenery = createScenery(7, this.quality.scenery)
     scene.add(this.scenery.group)
 
     this.net = createNet()
@@ -177,7 +211,7 @@ export class Stage {
     this.ball = createBall()
     scene.add(this.ball.group)
 
-    this.particles = createParticles()
+    this.particles = createParticles(this.quality.particles)
     scene.add(this.particles.points)
 
     // --- boundary energy walls ---
@@ -218,7 +252,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     // --- blobs ---
     for (let i = 0; i < 2; i++) {
       const [main, deep] = BLOB_COLORS[i]
-      const v = createBlob(main.clone(), this.envCube)
+      const v = createBlob(main.clone(), this.envCube, this.quality.blob)
       ;(v.uniforms.uColorDeep.value as THREE.Color).copy(deep)
       v.uniforms.uFacing.value = i === 0 ? 1 : -1
       scene.add(v.group)
@@ -228,7 +262,10 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       })
     }
 
-    if (this.quality.post) this.post = createPost(this.renderer, this.scene, this.camera)
+    if (this.quality.post) {
+      this.post = createPost(this.renderer, this.scene, this.camera,
+        { bloom: this.quality.bloom, smaa: this.quality.smaa })
+    }
   }
 
   setSize(w: number, h: number) {
@@ -523,7 +560,16 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   dispose() {
+    this.scene.traverse(o => {
+      const m = o as THREE.Mesh
+      m.geometry?.dispose()
+      const mat = m.material as THREE.Material | THREE.Material[] | undefined
+      if (Array.isArray(mat)) for (const x of mat) x.dispose()
+      else mat?.dispose()
+    })
+    this.envCube?.dispose()
     this.renderer.dispose()
+    this.renderer.forceContextLoss()
   }
 }
 

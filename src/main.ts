@@ -15,10 +15,37 @@ import { InputManager, P1, P2, SOLO } from './ui/input.ts'
 import { NetSession } from './net/session.ts'
 import { createManualTransport, createRoomTransport } from './net/transport.ts'
 import { el } from './ui/dom.ts'
+import { GameAudio } from './audio/audio.ts'
+import { Lobby } from './net/lobby.ts'
 
 type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
 const isTouch = matchMedia('(pointer: coarse)').matches
+
+const QUALITY_ORDER: GameConfig['quality'][] = ['low', 'medium', 'high', 'ultra']
+
+function gpuName(): string {
+  try {
+    const c = document.createElement('canvas')
+    const gl = (c.getContext('webgl2') || c.getContext('webgl')) as WebGLRenderingContext | null
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info')
+    if (gl && ext) return String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)).toLowerCase()
+  } catch { /* ignore */ }
+  return ''
+}
+
+function detectQuality(): GameConfig['quality'] {
+  const gpu = gpuName()
+  const cores = navigator.hardwareConcurrency || 4
+  const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
+  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return 'low'
+  if (cores <= 4 || mem <= 4) return 'low'
+  if (isTouch) return 'medium'
+  if (/apple m\d/.test(gpu)) return 'high'
+  if (/intel|uhd graphics|hd graphics|iris|mali|adreno|vega 3|vega 6/.test(gpu)) return 'medium'
+  if (cores <= 8) return 'medium'
+  return 'high'
+}
 
 class App {
   ui = document.getElementById('ui') as HTMLElement
@@ -27,6 +54,8 @@ class App {
   hud: Hud
   menu: Menu
   input = new InputManager()
+  audio = new GameAudio()
+  lobby = new Lobby()
   cfg: GameConfig
 
   phase: Phase = 'menu'
@@ -44,7 +73,8 @@ class App {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
     const savedName = localStorage.getItem('bv.name')
     this.cfg = { ...DEFAULT_CONFIG }
-    if (savedQ && QUALITY_PRESETS[savedQ]) this.cfg.quality = savedQ
+    if (savedQ && QUALITY_PRESETS[savedQ]) { this.cfg.quality = savedQ; this.userPickedQuality = true }
+    else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
 
     this.stage = new Stage(this.canvas, QUALITY_PRESETS[this.cfg.quality])
@@ -57,6 +87,11 @@ class App {
       onManual: (host, c) => this.startManual(host, c),
       onResume: () => this.resume(),
       onQuit: () => this.quitToMenu(),
+      getVolume: () => this.audio.volume,
+      onVolume: v => { this.audio.setVolume(v); this.audio.ui() },
+      onQuality: q => this.applyQuality(q, true),
+      onWatchRooms: cb => this.lobby.watch(cb),
+      onLeaveOnline: () => this.closeSession(),
     })
 
     this.input.onPause = () => {
@@ -65,6 +100,7 @@ class App {
     }
 
     this.buildTouch()
+    this.bindAudio()
     addEventListener('resize', () => this.resize())
     this.resize()
 
@@ -73,8 +109,72 @@ class App {
     requestAnimationFrame(t => this.loop(t))
   }
 
+  private userPickedQuality = false
+  private fpsAcc = 0
+  private fpsFrames = 0
+  private autoDrops = 0
+
   private resize() {
     this.stage.setSize(innerWidth, innerHeight)
+  }
+
+  applyQuality(q: GameConfig['quality'], byUser: boolean) {
+    if (!QUALITY_PRESETS[q]) return
+    this.cfg.quality = q
+    if (byUser) { this.userPickedQuality = true; localStorage.setItem('bv.quality', q) }
+    const old = this.canvas
+    const next = document.createElement('canvas')
+    next.id = 'gl'
+    old.parentNode!.insertBefore(next, old)
+    const prev = this.stage
+    let built: Stage
+    try {
+      built = new Stage(next, QUALITY_PRESETS[q])
+    } catch (e) {
+      console.error('quality switch failed', e)
+      next.remove()
+      return
+    }
+    this.canvas = next
+    this.stage = built
+    prev.dispose()
+    old.remove()
+    this.resize()
+    if (this.match) { this.stage.capture(this.match); this.stage.capture(this.match) }
+    this.fpsAcc = 0
+    this.fpsFrames = 0
+  }
+
+  private autoScale(dt: number) {
+    if (this.userPickedQuality || this.autoDrops >= 2) return
+    this.fpsAcc += dt
+    this.fpsFrames++
+    if (this.fpsAcc < 5) return
+    const fps = this.fpsFrames / this.fpsAcc
+    this.fpsAcc = 0
+    this.fpsFrames = 0
+    if (fps >= 40) return
+    const i = QUALITY_ORDER.indexOf(this.cfg.quality)
+    if (i <= 0) return
+    const q = QUALITY_ORDER[i - 1]
+    this.autoDrops++
+    this.applyQuality(q, false)
+    this.hud.banner(`GRÁFICOS → ${q.toUpperCase()}`, 1600, '#8fd8ff')
+  }
+
+  private bindAudio() {
+    const wake = () => this.audio.unlock()
+    addEventListener('pointerdown', wake)
+    addEventListener('keydown', wake)
+    this.menu.root.addEventListener('click', e => {
+      if ((e.target as HTMLElement).closest('button')) this.audio.ui()
+    })
+    addEventListener('keydown', e => {
+      if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) {
+        const v = this.audio.toggle()
+        this.hud.banner(v === 'off' ? 'SOM OFF' : 'SOM ON', 900, '#8fd8ff')
+      }
+    })
   }
 
   private buildTouch() {
@@ -135,6 +235,8 @@ class App {
 
   private begin() {
     this.phase = 'playing'
+    this.lobby.advertise(null)
+    this.menu.release()
     this.menu.hide()
     this.hud.root.style.opacity = '1'
     this.setTouchVisible(true)
@@ -169,6 +271,7 @@ class App {
   }
 
   private closeSession() {
+    this.lobby.advertise(null)
     if (this.session) { try { this.session.close() } catch { /* ignore */ } }
     this.session = null
   }
@@ -182,7 +285,8 @@ class App {
     try {
       const transport = await createRoomTransport(code || 'BLOBBY', 'nostr')
       this.attachSession(transport, cfg)
-      this.menu.status('sala aberta · esperando oponente…')
+      this.lobby.advertise({ code, name: cfg.name, rule: getRules(cfg.ruleId).name })
+      this.menu.status(`sala ${code} aberta · esperando oponente…`)
     } catch (e) {
       this.menu.status(`falha no relay (${String(e).slice(0, 60)})`)
     }
@@ -255,6 +359,7 @@ class App {
       if (stepped) {
         this.stage.capture(m)
         this.stage.onEvents(m, m.events)
+        this.audio.onEvents(m.events, m.world, this.localSide)
       }
       return
     }
@@ -265,6 +370,7 @@ class App {
     m.step(li, ri)
     this.stage.capture(m)
     this.stage.onEvents(m, m.events)
+    this.audio.onEvents(m.events, m.world, this.demoBot ? NO_PLAYER : this.localSide)
   }
 
   private checkWin() {
@@ -275,6 +381,7 @@ class App {
     this.phase = 'over'
     this.stage.celebrate(w)
     const iWon = this.session ? w === this.localSide : (this.bot ? w === LEFT : true)
+    this.audio.finish(iWon)
     const title = this.session || this.bot ? (iWon ? 'VITÓRIA' : 'DERROTA') : (w === LEFT ? 'P1 VENCE' : 'P2 VENCE')
     const color = w === LEFT ? '#ff3b47' : '#3a8cff'
     this.hud.banner(title, 2200, color)
@@ -306,6 +413,7 @@ class App {
       this.checkWin()
     }
     if (this.session && this.phase === 'playing') this.hud.showNet(this.session.stats())
+    if (this.phase === 'playing') this.autoScale(dt)
   }
 }
 

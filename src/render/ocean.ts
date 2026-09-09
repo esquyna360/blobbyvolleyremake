@@ -112,7 +112,7 @@ void main(){
 
 export interface Ocean { mesh: THREE.Mesh; uniforms: Record<string, THREE.IUniform> }
 
-export function createOcean(env: THREE.CubeTexture | null): Ocean {
+export function createOcean(env: THREE.CubeTexture | null, segX = 260, segY = 160): Ocean {
   const uniforms: Record<string, THREE.IUniform> = {
     uTime: { value: 0 },
     uSun: { value: SUN_DIR.clone() },
@@ -123,7 +123,7 @@ export function createOcean(env: THREE.CubeTexture | null): Ocean {
     uFogColor: { value: new THREE.Color(0.62, 0.74, 0.86) },
     uFogDensity: { value: 0.0009 },
   }
-  const geo = new THREE.PlaneGeometry(2200, 900, 260, 160)
+  const geo = new THREE.PlaneGeometry(2200, 900, segX, segY)
   geo.rotateX(-Math.PI / 2)
   const mat = new THREE.ShaderMaterial({
     uniforms, vertexShader: vert, fragmentShader: frag,

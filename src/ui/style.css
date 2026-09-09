@@ -230,3 +230,5 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   .side .pts { font-size: 34px; }
   .side { min-width: 70px; }
 }
+
+.rooms { max-height: 172px; overflow-y: auto; padding-right: 2px; }
