@@ -6,10 +6,10 @@ import { setArena, arenaId } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 6
+const PROTO = 7
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
-  WELCOME = 7, DENY = 8,
+  WELCOME = 7, DENY = 8, REMATCH = 9,
 }
 
 const enum Deny { PROTO = 0, PASS = 1, REJECTED = 2, FULL = 3 }
@@ -54,6 +54,7 @@ export interface SessionOpts {
   onPhase?: (p: SessionPhase, info?: string) => void
   onEmote?: (id: number, side: Side) => void
   onJoinRequest?: (name: string, accept: () => void, reject: () => void) => void
+  onRematch?: (mine: boolean, theirs: boolean) => void
 }
 
 export class NetSession {
@@ -74,6 +75,9 @@ export class NetSession {
   rtt = 0
   private checksums = new Map<number, number>()
   desynced = false
+  private began: { ruleId: string; stw: number; arena: ArenaId } | null = null
+  private wantMine = false
+  private wantTheirs = false
 
   constructor(transport: Transport, opts: SessionOpts) {
     this.transport = transport
@@ -188,12 +192,47 @@ export class NetSession {
 
   private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId) {
     if (arenaId() !== arena) { setArena(arena); this.opts.onArena?.(arena) }
+    this.began = { ruleId, stw, arena }
+    this.wantMine = false
+    this.wantTheirs = false
+    this.checksums.clear()
+    this.desynced = false
     this.match = new Match(ruleId, stw || undefined, serving)
     this.rollback = new Rollback(this.match, this.localSide)
     clearInterval(this.helloTimer)
     this.setPhase('playing')
     this.startPing()
     this.opts.onReady(this)
+  }
+
+  /** Revanche: os dois precisam pedir; o host escolhe quem saca e manda o ok. */
+  requestRematch() {
+    if (!this.began || this.wantMine) return
+    this.wantMine = true
+    this.transport.send(new Uint8Array([P.REMATCH, 0]))
+    this.opts.onRematch?.(this.wantMine, this.wantTheirs)
+    this.maybeRematch()
+  }
+
+  private maybeRematch() {
+    if (!this.opts.host || !this.began || !this.wantMine || !this.wantTheirs) return
+    this.seed = (Math.random() * 0xffffffff) >>> 0
+    const serving = (this.seed & 1) as Side
+    this.transport.send(new Uint8Array([P.REMATCH, 1, serving]))
+    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena)
+  }
+
+  private onRematch(dv: DataView) {
+    if (!this.began) return
+    if (dv.getUint8(1) === 1) {
+      if (this.opts.host) return
+      const serving = (dv.byteLength > 2 ? dv.getUint8(2) : 0) as Side
+      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena)
+      return
+    }
+    this.wantTheirs = true
+    this.opts.onRematch?.(this.wantMine, this.wantTheirs)
+    this.maybeRematch()
   }
 
   private startPing() {
@@ -245,6 +284,7 @@ export class NetSession {
         break
       }
       case P.EMOTE: this.opts.onEmote?.(dv.getUint8(1), (1 - this.localSide) as Side); break
+      case P.REMATCH: this.onRematch(dv); break
       case P.BYE: this.setPhase('closed', 'peer saiu'); break
     }
   }

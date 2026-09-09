@@ -38,6 +38,9 @@ const SUPABASE_CONFIG = {
   rtcConfig: RTC_CONFIG,
 }
 
+export const supabaseInfo = () => ({ url: SUPABASE_URL, key: SUPABASE_KEY })
+export const iceConfig = (): RTCConfiguration => RTC_CONFIG
+
 let supaUp: Promise<boolean> | null = null
 
 /** Projeto free hiberna depois de uma semana parado; se hibernou, cai pro Nostr. */
@@ -93,6 +96,7 @@ export async function loadStrategy(s: Strategy): Promise<(roomId: string) => Try
 
 /** Credencial TURN de curta duração; a chave fica no backend, nunca no bundle. */
 const ICE_ENDPOINT = 'https://blobby-ice.vercel.app/api/ice'
+export const iceEndpoint = () => ICE_ENDPOINT
 
 let iceUntil = 0
 let icePending: Promise<void> | null = null

@@ -45,17 +45,16 @@ function makeRenderer(canvas: HTMLCanvasElement, q: GameConfig['quality']): Game
   return q === 'cpu' ? new Stage2D(canvas) : new Stage(canvas, QUALITY_PRESETS[q])
 }
 
+/** Nunca escolhe acima de medium sozinho: high custa ~24ms/frame até em Apple M. */
 function detectQuality(): GameConfig['quality'] {
   const gpu = gpuName()
   const cores = navigator.hardwareConcurrency || 4
   const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
   if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return 'cpu'
   if (cores <= 4 || mem <= 4) return 'low'
-  if (isTouch) return 'medium'
-  if (/apple m\d/.test(gpu)) return 'high'
-  if (/intel|uhd graphics|hd graphics|iris|mali|adreno|vega 3|vega 6/.test(gpu)) return 'medium'
-  if (cores <= 8) return 'medium'
-  return 'high'
+  if (isTouch) return cores >= 8 ? 'medium' : 'low'
+  if (/intel|uhd graphics|hd graphics|iris|mali|adreno|vega 3|vega 6/.test(gpu)) return 'low'
+  return 'medium'
 }
 
 class App {
@@ -112,6 +111,7 @@ class App {
       onQuality: q => this.applyQuality(q, true),
       onWatchRooms: cb => this.lobby.watch(cb),
       onLeaveOnline: () => this.closeSession(),
+      onRematch: () => this.session?.requestRematch(),
     })
 
     this.input.onPause = () => {
@@ -169,16 +169,16 @@ class App {
   }
 
   private autoScale(dt: number) {
-    if (this.userPickedQuality || this.autoDrops >= 2) return
+    if (this.userPickedQuality || this.autoDrops >= 3) return
     this.fpsAcc += dt
     this.fpsFrames++
-    if (this.fpsAcc < 5) return
+    if (this.fpsAcc < 2.5) return
     const fps = this.fpsFrames / this.fpsAcc
     this.fpsAcc = 0
     this.fpsFrames = 0
-    if (fps >= 40) return
+    if (fps >= 52) return
     const i = QUALITY_ORDER.indexOf(this.cfg.quality)
-    if (i <= 0) return
+    if (i <= 1) return
     const q = QUALITY_ORDER[i - 1]
     this.autoDrops++
     this.applyQuality(q, false)
@@ -322,10 +322,12 @@ class App {
 
   private begin() {
     this.phase = 'playing'
+    this.peerWantsRematch = false
     clearTimeout(this.joinTimer)
     this.lobby.advertise(null)
     this.menu.release()
     this.menu.hide()
+    this.hud.clearFx()
     this.hud.root.style.opacity = '1'
     this.setTouchVisible(true)
     this.acc = 0
@@ -336,6 +338,7 @@ class App {
   pause() {
     if (this.session) return
     this.phase = 'paused'
+    this.hud.clearFx()
     this.menu.pause()
     this.setTouchVisible(false)
   }
@@ -350,6 +353,7 @@ class App {
 
   quitToMenu() {
     this.closeSession()
+    this.hud.clearFx()
     this.hud.root.style.opacity = '0'
     this.hud.showNet(null)
     this.setTouchVisible(false)
@@ -385,6 +389,7 @@ class App {
 
   private roomCode = ''
   private roomPass = ''
+  private peerWantsRematch = false
 
   private async openRoom(code: string, pass: string, cfg: GameConfig) {
     this.cfg = cfg
@@ -445,11 +450,20 @@ class App {
           if (this.phase === 'playing') {
             this.hud.banner('OPONENTE SAIU', 1600, '#ff6b6b')
             setTimeout(() => this.quitToMenu(), 1700)
+          } else if (this.phase === 'over') {
+            this.closeSession()
+            this.menu.status('o oponente saiu — sem revanche')
           }
         }
         if (p === 'desync') this.hud.banner('DESSINCRONIZOU', 1800, '#ff6b6b')
       },
       onEmote: (id, side) => this.playEmote(side, id),
+      onRematch: (mine, theirs) => {
+        this.peerWantsRematch = theirs && !mine
+        this.menu.status(mine && !theirs
+          ? 'esperando o oponente aceitar a revanche…'
+          : 'o oponente quer revanche — clica em REVANCHE')
+      },
       onJoinRequest: (name, accept, reject) => {
         this.menu.askJoin(name, accept, () => { reject(); this.menu.waiting(this.roomCode, this.roomPass) })
       },
@@ -532,9 +546,13 @@ class App {
     const color = w === LEFT ? '#ff3b47' : '#3a8cff'
     this.hud.banner(title, 2200, color)
     this.reportRank(w)
+    const online = !!this.session
     setTimeout(() => {
+      if (this.phase !== 'over') return
       this.setTouchVisible(false)
-      this.menu.result(title, `${m.logic.scores[LEFT]} — ${m.logic.scores[RIGHT]}`, color)
+      this.hud.clearFx()
+      this.menu.result(title, `${m.logic.scores[LEFT]} — ${m.logic.scores[RIGHT]}`, color, online)
+      if (online && this.peerWantsRematch) this.menu.status('o oponente quer revanche — clica em REVANCHE')
     }, 2000)
   }
 

@@ -126,10 +126,27 @@ export function createParticles(MAX = 60000): Particles {
 
   let cursor = 0
   let now = 0
+  // vários bursts no mesmo frame: acumula o range e sobe uma vez só
+  let lo = -1
+  let hi = -1
+  let full = false
+  const attrs: [THREE.BufferAttribute, number][] = [
+    [aOrigin, 3], [aVel, 3], [aBirth, 1], [aLife, 1], [aSize, 1], [aDrag, 1], [aColor, 3],
+  ]
 
   return {
     points,
-    update(time) { uniforms.uTime.value = time; now = time },
+    update(time) {
+      uniforms.uTime.value = time
+      now = time
+      if (lo < 0 && !full) return
+      for (const [attr, item] of attrs) {
+        attr.clearUpdateRanges()
+        if (!full) attr.addUpdateRange(lo * item, (hi - lo) * item)
+        attr.needsUpdate = true
+      }
+      lo = -1; hi = -1; full = false
+    },
     burst(o) {
       const n = Math.min(o.count, 4000)
       const start = cursor
@@ -169,15 +186,9 @@ export function createParticles(MAX = 60000): Particles {
 
       cursor = (start + n) % MAX
 
-      const wrap = start + n > MAX
-      const mark = (attr: THREE.BufferAttribute, itemSize: number) => {
-        if (wrap) { attr.needsUpdate = true; return }
-        attr.clearUpdateRanges()
-        attr.addUpdateRange(start * itemSize, n * itemSize)
-        attr.needsUpdate = true
-      }
-      mark(aOrigin, 3); mark(aVel, 3); mark(aBirth, 1); mark(aLife, 1)
-      mark(aSize, 1); mark(aDrag, 1); mark(aColor, 3)
+      if (start + n > MAX) { full = true; return }
+      lo = lo < 0 ? start : Math.min(lo, start)
+      hi = Math.max(hi, start + n)
     },
   }
 }

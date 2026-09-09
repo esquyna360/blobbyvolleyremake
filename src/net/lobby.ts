@@ -1,4 +1,6 @@
-import { ensureIce, loadStrategy, pickStrategy } from './transport.ts'
+import { createClient } from '@supabase/supabase-js'
+import type { RealtimeChannel } from '@supabase/supabase-js'
+import { ensureIce, loadStrategy, pickStrategy, supabaseInfo } from './transport.ts'
 
 type Mod = typeof import('trystero/nostr')
 type TRoom = ReturnType<Mod['joinRoom']>
@@ -13,14 +15,20 @@ export interface RoomAd {
 }
 
 const LOBBY_ID = 'lobby-v1'
+const CHANNEL = 'blobby-lobby-v1'
 const BEAT_MS = 2000
 const TTL_MS = 7000
 const GRACE_MS = 20000
 
+/** Como os anúncios saem daqui. O canal do Supabase é WebSocket puro, sem P2P. */
+interface Wire {
+  send(ad: RoomAd): void
+  close(): void
+}
+
 export class Lobby {
-  private room: TRoom | null = null
+  private wire: Wire | null = null
   private opening: Promise<void> | null = null
-  private push: ((d: RoomAd) => void) | null = null
   private ads = new Map<string, RoomAd>()
   private watchers = new Set<(rooms: RoomAd[]) => void>()
   private mine: RoomAd | null = null
@@ -50,7 +58,7 @@ export class Lobby {
 
   /**
    * Abrir uma sala passa por advertise(null) seguido de advertise(ad) segundos depois.
-   * Derrubar a sala do lobby no meio disso perde todos os peers e o anúncio nunca sai.
+   * Derrubar o lobby no meio disso perde o canal e o anúncio nunca sai.
    */
   private scheduleClose() {
     clearTimeout(this.closeTimer)
@@ -59,26 +67,25 @@ export class Lobby {
     }, GRACE_MS) as unknown as number
   }
 
+  private takeAd(ad: RoomAd) {
+    if (!ad || typeof ad.code !== 'string') return
+    if (this.mine && ad.code === this.mine.code) return
+    this.ads.set(ad.code, { ...ad, ts: Date.now() })
+    this.notify()
+  }
+
   private async open() {
     clearTimeout(this.closeTimer)
-    if (this.room) return
+    if (this.wire) return
     if (this.opening) return this.opening
     const gen = ++this.gen
     this.opening = (async () => {
-      const join = await loadStrategy(await pickStrategy())
-      await ensureIce()
-      const room = join(LOBBY_ID)
-      if (gen !== this.gen) { room.leave(); return }
-      const [send, get] = room.makeAction<RoomAd>('ad')
-      get(ad => {
-        if (!ad || typeof ad.code !== 'string') return
-        if (this.mine && ad.code === this.mine.code) return
-        this.ads.set(ad.code, { ...ad, ts: Date.now() })
-        this.notify()
-      })
-      room.onPeerJoin(() => this.emitAd())
-      this.room = room
-      this.push = send
+      const strategy = await pickStrategy()
+      const wire = strategy === 'supabase'
+        ? await this.openSupabase()
+        : await this.openTrystero()
+      if (gen !== this.gen) { wire.close(); return }
+      this.wire = wire
       this.beat = setInterval(() => this.emitAd(), BEAT_MS) as unknown as number
       this.prune = setInterval(() => this.sweep(), 1500) as unknown as number
       this.emitAd()
@@ -86,9 +93,47 @@ export class Lobby {
     try { await this.opening } finally { this.opening = null }
   }
 
+  /**
+   * Broadcast no Realtime: entra, pede "hi" e quem já tem sala responde na hora.
+   * Antes isso passava por datachannel, então dependia de um handshake WebRTC
+   * com cada peer do lobby — daí a sala demorar tanto pra aparecer.
+   */
+  private openSupabase(): Promise<Wire> {
+    const { url, key } = supabaseInfo()
+    const client = createClient(url, key, { realtime: { params: { eventsPerSecond: 20 } } })
+    const chan: RealtimeChannel = client.channel(CHANNEL, { config: { broadcast: { self: false } } })
+    chan.on('broadcast', { event: 'ad' }, m => this.takeAd(m.payload as RoomAd))
+    chan.on('broadcast', { event: 'hi' }, () => this.emitAd())
+    return new Promise<Wire>(resolve => {
+      let settled = false
+      const wire: Wire = {
+        send: ad => { void chan.send({ type: 'broadcast', event: 'ad', payload: ad }) },
+        close: () => { void client.removeChannel(chan) },
+      }
+      const done = () => { if (!settled) { settled = true; resolve(wire) } }
+      setTimeout(done, 6000)
+      chan.subscribe(status => {
+        if (status !== 'SUBSCRIBED') return
+        void chan.send({ type: 'broadcast', event: 'hi', payload: {} })
+        done()
+      })
+    })
+  }
+
+  /** Reserva pra quando o Supabase estiver dormindo: anúncio por datachannel mesmo. */
+  private async openTrystero(): Promise<Wire> {
+    const join = await loadStrategy(await pickStrategy())
+    await ensureIce()
+    const room: TRoom = join(LOBBY_ID)
+    const [send, get] = room.makeAction<RoomAd>('ad')
+    get(ad => this.takeAd(ad))
+    room.onPeerJoin(() => this.emitAd())
+    return { send: ad => { void send(ad) }, close: () => room.leave() }
+  }
+
   private emitAd() {
-    if (!this.push || !this.mine) return
-    this.push({ ...this.mine, ts: Date.now() })
+    if (!this.wire || !this.mine) return
+    this.wire.send({ ...this.mine, ts: Date.now() })
   }
 
   private sweep() {
@@ -114,9 +159,8 @@ export class Lobby {
     clearTimeout(this.closeTimer)
     clearInterval(this.beat)
     clearInterval(this.prune)
-    this.room?.leave()
-    this.room = null
-    this.push = null
+    this.wire?.close()
+    this.wire = null
     this.ads.clear()
   }
 }

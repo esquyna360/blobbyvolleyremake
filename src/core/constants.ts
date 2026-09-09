@@ -63,9 +63,9 @@ export const SPECIAL_COMEBACK_MAX = 2.2
 export const SPECIAL_DEPTH_JITTER = 0.36
 export const SPECIAL_ARC_JITTER = 3
 
-export const PARRY_ACTIVE = 8
-export const PARRY_CD = 42
-export const PARRY_REACH = 190
+export const PARRY_ACTIVE = 5
+export const PARRY_CD = 58
+export const PARRY_REACH = 112
 export const PARRY_BOOST = 0.1
 export const PARRY_CHAIN_MAX = 4
 

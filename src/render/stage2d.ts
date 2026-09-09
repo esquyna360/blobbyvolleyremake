@@ -17,7 +17,10 @@ const BLOB_DARK = ['#8e0f20', '#123f96']
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
 interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string }
-interface Ring { x: number; y: number; r: number; max: number; life: number; color: string }
+interface Ring {
+  x: number; y: number; r: number; max: number; life: number; color: string
+  w?: number; flat?: boolean
+}
 interface Pop { side: Side; glyph: string; life: number; max: number; seed: number }
 
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
@@ -165,8 +168,11 @@ export class Stage2D implements GameRenderer {
         }
         case Ev.PUSH: {
           const p = e.side as Side
-          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 18, r: 6, max: 70, life: 0, color: '#9fb6d8' })
-          this.burst(w.blobX[p], w.blobY[p] - 18, 8, 110, '#9fb6d8', 0.4, 3)
+          const bx = w.blobX[p], by = w.blobY[p] - 16
+          this.rings.push({ x: bx, y: by, r: 10, max: 132, life: 0, color: '#1f7fd6', w: 10 })
+          this.rings.push({ x: bx, y: by, r: 6, max: 92, life: -0.05, color: '#ffffff', w: 6 })
+          this.rings.push({ x: bx, y: GROUND + 4, r: 12, max: 168, life: 0, color: '#eaf4ff', w: 6, flat: true })
+          this.burst(bx, by, 16, 150, '#2f8fe0', 0.4, 4)
           break
         }
         case Ev.PUSH_HIT: {
@@ -177,15 +183,18 @@ export class Stage2D implements GameRenderer {
           this.burst(w.blobX[o], w.blobY[o] - 20, 30, 260, '#dbe7ff', 0.6, 5)
           this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 8, max: 120, life: 0, color: '#ffffff' })
           // sopro em volta de quem empurrou
-          this.rings.push({ x: w.blobX[p] + dir * 26, y: w.blobY[p] - 18, r: 10, max: 190, life: 0, color: '#cfe4ff' })
-          this.rings.push({ x: w.blobX[p] + dir * 14, y: w.blobY[p] - 18, r: 4, max: 118, life: -0.07, color: '#ffffff' })
-          this.burst(w.blobX[p] + dir * 30, w.blobY[p] - 18, 22, 200, '#eaf3ff', 0.5, 4)
-          this.burst(w.blobX[p], w.blobY[p] + 4, 12, 130, '#b9cde8', 0.15, 3)
+          const hx = w.blobX[p], hy = w.blobY[p] - 16
+          this.rings.push({ x: hx, y: hy, r: 12, max: 240, life: 0, color: '#1f7fd6', w: 13 })
+          this.rings.push({ x: hx, y: hy, r: 6, max: 150, life: -0.06, color: '#ffffff', w: 8 })
+          this.rings.push({ x: hx + dir * 22, y: hy, r: 8, max: 190, life: -0.11, color: '#7fc4ff', w: 8 })
+          this.rings.push({ x: hx, y: GROUND + 4, r: 14, max: 280, life: 0, color: '#eaf4ff', w: 8, flat: true })
+          this.burst(hx + dir * 30, hy, 26, 230, '#2f8fe0', 0.5, 5)
+          this.burst(hx, w.blobY[p] + 4, 14, 150, '#8fbfe8', 0.15, 4)
           break
         }
         case Ev.PARRY_TRY: {
           const p = e.side as Side
-          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 6, max: 64, life: 0, color: '#7fd6ff' })
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 6, max: 64, life: 0, color: '#2aa6dd', w: 5 })
           break
         }
         case Ev.PARRY: {
@@ -194,8 +203,8 @@ export class Stage2D implements GameRenderer {
           this.flash = Math.max(this.flash, 0.42)
           this.burst(w.blobX[p], w.blobY[p] - 24, 46, 330, '#8fe4ff', 0.55, 5)
           this.burst(w.blobX[p], w.blobY[p] - 24, 22, 190, '#ffffff', 0.5, 4)
-          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 10, max: 300, life: 0, color: '#7fd6ff' })
-          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 4, max: 200, life: -0.09, color: '#e6faff' })
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 10, max: 300, life: 0, color: '#0f9ada', w: 12 })
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 4, max: 200, life: -0.09, color: '#e6faff', w: 8 })
           this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 160, life: -0.04, color: '#bff0ff' })
           break
         }
@@ -582,10 +591,14 @@ export class Stage2D implements GameRenderer {
     for (const r of this.rings) {
       const k = Math.max(0, r.life / 0.55)
       if (k <= 0) continue
-      c.globalAlpha = Math.max(0, 1 - k) * 0.85
+      const rad = r.r + (r.max - r.r) * (1 - Math.pow(1 - k, 2.4))
+      c.globalAlpha = Math.max(0, 1 - k) * 0.9
       c.strokeStyle = r.color
-      c.lineWidth = 7 * (1 - k) + 1.5
-      c.beginPath(); c.arc(r.x, r.y, r.r + (r.max - r.r) * k, 0, Math.PI * 2); c.stroke()
+      c.lineWidth = (r.w ?? 7) * (1 - k) + 1.5
+      c.beginPath()
+      if (r.flat) c.ellipse(r.x, r.y, rad, rad * 0.34, 0, 0, Math.PI * 2)
+      else c.arc(r.x, r.y, rad, 0, Math.PI * 2)
+      c.stroke()
     }
     c.globalAlpha = 1
 

@@ -6,6 +6,7 @@ import type { Difficulty } from '../ai/bot.ts'
 import type { RoomAd } from '../net/lobby.ts'
 import { ARENAS } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
+import { runDiag } from '../net/diag.ts'
 import { leaderboard } from '../net/rank.ts'
 import type { RankRow } from '../net/rank.ts'
 
@@ -59,6 +60,7 @@ export interface MenuHandlers {
   onQuality(q: GameConfig['quality']): void
   onWatchRooms(cb: (rooms: RoomAd[]) => void): () => void
   onLeaveOnline(): void
+  onRematch?(): void
 }
 
 export class Menu {
@@ -212,8 +214,38 @@ export class Menu {
         el('button', { class: 'primary', onclick: () => this.createRoom() }, 'CRIAR SALA'),
         el('button', { class: 'primary alt', onclick: () => this.joinRoom() }, 'ENTRAR NUMA SALA')),
       el('div', { class: 'hint foot' }, 'Sem servidor: WebRTC direto entre vocês.'),
+      el('div', { class: 'grid' },
+        el('button', { class: 'ghost center small', onclick: () => this.diag() }, 'Testar minha conexão')),
       this.back(() => { this.handlers.onLeaveOnline(); this.main() }),
     )
+  }
+
+  /** Roda os testes de rede e mostra linha a linha — pra quem não consegue conectar. */
+  diag() {
+    this.currentScreen = () => this.diag()
+    const list = el('div', { class: 'diag mono' })
+    const rows = new Map<string, HTMLElement>()
+    const copy = el('button', { class: 'ghost center small' }, 'Copiar resultado')
+    const lines: string[] = []
+    copy.onclick = () => { void navigator.clipboard?.writeText(lines.join('\n')) ; copy.textContent = 'Copiado!' }
+    this.panel(
+      this.title('TESTE DE CONEXÃO'),
+      list,
+      el('div', { class: 'hint foot' }, 'Manda print disso pra quem tá te ajudando.'),
+      el('div', { class: 'grid' }, copy),
+      this.back(() => this.online()),
+    )
+    void runDiag(l => {
+      let row = rows.get(l.label)
+      if (!row) { row = el('div', { class: 'diag-row' }); rows.set(l.label, row); list.append(row) }
+      const mark = l.ok === null ? '·' : l.ok ? '✓' : '✕'
+      row.className = `diag-row ${l.ok === null ? '' : l.ok ? 'good' : 'bad'}`
+      row.textContent = `${mark} ${l.label}: ${l.info}`
+      const i = lines.findIndex(x => x.includes(` ${l.label}: `))
+      if (i >= 0) lines[i] = row.textContent
+      else lines.push(row.textContent)
+    })
+    return list
   }
 
   createRoom() {
@@ -373,16 +405,28 @@ export class Menu {
     )
   }
 
-  result(title: string, subtitle: string, color: string) {
-    this.currentScreen = () => this.result(title, subtitle, color)
+  /** Online a revanche precisa dos dois lados; local reinicia na hora. */
+  result(title: string, subtitle: string, color: string, online = false) {
+    this.currentScreen = () => this.result(title, subtitle, color, online)
     this.show()
+    const rematch = el('button', { class: 'primary' }, 'REVANCHE')
+    rematch.onclick = () => {
+      if (!online) { this.handlers.onStart(this.cfg); return }
+      rematch.setAttribute('disabled', '')
+      rematch.textContent = 'ESPERANDO O OPONENTE…'
+      this.handlers.onRematch?.()
+    }
     this.panel(
       el('div', { class: 'brand' },
         el('h1', { textContent: title, style: `background:none;-webkit-text-fill-color:${color};color:${color}` }),
         el('p', { textContent: subtitle })),
       el('div', { class: 'grid' },
-        el('button', { class: 'primary', onclick: () => this.handlers.onStart(this.cfg) }, 'REVANCHE'),
-        el('button', { class: 'center', onclick: () => this.main() }, 'Menu')),
+        rematch,
+        el('button', {
+          class: 'center',
+          onclick: () => { if (online) this.handlers.onLeaveOnline(); this.handlers.onQuit?.() },
+        }, 'Menu')),
+      el('div', { class: 'status' }),
     )
   }
 

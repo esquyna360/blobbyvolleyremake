@@ -15,6 +15,10 @@ export class Hud {
   private touchesR: HTMLElement[] = []
   private netbar: HTMLElement
   private lastScore = [-1, -1]
+  private lastCharge = [-1, -1]
+  private lastReady = [false, false]
+  private netAt = 0
+  private netKey = ''
   private barL!: HTMLElement
   private barR!: HTMLElement
   private fillL!: HTMLElement
@@ -58,10 +62,20 @@ export class Hud {
 
   update(scores: number[], touches: number[], serving: number, charge?: number[], stun?: number[]) {
     if (charge) {
-      this.fillL.style.width = `${Math.round(charge[0] * 100)}%`
-      this.fillR.style.width = `${Math.round(charge[1] * 100)}%`
-      this.barL.classList.toggle('ready', charge[0] >= 1)
-      this.barR.classList.toggle('ready', charge[1] >= 1)
+      // escrever style.width todo frame reinicia a transition e força repaint da barra
+      for (const [i, fill, bar] of [[0, this.fillL, this.barL], [1, this.fillR, this.barR]] as
+        [number, HTMLElement, HTMLElement][]) {
+        const pct = Math.round(charge[i] * 100)
+        if (pct !== this.lastCharge[i]) {
+          this.lastCharge[i] = pct
+          fill.style.width = `${pct}%`
+        }
+        const ready = charge[i] >= 1
+        if (ready !== this.lastReady[i]) {
+          this.lastReady[i] = ready
+          bar.classList.toggle('ready', ready)
+        }
+      }
     }
     if (stun) {
       this.barL.classList.toggle('stunned', stun[0] > 0)
@@ -86,7 +100,16 @@ export class Hud {
   }
 
   showNet(stats: NetStats | null) {
-    if (!stats) { this.netbar.style.display = 'none'; return }
+    if (!stats) {
+      if (this.netKey !== '') { this.netKey = ''; this.netbar.style.display = 'none' }
+      return
+    }
+    const now = performance.now()
+    if (now - this.netAt < 250) return
+    this.netAt = now
+    const key = `${stats.rttMs}|${stats.maxRollback}|${stats.frameAdv}|${stats.kind}|${stats.desync}`
+    if (key === this.netKey) return
+    this.netKey = key
     this.netbar.style.display = ''
     const q = stats.rttMs < 70 ? 'good' : stats.rttMs < 150 ? 'mid' : 'bad'
     this.netbar.innerHTML =
@@ -143,6 +166,13 @@ export class Hud {
       el('div', { class: 'fat-word', textContent: 'FATALITY' }))
     host.append(node)
     setTimeout(() => node.remove(), 4700)
+  }
+
+  /** Overlays de parry/fatality não podem sobrar por cima do menu. */
+  clearFx() {
+    const host = this.root.parentElement
+    if (!host) return
+    for (const n of host.querySelectorAll('.parry, .fatality, .banner')) n.remove()
   }
 
   scoreOf(side: Side) { return this.lastScore[side] }

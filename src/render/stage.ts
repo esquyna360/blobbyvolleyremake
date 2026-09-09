@@ -141,6 +141,36 @@ function scorchTexture() {
 
 interface Scorch { mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; life: number }
 
+const SHOCK_GEO = new THREE.PlaneGeometry(1, 1)
+
+let shockTex: THREE.Texture | null = null
+function shockTexture() {
+  if (shockTex) return shockTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const g = c.getContext('2d')!
+  const rad = g.createRadialGradient(128, 128, 76, 128, 128, 126)
+  rad.addColorStop(0, 'rgba(255,255,255,0)')
+  rad.addColorStop(0.62, 'rgba(255,255,255,0.28)')
+  rad.addColorStop(0.86, 'rgba(255,255,255,1)')
+  rad.addColorStop(0.97, 'rgba(255,255,255,0.35)')
+  rad.addColorStop(1, 'rgba(255,255,255,0)')
+  g.fillStyle = rad
+  g.fillRect(0, 0, 256, 256)
+  shockTex = new THREE.CanvasTexture(c)
+  return shockTex
+}
+
+/** Anel de choque em volta de quem empurra/defende — partícula sozinha some no fundo claro. */
+interface Shock {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  life: number
+  max: number
+  from: number
+  to: number
+  flat: boolean
+}
+
 const emoteTextures = new Map<string, THREE.Texture>()
 
 function emoteTexture(glyph: string): THREE.Texture {
@@ -200,6 +230,7 @@ export class Stage implements GameRenderer {
   private sunScreen = new THREE.Vector2(0.5, 0.8)
   private emotes: EmotePop[] = []
   private scorches: Scorch[] = []
+  private shocks: Shock[] = []
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality
@@ -501,9 +532,12 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
         }
         case Ev.PUSH: {
           const p = e.side as Side
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 0.9
+          this.addShock(px, py, { from: 0.5, to: 4.0, life: 0.32, color: new THREE.Color(0.16, 0.6, 1.5) })
+          this.addShock(px, py, { from: 0.4, to: 5.2, life: 0.34, color: new THREE.Color(0.55, 0.85, 1.5), flat: true, opacity: 0.85 })
           this.particles.burst({
-            x: gx(w.blobX[p]), y: gy(w.blobY[p]) + 1.0, z: 0, count: 26, speed: 3.4, spread: 3.14, up: 0.5,
-            life: 0.34, size: 0.03, color: new THREE.Color(0.66, 0.74, 0.88), drag: 3.4, colorJitter: 0.15,
+            x: px, y: py, z: 0, count: 34, speed: 4.6, spread: 3.14, up: 0.5,
+            life: 0.34, size: 0.034, color: new THREE.Color(0.55, 0.8, 1.3), drag: 3.4, colorJitter: 0.15,
           })
           this.blobs[p].squashVel -= 1.0
           break
@@ -519,14 +553,17 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           })
           // onda de choque saindo de quem empurrou
           const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 1.0
+          this.addShock(px, py, { from: 0.6, to: 7.2, life: 0.46, color: new THREE.Color(0.12, 0.55, 1.7) })
+          this.addShock(px, py, { from: 0.4, to: 4.6, life: 0.26, color: new THREE.Color(1.1, 1.25, 1.6) })
+          this.addShock(px, py, { from: 0.5, to: 8.5, life: 0.5, color: new THREE.Color(0.5, 0.82, 1.6), flat: true, opacity: 0.9 })
           this.particles.burst({
-            x: px + dir * 0.5, y: py, z: 0, count: 150, speed: 11, spread: 0.7, up: 0.25,
-            life: 0.4, size: 0.05, color: new THREE.Color(0.92, 0.97, 1.0), drag: 3.6,
+            x: px + dir * 0.5, y: py, z: 0, count: 110, speed: 11, spread: 0.7, up: 0.25,
+            life: 0.4, size: 0.05, color: new THREE.Color(0.7, 0.9, 1.4), drag: 3.6,
             dirX: dir, colorJitter: 0.12,
           })
           this.particles.burst({
-            x: px, y: py, z: 0, count: 90, speed: 4.5, spread: 3.14, up: 1.2,
-            life: 0.7, size: 0.032, color: new THREE.Color(0.72, 0.86, 1.0), drag: 2.2, colorJitter: 0.25,
+            x: px, y: py, z: 0, count: 70, speed: 4.5, spread: 3.14, up: 1.2,
+            life: 0.7, size: 0.032, color: new THREE.Color(0.55, 0.8, 1.3), drag: 2.2, colorJitter: 0.25,
           })
           this.blobs[p].squashVel -= 1.8
           this.blobs[p].wobble = 0.9
@@ -551,21 +588,19 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
         case Ev.PARRY: {
           const p = e.side as Side
           const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 1.3
-          this.trauma = Math.min(1, this.trauma + 0.6)
-          this.hitstop = Math.max(this.hitstop, 0.13)
+          this.trauma = Math.min(1, this.trauma + 0.5)
+          this.hitstop = Math.max(this.hitstop, 0.09)
           this.aberration = Math.max(this.aberration, 2.6)
           this.flash = Math.max(this.flash, 0.34)
+          this.addShock(px, py, { from: 0.5, to: 8.0, life: 0.5, color: new THREE.Color(0.1, 0.85, 1.8) })
+          this.addShock(px, py, { from: 0.4, to: 4.2, life: 0.24, color: new THREE.Color(1.1, 1.4, 1.6) })
           this.particles.burst({
-            x: px, y: py, z: 0, count: 360, speed: 13, spread: 3.14, up: 0.4,
+            x: px, y: py, z: 0, count: 200, speed: 13, spread: 3.14, up: 0.4,
             life: 0.7, size: 0.05, color: new THREE.Color(0.36, 0.84, 1.0), drag: 2.2, colorJitter: 0.3,
           })
           this.particles.burst({
-            x: px, y: py, z: 0, count: 180, speed: 22, spread: 0.5, up: 0.1,
+            x: px, y: py, z: 0, count: 110, speed: 22, spread: 0.5, up: 0.1,
             life: 0.4, size: 0.062, color: new THREE.Color(0.85, 0.98, 1.0), drag: 3.2,
-          })
-          this.particles.burst({
-            x: px, y: py, z: 0, count: 120, speed: 3.6, spread: 3.14, up: 1.6,
-            life: 1.3, size: 0.03, color: new THREE.Color(0.55, 0.9, 1.0), drag: 1.2, colorJitter: 0.22,
           })
           this.ball.flash(3.6)
           const bp = this.blobs[p]
@@ -795,20 +830,20 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
         : new THREE.Color(1.0, 0.7, 0.2)
       this.ball.flash(3.4 + Math.sin(this.time * 30) * 0.8)
       this.particles.burst({
-        x: bx, y: by, z: 0, count: 26, speed: 2.2, spread: 3.14, up: 1.5,
-        life: 0.55, size: 0.075, color: new THREE.Color(1.0, 0.42, 0.05), drag: 2.6, colorJitter: 0.3,
+        x: bx, y: by, z: 0, count: 13, speed: 2.2, spread: 3.14, up: 1.5,
+        life: 0.55, size: 0.085, color: new THREE.Color(1.0, 0.42, 0.05), drag: 2.6, colorJitter: 0.3,
       })
       this.particles.burst({
-        x: bx, y: by, z: 0, count: 16, speed: 1.1, spread: 3.14, up: 0.4,
-        life: 0.32, size: 0.06, color: new THREE.Color(1.0, 0.95, 0.72), drag: 3.4,
+        x: bx, y: by, z: 0, count: 8, speed: 1.1, spread: 3.14, up: 0.4,
+        life: 0.32, size: 0.068, color: new THREE.Color(1.0, 0.95, 0.72), drag: 3.4,
       })
       this.particles.burst({
-        x: bx, y: by, z: 0, count: 10, speed: 0.6, spread: 3.14, up: 2.1,
-        life: 1.4, size: 0.05, color: new THREE.Color(0.16, 0.13, 0.12), drag: 1.4, colorJitter: 0.15,
+        x: bx, y: by, z: 0, count: 5, speed: 0.6, spread: 3.14, up: 2.1,
+        life: 1.4, size: 0.055, color: new THREE.Color(0.16, 0.13, 0.12), drag: 1.4, colorJitter: 0.15,
       })
       this.particles.burst({
-        x: bx, y: by, z: 0, count: 5, speed: 0.9, spread: 3.14, up: 0.8,
-        life: 0.7, size: 0.035, color: col, drag: 2.0, colorJitter: 0.3,
+        x: bx, y: by, z: 0, count: 3, speed: 0.9, spread: 3.14, up: 0.8,
+        life: 0.7, size: 0.04, color: col, drag: 2.0, colorJitter: 0.3,
       })
     }
 
@@ -816,6 +851,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.updateBlob(RIGHT, alpha, dt, match)
 
     this.updateScorches(dt)
+    this.updateShocks(dt)
     this.updateEmotes(dt)
     this.net.update(dt)
     this.terrain.update(dt)
@@ -912,6 +948,43 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.trauma = Math.min(1, this.trauma + 0.4)
   }
 
+  private addShock(x: number, y: number, o: {
+    from: number; to: number; life: number; color: THREE.Color; flat?: boolean; opacity?: number
+  }) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: shockTexture(), color: o.color, transparent: true, depthTest: false, depthWrite: false,
+      blending: THREE.AdditiveBlending, toneMapped: false, opacity: o.opacity ?? 1,
+    })
+    const mesh = new THREE.Mesh(SHOCK_GEO, mat)
+    mesh.position.set(x, y, 0.2)
+    if (o.flat) { mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, 0.06, 0) }
+    mesh.scale.setScalar(o.from)
+    mesh.renderOrder = 45
+    this.scene.add(mesh)
+    this.shocks.push({ mesh, life: 0, max: o.life, from: o.from, to: o.to, flat: !!o.flat })
+    if (this.shocks.length > 12) {
+      const old = this.shocks.shift()!
+      this.scene.remove(old.mesh)
+      old.mesh.material.dispose()
+    }
+  }
+
+  private updateShocks(dt: number) {
+    if (!this.shocks.length) return
+    const keep: Shock[] = []
+    for (const sh of this.shocks) {
+      sh.life += dt
+      const t = sh.life / sh.max
+      if (t >= 1) { this.scene.remove(sh.mesh); sh.mesh.material.dispose(); continue }
+      const e = 1 - Math.pow(1 - t, 2.6)
+      const r = sh.from + (sh.to - sh.from) * e
+      sh.mesh.scale.set(r, sh.flat ? r * 0.42 : r, 1)
+      sh.mesh.material.opacity = Math.pow(1 - t, 1.6)
+      keep.push(sh)
+    }
+    this.shocks = keep
+  }
+
   private addScorch(x: number) {
     const mat = new THREE.MeshBasicMaterial({
       map: scorchTexture(), transparent: true, depthWrite: false, opacity: 0.95,
@@ -946,6 +1019,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     for (const e of this.emotes) { this.scene.remove(e.mesh); e.mesh.material.dispose() }
     this.emotes.length = 0
     for (const sc of this.scorches) { this.scene.remove(sc.mesh); sc.mesh.material.dispose() }
+    for (const sh of this.shocks) { this.scene.remove(sh.mesh); sh.mesh.material.dispose() }
     this.scorches.length = 0
     this.scene.traverse(o => {
       const m = o as THREE.Mesh

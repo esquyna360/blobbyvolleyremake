@@ -1,7 +1,7 @@
 import {
   BALL_GRAVITATION, BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
-  NET_SPHERE_POSITION, PARRY_REACH, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, other,
+  NET_SPHERE_POSITION, PARRY_REACH, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, SPECIAL_VELOCITY, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -150,7 +150,9 @@ export class Bot {
     const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
     const d = Math.sqrt(dx * dx + dy * dy)
     const p = PARAMS[this.diff]
-    const want = d < PARRY_REACH * (0.5 + p.smash * 0.45) && this.rng() < 0.2 + p.smash * 0.75
+    // a bola do especial anda ~32px por frame: aperta antes, senão a janela passa
+    const lead = PARRY_REACH + SPECIAL_VELOCITY * (1 + p.smash * 2.5)
+    const want = d < lead && this.rng() < 0.18 + p.smash * 0.6
     if (!want) { this.specialHeld = false; return false }
     if (this.specialHeld) return false
     this.specialHeld = true
