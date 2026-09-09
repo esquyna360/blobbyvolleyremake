@@ -12,7 +12,6 @@ import { emoteAt } from '../core/emote.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const HORIZON = 418
-const WORLD_W = RIGHT_PLANE
 const BLOB_FILL = ['#ec2f3f', '#2f7ff0']
 const BLOB_DARK = ['#8e0f20', '#123f96']
 
@@ -35,9 +34,10 @@ export class Stage2D implements GameRenderer {
   private cur = snap()
   private dust: Dust[] = []
   private rings: Ring[] = []
-  private trail: { x: number; y: number; life: number }[] = []
+  private trail: { x: number; y: number; life: number; seed: number }[] = []
   private pops: Pop[] = []
   private craters: { x: number; r: number }[] = []
+  private scorch: { x: number; r: number; life: number }[] = []
   private time = 0
   private trauma = 0
   private flash = 0
@@ -60,7 +60,7 @@ export class Stage2D implements GameRenderer {
     this.canvas.style.width = `${w}px`
     this.canvas.style.height = `${h}px`
     this.scale = Math.min(this.cw / 880, this.ch / 640)
-    this.ox = (this.cw - WORLD_W * this.scale) / 2
+    this.ox = (this.cw - RIGHT_PLANE * this.scale) / 2
     this.oy = this.ch * 0.86 - (GROUND + 44) * this.scale
     const g = this.ctx.createLinearGradient(0, 0, 0, this.oy + HORIZON * this.scale)
     g.addColorStop(0, '#0d4a9c')
@@ -147,6 +147,39 @@ export class Stage2D implements GameRenderer {
           this.rings.push({ x: w.blobX[p], y: w.blobY[p], r: 12, max: 300, life: 0, color: '#ff8a7a' })
           break
         }
+        case Ev.SPECIAL_GROUND: {
+          this.trauma = 1
+          this.flash = Math.max(this.flash, 0.5)
+          this.burst(w.ballX, GROUND + 6, 120, 620, '#ff7a1a', 1.0, 9)
+          this.burst(w.ballX, GROUND + 6, 70, 330, '#ffe07a', 1.5, 6)
+          this.burst(w.ballX, GROUND + 6, 40, 200, '#4a3b33', 2.2, 7)
+          this.rings.push({ x: w.ballX, y: GROUND + 6, r: 14, max: 340, life: 0, color: '#ffb347' })
+          this.rings.push({ x: w.ballX, y: GROUND + 6, r: 6, max: 210, life: -0.1, color: '#fff0c0' })
+          this.scorch.push({ x: w.ballX, r: 46 + Math.random() * 12, life: 0 })
+          if (this.scorch.length > 6) this.scorch.shift()
+          break
+        }
+        case Ev.PUSH_HIT: {
+          const p = e.side as Side
+          const o: Side = p === LEFT ? 1 : 0
+          this.trauma = Math.min(1, this.trauma + 0.34)
+          this.burst(w.blobX[o], w.blobY[o] - 20, 30, 260, '#dbe7ff', 0.6, 5)
+          this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 8, max: 120, life: 0, color: '#ffffff' })
+          break
+        }
+        case Ev.FATALITY: {
+          const p = e.side as Side
+          const o: Side = p === LEFT ? 1 : 0
+          this.trauma = 1
+          this.flash = Math.max(this.flash, 0.7)
+          for (let i = 0; i < 4; i++) {
+            this.burst(w.blobX[o], w.blobY[o] - 20 - i * 8, 90, 520 + i * 90, i % 2 ? '#8e0b0b' : '#d81111', 2.4, 10)
+          }
+          this.burst(w.blobX[o], w.blobY[o] - 20, 60, 240, '#ffd0d0', 2.0, 7)
+          this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 10, max: 420, life: 0, color: '#ff2d2d' })
+          this.scorch.push({ x: w.blobX[o], r: 60, life: 0 })
+          break
+        }
       }
     }
   }
@@ -185,7 +218,7 @@ export class Stage2D implements GameRenderer {
   }
 
   celebrate(side: Side) {
-    const x = side === LEFT ? WORLD_W * 0.25 : WORLD_W * 0.75
+    const x = side === LEFT ? RIGHT_PLANE * 0.25 : RIGHT_PLANE * 0.75
     for (let i = 0; i < 3; i++) {
       this.burst(x, 240, 60, 300, `hsl(${Math.floor(Math.random() * 360)} 85% 60%)`, 1.2, 6)
     }
@@ -200,6 +233,11 @@ export class Stage2D implements GameRenderer {
       this.pops = alive
     }
     this.trauma = Math.max(0, this.trauma - dt * 2.2)
+    if (this.scorch.length) {
+      const live: { x: number; r: number; life: number }[] = []
+      for (const sc of this.scorch) { sc.life += dt; if (sc.life < 14) live.push(sc) }
+      this.scorch = live
+    }
     this.flash = Math.max(0, this.flash - dt * 1.6)
     const keep: Dust[] = []
     for (const d of this.dust) {
@@ -401,8 +439,8 @@ export class Stage2D implements GameRenderer {
     const w = match.world
     const superOn = w.superFrames > 0
     if (superOn) {
-      this.trail.push({ x: bx, y: by, life: 0 })
-      if (this.trail.length > 26) this.trail.shift()
+      this.trail.push({ x: bx, y: by, life: 0, seed: Math.random() * 6.28 })
+      if (this.trail.length > 34) this.trail.shift()
     }
 
     c.setTransform(1, 0, 0, 1, 0, 0)
@@ -416,12 +454,34 @@ export class Stage2D implements GameRenderer {
     c.strokeStyle = 'rgba(255,255,255,0.55)'
     c.lineWidth = 3
     c.beginPath()
-    c.moveTo(20, GROUND + 44); c.lineTo(WORLD_W - 20, GROUND + 44)
+    c.moveTo(20, GROUND + 44); c.lineTo(RIGHT_PLANE - 20, GROUND + 44)
     c.stroke()
 
     c.fillStyle = 'rgba(150,116,64,0.30)'
     for (const cr of this.craters) {
       c.beginPath(); c.ellipse(cr.x, GROUND + 10, cr.r, cr.r * 0.34, 0, 0, Math.PI * 2); c.fill()
+    }
+
+    for (const sc of this.scorch) {
+      const fade = Math.max(0, 1 - sc.life / 14)
+      const glow = Math.max(0, 1 - sc.life / 1.6)
+      c.globalAlpha = 0.85 * fade
+      c.fillStyle = '#150d09'
+      c.beginPath(); c.ellipse(sc.x, GROUND + 10, sc.r, sc.r * 0.34, 0, 0, Math.PI * 2); c.fill()
+      c.globalAlpha = 0.5 * fade
+      c.fillStyle = '#3a2418'
+      c.beginPath(); c.ellipse(sc.x, GROUND + 10, sc.r * 1.45, sc.r * 0.5, 0, 0, Math.PI * 2); c.fill()
+      if (glow > 0) {
+        c.globalCompositeOperation = 'lighter'
+        c.globalAlpha = glow * 0.8
+        const eg = c.createRadialGradient(sc.x, GROUND + 8, 2, sc.x, GROUND + 8, sc.r * 1.3)
+        eg.addColorStop(0, 'rgba(255,190,60,1)')
+        eg.addColorStop(1, 'rgba(255,60,0,0)')
+        c.fillStyle = eg
+        c.beginPath(); c.ellipse(sc.x, GROUND + 8, sc.r * 1.3, sc.r * 0.55, 0, 0, Math.PI * 2); c.fill()
+        c.globalCompositeOperation = 'source-over'
+      }
+      c.globalAlpha = 1
     }
 
     this.shadow(bx, by, BALL_RADIUS)
@@ -436,17 +496,41 @@ export class Stage2D implements GameRenderer {
     }
 
     if (this.trail.length) {
-      const col = w.superOwner >= 0 ? BLOB_FILL[w.superOwner as Side] : '#ffb02e'
-      for (const t of this.trail) {
-        const k = Math.max(0, 1 - t.life / 0.38)
-        c.globalAlpha = k * 0.55
-        c.fillStyle = k > 0.6 ? '#fff3c4' : col
-        c.beginPath(); c.arc(t.x, t.y, BALL_RADIUS * (0.35 + k * 0.6), 0, Math.PI * 2); c.fill()
+      c.globalCompositeOperation = 'lighter'
+      for (const f of this.trail) {
+        const k = Math.max(0, 1 - f.life / 0.5)
+        if (k <= 0) continue
+        const flick = 1 + Math.sin(this.time * 30 + f.seed) * 0.22
+        const r = BALL_RADIUS * (0.22 + k * 0.95) * flick
+        const drift = (1 - k) * 26
+        const fy = f.y - drift
+        const fg = c.createRadialGradient(f.x, fy, 0, f.x, fy, r)
+        fg.addColorStop(0, `rgba(255,255,220,${0.85 * k})`)
+        fg.addColorStop(0.32, `rgba(255,196,60,${0.72 * k})`)
+        fg.addColorStop(0.68, `rgba(255,84,10,${0.42 * k})`)
+        fg.addColorStop(1, 'rgba(120,20,0,0)')
+        c.fillStyle = fg
+        c.beginPath(); c.arc(f.x, fy, r, 0, Math.PI * 2); c.fill()
       }
+      c.globalCompositeOperation = 'source-over'
       c.globalAlpha = 1
     }
 
     if (superOn) {
+      c.globalCompositeOperation = 'lighter'
+      for (let i = 0; i < 7; i++) {
+        const a = this.time * 17 + i * 0.9
+        const rr = BALL_RADIUS * (0.9 + Math.sin(a * 1.7) * 0.22)
+        const fx = bx + Math.cos(a) * BALL_RADIUS * 0.55
+        const fy = by + Math.sin(a * 1.3) * BALL_RADIUS * 0.45 - 6
+        const fg = c.createRadialGradient(fx, fy, 0, fx, fy, rr)
+        fg.addColorStop(0, 'rgba(255,255,210,0.8)')
+        fg.addColorStop(0.5, 'rgba(255,150,30,0.45)')
+        fg.addColorStop(1, 'rgba(255,60,0,0)')
+        c.fillStyle = fg
+        c.beginPath(); c.arc(fx, fy, rr, 0, Math.PI * 2); c.fill()
+      }
+      c.globalCompositeOperation = 'source-over'
       const pulse = 1 + Math.sin(this.time * 26) * 0.12
       const g = c.createRadialGradient(bx, by, BALL_RADIUS * 0.4, bx, by, BALL_RADIUS * 2.4 * pulse)
       g.addColorStop(0, 'rgba(255,246,200,0.75)')
@@ -505,6 +589,7 @@ export class Stage2D implements GameRenderer {
 
   dispose() {
     this.dust.length = 0
+    this.scorch.length = 0
     this.craters.length = 0
     this.rings.length = 0
     this.trail.length = 0

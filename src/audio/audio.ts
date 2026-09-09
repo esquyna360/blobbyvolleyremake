@@ -4,6 +4,8 @@ import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { PhysicWorld } from '../core/physics.ts'
 
+export const FATALITY_SFX = 'https://www.myinstants.com/media/sounds/fatality.swf.mp3'
+
 export const VOLUMES: [string, string, string][] = [
   ['off', 'Mudo', 'silêncio'],
   ['low', 'Baixo', 'de fundo'],
@@ -340,6 +342,58 @@ export class GameAudio {
     }
   }
 
+  groundBurn(pan = 0) {
+    if (!this.ctx) return
+    this.thump(46, 0.75, 0.9, 0.4, 'sine')
+    this.burst(0.55, 0.34, 'lowpass', 700, 0.6, pan)
+    this.burst(0.30, 0.16, 'bandpass', 2400, 1.4, pan)
+  }
+
+  push(pan = 0) {
+    if (!this.ctx) return
+    this.thump(150, 0.35, 0.12, 0.16, 'triangle')
+    this.burst(0.07, 0.07, 'highpass', 2600, 0.9, pan)
+  }
+
+  private voice: HTMLAudioElement | null = null
+
+  fatality(pan = 0) {
+    if (!this.ctx) return
+    this.thump(38, 0.9, 1.6, 0.45, 'sine')
+    this.burst(0.9, 0.55, 'lowpass', 520, 0.5, pan)
+    this.burst(0.4, 0.25, 'bandpass', 1600, 1.6, pan)
+    let spoke = false
+    try {
+      const a = this.voice ?? (this.voice = new Audio(FATALITY_SFX))
+      a.volume = 0.95
+      a.currentTime = 0
+      const r = a.play()
+      spoke = true
+      if (r) void r.catch(() => { this.growl() })
+    } catch { spoke = false }
+    if (!spoke) this.growl()
+  }
+
+  /** Plano B quando o sample externo não carrega: um berro grave sintetizado. */
+  private growl() {
+    const ctx = this.ctx
+    if (!ctx) return
+    const t0 = ctx.currentTime
+    for (const [f, d] of [[110, 0], [82, 0.26], [62, 0.52]] as [number, number][]) {
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      o.type = 'sawtooth'
+      o.frequency.setValueAtTime(f * 1.6, t0 + d)
+      o.frequency.exponentialRampToValueAtTime(f, t0 + d + 0.3)
+      g.gain.setValueAtTime(0.0001, t0 + d)
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + d + 0.05)
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.42)
+      o.connect(g).connect(this.master!)
+      o.start(t0 + d)
+      o.stop(t0 + d + 0.5)
+    }
+  }
+
   finish(won: boolean) {
     if (!this.ctx) return
     const notes = won ? [523.25, 659.25, 783.99, 1046.5] : [493.88, 415.3, 329.63]
@@ -367,6 +421,9 @@ export class GameAudio {
         case Ev.SPECIAL_READY: if (localSide === e.side) this.special('ready'); break
         case Ev.SPECIAL_FIRED: this.special('fired', ballPan); break
         case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break
+        case Ev.SPECIAL_GROUND: this.groundBurn(ballPan); break
+        case Ev.PUSH_HIT: this.push(panOf(world.blobX[e.side as Side])); break
+        case Ev.FATALITY: this.fatality(panOf(world.blobX[e.side as Side])); break
       }
     }
 

@@ -13,6 +13,10 @@ export const enum Ev {
   SPECIAL_READY = 9,
   SPECIAL_FIRED = 10,
   SPECIAL_HIT = 11,
+  SPECIAL_GROUND = 12,
+  PUSH = 13,
+  PUSH_HIT = 14,
+  FATALITY = 15,
 }
 
 export interface MatchEvent { event: Ev; side: SideOrNone; intensity: number }

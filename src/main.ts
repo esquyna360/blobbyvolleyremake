@@ -1,7 +1,7 @@
 import './ui/style.css'
 import * as THREE from 'three'
-import { LEFT, RIGHT, TICK_MS, NO_PLAYER } from './core/constants.ts'
-import type { Side } from './core/constants.ts'
+import { LEFT, RIGHT, TICK_MS, NO_PLAYER, setArena, arenaId } from './core/constants.ts'
+import type { Side, ArenaId } from './core/constants.ts'
 import { Match } from './core/match.ts'
 import { getRules } from './core/logic.ts'
 import { packInput, NO_INPUT } from './core/input.ts'
@@ -17,7 +17,11 @@ import { InputManager, P1, P2, SOLO } from './ui/input.ts'
 import { NetSession, passHash } from './net/session.ts'
 import { createManualTransport, createRoomTransport, ensureIce, hasTurn, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
+import { syncArena } from './render/mapping.ts'
+import { matchKey, reportMatch } from './net/rank.ts'
 import { EMOTES } from './core/emote.ts'
+import { Ev } from './core/events.ts'
+import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
 import { Lobby } from './net/lobby.ts'
 
@@ -86,6 +90,10 @@ class App {
     if (savedQ && (savedQ === 'cpu' || QUALITY_PRESETS[savedQ])) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
+    const savedArena = localStorage.getItem('bv.arena')
+    if (savedArena === 'wide' || savedArena === 'default') this.cfg.arena = savedArena
+    setArena(this.cfg.arena)
+    syncArena()
 
     void ensureIce()
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
@@ -116,6 +124,8 @@ class App {
     this.bindEmotes()
     addEventListener('resize', () => this.resize())
     this.resize()
+
+    if (import.meta.env.DEV) (window as unknown as { __g: unknown }).__g = this
 
     // idle demo match behind the menu
     this.startDemo()
@@ -220,7 +230,7 @@ class App {
 
   private buildTouch() {
     if (!isTouch) return
-    const mk = (label: string, key: 'left' | 'right' | 'up', big = false) => {
+    const mk = (label: string, key: 'left' | 'right' | 'up' | 'push', big = false) => {
       const b = el('div', { class: `tbtn${big ? ' big' : ''}`, textContent: label })
       const on = (v: boolean) => (e: Event) => {
         e.preventDefault()
@@ -234,7 +244,7 @@ class App {
     }
     this.touchEls = el('div', { class: 'touch' },
       el('div', { class: 'tpad' }, mk('◀', 'left'), mk('▶', 'right')),
-      el('div', { class: 'tpad' }, mk('▲', 'up', true)))
+      el('div', { class: 'tpad' }, mk('✋', 'push'), mk('▲', 'up', true)))
 
     const menu = el('div', { class: 'tmenu', textContent: 'MENU' })
     const openMenu = (e: Event) => {
@@ -287,9 +297,19 @@ class App {
   }
   private demoBot: Bot | null = null
 
+  /** Arena é global: troca antes de montar o Match e reconstrói o renderer. */
+  private applyArena(id: ArenaId) {
+    if (arenaId() === id) return
+    setArena(id)
+    syncArena()
+    this.applyQuality(this.cfg.quality, false)
+  }
+
   startLocal(cfg: GameConfig) {
     this.cfg = cfg
     localStorage.setItem('bv.name', cfg.name)
+    localStorage.setItem('bv.arena', cfg.arena)
+    this.applyArena(cfg.arena)
     this.closeSession()
     this.demoBot = null
     this.match = this.newMatch(cfg, LEFT)
@@ -410,6 +430,8 @@ class App {
   ) {
     this.session = new NetSession(transport, {
       ruleId: cfg.ruleId,
+      arena: cfg.arena,
+      onArena: id => this.applyArena(id),
       scoreToWin: cfg.scoreToWin,
       name: cfg.name,
       host,
@@ -474,6 +496,7 @@ class App {
         this.stage.capture(m)
         this.stage.onEvents(m, m.events)
         this.audio.onEvents(m.events, m.world, this.localSide)
+        this.uiEvents(m.events)
       }
       return
     }
@@ -485,6 +508,11 @@ class App {
     this.stage.capture(m)
     this.stage.onEvents(m, m.events)
     this.audio.onEvents(m.events, m.world, this.demoBot ? NO_PLAYER : this.localSide)
+    this.uiEvents(m.events)
+  }
+
+  private uiEvents(events: MatchEvent[]) {
+    for (const e of events) if (e.event === Ev.FATALITY) this.hud.fatality()
   }
 
   private checkWin() {
@@ -499,10 +527,27 @@ class App {
     const title = this.session || this.bot ? (iWon ? 'VITÓRIA' : 'DERROTA') : (w === LEFT ? 'P1 VENCE' : 'P2 VENCE')
     const color = w === LEFT ? '#ff3b47' : '#3a8cff'
     this.hud.banner(title, 2200, color)
+    this.reportRank(w)
     setTimeout(() => {
       this.setTouchVisible(false)
       this.menu.result(title, `${m.logic.scores[LEFT]} — ${m.logic.scores[RIGHT]}`, color)
     }, 2000)
+  }
+
+  /** Só partida online conta ponto. Os dois lados reportam; o servidor só aplica se baterem. */
+  private reportRank(winner: Side) {
+    const s = this.session
+    const m = this.match
+    if (!s || !m || this.demoBot) return
+    const sl = m.logic.scores[LEFT]
+    const sr = m.logic.scores[RIGHT]
+    const nameL = s.localSide === LEFT ? this.cfg.name : s.peerName
+    const nameR = s.localSide === LEFT ? s.peerName : this.cfg.name
+    const key = matchKey(this.roomCode || 'direct', nameL, nameR, sl, sr, m.frame)
+    const iWon = winner === s.localSide
+    const my = s.localSide === LEFT ? sl : sr
+    const their = s.localSide === LEFT ? sr : sl
+    void reportMatch(key, this.cfg.name, iWon, my, their)
   }
 
   private loop(now: number) {

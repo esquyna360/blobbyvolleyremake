@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 22
-export const STATE_INTS = 18
+export const STATE_INTS = 24
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -54,8 +54,8 @@ export class Match {
     if (tf) {
       const [ll, lr, lu] = tf(LEFT, li.left, li.right, li.up)
       const [rl, rr, ru] = tf(RIGHT, ri.left, ri.right, ri.up)
-      l = { left: ll, right: lr, up: lu }
-      r = { left: rl, right: rr, up: ru }
+      l = { left: ll, right: lr, up: lu, special: li.special, push: li.push }
+      r = { left: rl, right: rr, up: ru, special: ri.special, push: ri.push }
     }
 
     w.step(l, r, g.isBallValid, g.isGameRunning, this.events)
@@ -73,6 +73,7 @@ export class Match {
         case Ev.BALL_HIT_NET: g.onBallHitsNet(e.side); break
         case Ev.BALL_HIT_NET_TOP: g.onBallHitsNet(NO_PLAYER); break
         case Ev.BALL_HIT_WALL: g.onBallHitsWall(e.side as Side); break
+        case Ev.SPECIAL_HIT: this.tryFatality(e.side as Side); break
       }
     }
 
@@ -99,6 +100,7 @@ export class Match {
     f[12] = w.ballX; f[13] = w.ballY; f[14] = w.ballVX; f[15] = w.ballVY
     f[16] = w.ballRot; f[17] = w.ballAngVel
     f[18] = w.charge[0]; f[19] = w.charge[1]
+    f[20] = w.knock[0]; f[21] = w.knock[1]
     i[0] = g.scores[0]; i[1] = g.scores[1]; i[2] = g.touches[0]; i[3] = g.touches[1]
     i[4] = g.squish[0]; i[5] = g.squish[1]; i[6] = g.squishWall; i[7] = g.squishGround
     i[8] = g.servingPlayer; i[9] = (g.isBallValid ? 1 : 0) | (g.isGameRunning ? 2 : 0)
@@ -106,6 +108,9 @@ export class Match {
     i[12] = w.stun[0]; i[13] = w.stun[1]
     i[14] = w.superFrames; i[15] = w.superOwner
     i[16] = w.prevUp[0]; i[17] = w.prevUp[1]
+    i[18] = w.prevSpecial[0]; i[19] = w.prevSpecial[1]
+    i[20] = w.prevPush[0]; i[21] = w.prevPush[1]
+    i[22] = w.pushCd[0]; i[23] = w.pushCd[1]
   }
 
   restore(s: MatchState) {
@@ -116,9 +121,13 @@ export class Match {
     w.ballX = f[12]; w.ballY = f[13]; w.ballVX = f[14]; w.ballVY = f[15]
     w.ballRot = f[16]; w.ballAngVel = f[17]
     w.charge[0] = f[18]; w.charge[1] = f[19]
+    w.knock[0] = f[20]; w.knock[1] = f[21]
     w.stun[0] = i[12]; w.stun[1] = i[13]
     w.superFrames = i[14]; w.superOwner = i[15]
     w.prevUp[0] = i[16]; w.prevUp[1] = i[17]
+    w.prevSpecial[0] = i[18]; w.prevSpecial[1] = i[19]
+    w.prevPush[0] = i[20]; w.prevPush[1] = i[21]
+    w.pushCd[0] = i[22]; w.pushCd[1] = i[23]
     g.scores[0] = i[0]; g.scores[1] = i[1]; g.touches[0] = i[2]; g.touches[1] = i[3]
     g.squish[0] = i[4]; g.squish[1] = i[5]; g.squishWall = i[6]; g.squishGround = i[7]
     g.servingPlayer = i[8] as SideOrNone
@@ -126,6 +135,18 @@ export class Match {
     g.winner = i[10] as SideOrNone
     this.frame = i[11]
     g.lastError = NO_PLAYER
+  }
+
+  /** Especial na cara do adversário valendo o jogo: acabou. */
+  private tryFatality(victim: Side) {
+    const g = this.logic
+    if (g.winner !== NO_PLAYER || !g.isBallValid) return
+    const killer = victim === LEFT ? RIGHT : LEFT
+    const l = killer === LEFT ? g.scores[LEFT] + 1 : g.scores[LEFT]
+    const r = killer === RIGHT ? g.scores[RIGHT] + 1 : g.scores[RIGHT]
+    if (!g.rules.isWinning(l, r, g.scoreToWin)) return
+    g.mistake(victim, killer, 1)
+    this.events.push({ event: Ev.FATALITY, side: killer, intensity: 1 })
   }
 
   private scratch = allocState()

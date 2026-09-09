@@ -6,6 +6,9 @@ import {
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
+  SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
+  SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
+  PUSH_REACH_X, PUSH_REACH_Y, PUSH_FORCE, PUSH_POP, PUSH_CD,
 } from './constants.ts'
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
@@ -14,14 +17,14 @@ import { NO_INPUT } from './input.ts'
 import type { PlayerInput } from './input.ts'
 
 export class PhysicWorld {
-  blobX = [200, 600]
+  blobX = [NET_POSITION_X * 0.5, NET_POSITION_X * 1.5]
   blobY = [GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT]
   blobVX = [0, 0]
   blobVY = [0, 0]
   blobState = [0, 0]
   animSpeed = [0, 0]
 
-  ballX = 200
+  ballX = NET_POSITION_X * 0.5
   ballY = STANDARD_BALL_HEIGHT
   ballVX = 0
   ballVY = 0
@@ -30,7 +33,11 @@ export class PhysicWorld {
 
   charge = [0, 0]
   stun = [0, 0]
+  knock = [0, 0]
   prevUp = [0, 0]
+  prevSpecial = [0, 0]
+  prevPush = [0, 0]
+  pushCd = [0, 0]
   superFrames = 0
   superOwner = -1
 
@@ -45,25 +52,89 @@ export class PhysicWorld {
     }
   }
 
-  /** Pulo de novo no ar, com a barra cheia e a bola por perto: manda com tudo no ângulo da batida. */
+  /** A bola do especial pesa mais: é o que a faz cair no campo do outro em vez de planar. */
+  private ballG() {
+    return this.superFrames > 0 ? BALL_GRAVITATION * SPECIAL_GRAVITY_MUL : BALL_GRAVITATION
+  }
+
+  /** A parábola passa por cima da rede em toda a faixa de colisão dela? */
+  private clearsNet(vx: number, vy: number) {
+    const band = BALL_RADIUS + NET_RADIUS + 4
+    const ceiling = NET_SPHERE_POSITION - SPECIAL_NET_CLEARANCE
+    const g = BALL_GRAVITATION * SPECIAL_GRAVITY_MUL
+    for (let k = -1; k <= 1; k++) {
+      const t = (NET_POSITION_X + k * band - this.ballX) / vx
+      if (t <= 0) continue
+      if (this.ballY + vy * t + 0.5 * g * t * t > ceiling) return false
+    }
+    return true
+  }
+
+  /**
+   * Mira do especial: alvo fundo no campo adversário, e o menor tempo de voo que
+   * ainda passa da rede dentro do teto de velocidade. Menor tempo = bola mais rápida.
+   */
+  private aimSpecial(p: Side) {
+    const dir = p === LEFT ? 1 : -1
+    const ty = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+    const tx = p === LEFT
+      ? NET_POSITION_X + (RIGHT_PLANE - NET_POSITION_X) * SPECIAL_TARGET_DEPTH
+      : NET_POSITION_X - (NET_POSITION_X - LEFT_PLANE) * SPECIAL_TARGET_DEPTH
+
+    if (dir * (tx - this.ballX) < 60) {
+      this.ballVX = dir * SPECIAL_VELOCITY * 0.25
+      this.ballVY = SPECIAL_VELOCITY * 0.97
+      return
+    }
+
+    const max2 = SPECIAL_VELOCITY * SPECIAL_VELOCITY
+    const g = BALL_GRAVITATION * SPECIAL_GRAVITY_MUL
+    for (let i = 0; i < SPECIAL_TIME_STEPS; i++) {
+      const t = SPECIAL_TIME_MIN + i * SPECIAL_TIME_STEP
+      const vx = (tx - this.ballX) / t
+      const vy = (ty - this.ballY) / t - 0.5 * g * t
+      if (vx * vx + vy * vy > max2) continue
+      if (!this.clearsNet(vx, vy)) continue
+      this.ballVX = vx
+      this.ballVY = vy
+      return
+    }
+
+    this.ballVX = dir * SPECIAL_VELOCITY * 0.5
+    this.ballVY = -SPECIAL_VELOCITY * 0.866
+  }
+
+  /** Empurrão: encostou perto do adversário e apertou, ele voa pra trás. */
+  private tryPush(p: Side, raw: PlayerInput, out: MatchEvent[]) {
+    if (!raw.push || this.prevPush[p] !== 0) return
+    if (this.pushCd[p] > 0 || this.stun[p] > 0) return
+    this.pushCd[p] = PUSH_CD
+    const o: Side = p === LEFT ? RIGHT : LEFT
+    const dx = this.blobX[o] - this.blobX[p]
+    const dy = this.blobY[o] - this.blobY[p]
+    if (Math.abs(dx) > PUSH_REACH_X || Math.abs(dy) > PUSH_REACH_Y) {
+      out.push({ event: Ev.PUSH, side: p, intensity: 0 })
+      return
+    }
+    this.knock[o] += (p === LEFT ? 1 : -1) * PUSH_FORCE
+    if (this.blobVY[o] > PUSH_POP) this.blobVY[o] = PUSH_POP
+    out.push({ event: Ev.PUSH_HIT, side: p, intensity: 1 })
+  }
+
+  /** Barra cheia e bola por perto: pulo de novo no ar, ou a tecla de especial. */
   private trySpecial(p: Side, raw: PlayerInput, isBallValid: boolean, wasGround: boolean, out: MatchEvent[]) {
     if (!isBallValid || this.stun[p] > 0) return
     if (this.charge[p] < SPECIAL_FULL) return
-    if (!raw.up || this.prevUp[p] === 1) return
+    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
+    if (!pressed) return
     if (wasGround) return
 
-    const cx = this.blobX[p]
-    const cy = this.blobY[p] - BLOBBY_UPPER_SPHERE
-    let nx = this.ballX - cx
-    let ny = this.ballY - cy
-    const d = Math.sqrt(nx * nx + ny * ny)
-    if (d > SPECIAL_REACH) return
+    const nx = this.ballX - this.blobX[p]
+    const ny = this.ballY - (this.blobY[p] - BLOBBY_UPPER_SPHERE)
+    if (Math.sqrt(nx * nx + ny * ny) > SPECIAL_REACH) return
 
-    const l = d || 1
-    nx /= l; ny /= l
     this.charge[p] = 0
-    this.ballVX = nx * SPECIAL_VELOCITY
-    this.ballVY = ny * SPECIAL_VELOCITY
+    this.aimSpecial(p)
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
@@ -102,7 +173,11 @@ export class PhysicWorld {
 
     this.blobVX[p] = (input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)
 
-    this.blobX[p] += this.blobVX[p]
+    this.blobX[p] += this.blobVX[p] + this.knock[p]
+    if (this.knock[p] !== 0) {
+      this.knock[p] *= KNOCK_DECAY
+      if (Math.abs(this.knock[p]) < 0.05) this.knock[p] = 0
+    }
     this.blobY[p] += 0.5 * g + this.blobVY[p]
     this.blobVY[p] += g
 
@@ -119,6 +194,9 @@ export class PhysicWorld {
     if (this.bottomBallCollision(p)) cy += BLOBBY_LOWER_SPHERE
     else if (this.topBallCollision(p)) cy -= BLOBBY_UPPER_SPHERE
     else return false
+
+    // quem soltou o especial não reencosta na bola enquanto ela sai de perto
+    if (this.superOwner === p && this.superFrames > SPECIAL_BALL_FRAMES - 12) return false
 
     const rx = this.ballVX - this.blobVX[p]
     const ry = this.ballVY - this.blobVY[p]
@@ -139,6 +217,8 @@ export class PhysicWorld {
     if (this.superFrames > 0) {
       if (this.superOwner !== p) {
         this.stun[p] = STUN_FRAMES
+        this.knock[p] = (p === LEFT ? -1 : 1) * SPECIAL_KNOCKBACK
+        this.blobVY[p] = SPECIAL_POP
         out.push({ event: Ev.SPECIAL_HIT, side: p, intensity: 1 })
       }
       this.superFrames = 0
@@ -149,6 +229,11 @@ export class PhysicWorld {
 
   private handleBallWorldCollisions(out: MatchEvent[]) {
     if (this.ballY + BALL_RADIUS > GROUND_PLANE_HEIGHT_MAX) {
+      if (this.superFrames > 0) {
+        this.superFrames = 0
+        this.superOwner = -1
+        out.push({ event: Ev.SPECIAL_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 1 })
+      }
       this.ballVY = -this.ballVY * 0.95
       this.ballVX *= 0.95
       this.ballY = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
@@ -197,6 +282,8 @@ export class PhysicWorld {
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
     if (this.superFrames > 0 && --this.superFrames === 0) this.superOwner = -1
+    if (this.pushCd[LEFT] > 0) this.pushCd[LEFT]--
+    if (this.pushCd[RIGHT] > 0) this.pushCd[RIGHT]--
 
     const el = this.stun[LEFT] > 0 ? NO_INPUT : li
     const er = this.stun[RIGHT] > 0 ? NO_INPUT : ri
@@ -207,9 +294,10 @@ export class PhysicWorld {
     this.handleBlob(RIGHT, er)
 
     if (isGameRunning) {
+      const g = this.ballG()
       this.ballX += this.ballVX
-      this.ballY += 0.5 * BALL_GRAVITATION + this.ballVY
-      this.ballVY += BALL_GRAVITATION
+      this.ballY += 0.5 * g + this.ballVY
+      this.ballVY += g
       this.addCharge(LEFT, SPECIAL_GAIN_FRAME, out)
       this.addCharge(RIGHT, SPECIAL_GAIN_FRAME, out)
     }
@@ -221,8 +309,14 @@ export class PhysicWorld {
 
     this.trySpecial(LEFT, li, isBallValid, groundL, out)
     this.trySpecial(RIGHT, ri, isBallValid, groundR, out)
+    this.tryPush(LEFT, li, out)
+    this.tryPush(RIGHT, ri, out)
     this.prevUp[LEFT] = li.up ? 1 : 0
     this.prevUp[RIGHT] = ri.up ? 1 : 0
+    this.prevSpecial[LEFT] = li.special ? 1 : 0
+    this.prevSpecial[RIGHT] = ri.special ? 1 : 0
+    this.prevPush[LEFT] = li.push ? 1 : 0
+    this.prevPush[RIGHT] = ri.push ? 1 : 0
 
     this.handleBallWorldCollisions(out)
 
@@ -243,9 +337,9 @@ export class PhysicWorld {
   }
 
   resetBall(side: number) {
-    if (side === LEFT) { this.ballX = 200; this.ballY = STANDARD_BALL_HEIGHT }
-    else if (side === RIGHT) { this.ballX = 600; this.ballY = STANDARD_BALL_HEIGHT }
-    else { this.ballX = 400; this.ballY = 450 }
+    if (side === LEFT) { this.ballX = NET_POSITION_X * 0.5; this.ballY = STANDARD_BALL_HEIGHT }
+    else if (side === RIGHT) { this.ballX = NET_POSITION_X * 1.5; this.ballY = STANDARD_BALL_HEIGHT }
+    else { this.ballX = NET_POSITION_X; this.ballY = 450 }
     this.ballVX = 0; this.ballVY = 0
     this.ballAngVel = (side === RIGHT ? -1 : 1) * STANDARD_BALL_ANGULAR_VELOCITY
     this.superFrames = 0

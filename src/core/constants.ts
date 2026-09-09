@@ -5,7 +5,7 @@ export type Side = 0 | 1
 export type SideOrNone = -1 | 0 | 1
 
 export const LEFT_PLANE = 0
-export const RIGHT_PLANE = 800
+export let RIGHT_PLANE = 800
 
 export const BLOBBY_HEIGHT = 89
 export const BLOBBY_UPPER_SPHERE = 19
@@ -25,7 +25,7 @@ export const BALL_RADIUS = 31.5
 export const BALL_GRAVITATION = 0.287
 export const BALL_COLLISION_VELOCITY = Math.sqrt(0.75 * RIGHT_PLANE * BALL_GRAVITATION)
 
-export const NET_POSITION_X = RIGHT_PLANE / 2
+export let NET_POSITION_X = RIGHT_PLANE / 2
 export const NET_POSITION_Y = 438
 export const NET_RADIUS = 7
 export const NET_SPHERE_POSITION = 284
@@ -45,6 +45,41 @@ export const SPECIAL_REACH = 165
 export const SPECIAL_VELOCITY = BALL_COLLISION_VELOCITY * 2.45
 export const SPECIAL_BALL_FRAMES = 150
 export const STUN_FRAMES = 165
+export const SPECIAL_KNOCKBACK = 11
+export const SPECIAL_POP = -9
+export const KNOCK_DECAY = 0.9
+export const SPECIAL_NET_CLEARANCE = 48
+export const SPECIAL_GRAVITY_MUL = 4.2
+export const SPECIAL_TARGET_DEPTH = 0.72
+export const SPECIAL_TIME_MIN = 10
+export const SPECIAL_TIME_STEP = 1.25
+export const SPECIAL_TIME_STEPS = 30
+
+export const PUSH_REACH_X = 152
+export const PUSH_REACH_Y = 130
+export const PUSH_FORCE = 10
+export const PUSH_POP = -5.5
+export const PUSH_CD = 48
+
+export type ArenaId = 'default' | 'wide'
+
+export const ARENAS: [ArenaId, string, string][] = [
+  ['default', 'Padrão', '800'],
+  ['wide', 'Estendida', '1100'],
+]
+
+export const ARENA_WIDTH: Record<ArenaId, number> = { default: 800, wide: 1100 }
+
+/**
+ * Largura da quadra é global e viva: física, bot e render leem os bindings.
+ * Trocar sempre antes de criar o Match e o renderer — nunca no meio da partida.
+ */
+export function setArena(id: ArenaId) {
+  RIGHT_PLANE = ARENA_WIDTH[id] ?? ARENA_WIDTH.default
+  NET_POSITION_X = RIGHT_PLANE / 2
+}
+
+export const arenaId = (): ArenaId => (RIGHT_PLANE === ARENA_WIDTH.wide ? 'wide' : 'default')
 
 export const TICK_RATE = 60
 export const TICK_MS = 1000 / TICK_RATE

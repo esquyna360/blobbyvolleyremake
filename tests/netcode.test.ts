@@ -15,7 +15,7 @@ function rng(seed: number) {
 }
 
 function randomBits(r: () => number) {
-  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25 })
+  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, push: r() < 0.05 })
 }
 
 test('simulation is deterministic for the same input stream', () => {
@@ -84,8 +84,8 @@ test('rollback never exceeds the configured window', () => {
 
 test('special state survives save/restore', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false }
-  const UP = { left: false, right: false, up: true }
+  const NONE = { left: false, right: false, up: false, special: false, push: false }
+  const UP = { left: false, right: false, up: true, special: false, push: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_FULL
@@ -115,8 +115,8 @@ test('special state survives save/restore', () => {
 
 test('special only fires on a second jump press in the air', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false }
-  const UP = { left: false, right: false, up: true }
+  const NONE = { left: false, right: false, up: false, special: false, push: false }
+  const UP = { left: false, right: false, up: true, special: false, push: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_FULL

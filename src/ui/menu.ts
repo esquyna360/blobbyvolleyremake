@@ -4,6 +4,10 @@ import { VOLUMES } from '../audio/audio.ts'
 import type { VolumeId } from '../audio/audio.ts'
 import type { Difficulty } from '../ai/bot.ts'
 import type { RoomAd } from '../net/lobby.ts'
+import { ARENAS } from '../core/constants.ts'
+import type { ArenaId } from '../core/constants.ts'
+import { leaderboard } from '../net/rank.ts'
+import type { RankRow } from '../net/rank.ts'
 
 export interface GameConfig {
   mode: 'bot' | 'local' | 'online'
@@ -12,11 +16,12 @@ export interface GameConfig {
   scoreToWin: number
   quality: 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
   name: string
+  arena: ArenaId
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
-  scoreToWin: 15, quality: 'high', name: 'Blobby',
+  scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default',
 }
 
 const DIFFS: [Difficulty, string, string][] = [
@@ -130,7 +135,8 @@ export class Menu {
         el('button', { class: 'primary alt', onclick: () => this.online() }, 'ONLINE'),
         el('button', { class: 'center', onclick: () => { cfg.mode = 'local'; this.handlers.onStart(cfg) } },
           '2 jogadores no mesmo teclado')),
-      el('div', { class: 'grid', style: 'margin-top:10px' },
+      el('div', { class: 'grid two', style: 'margin-top:10px' },
+        el('button', { class: 'ghost center', onclick: () => this.ranking() }, 'Ranking'),
         el('button', { class: 'ghost center', onclick: () => this.settings() }, 'Ajustes')),
       el('div', { class: 'hint foot' },
         el('div', {}, el('kbd', { textContent: 'A' }), el('kbd', { textContent: 'D' }), el('kbd', { textContent: 'W' }),
@@ -139,6 +145,29 @@ export class Menu {
         el('div', {}, el('kbd', { textContent: '1' }), el('kbd', { textContent: '2' }), el('kbd', { textContent: '3' }),
           ' emotes  ·  ', el('kbd', { textContent: 'ESC' }), ' pausa')),
     )
+  }
+
+  ranking() {
+    this.currentScreen = () => this.ranking()
+    const list = el('div', { class: 'rank-list' },
+      el('p', { class: 'hint center', textContent: 'carregando…' }))
+    this.panel(
+      this.title('RANKING', 'só partidas online valem pontos'),
+      list,
+      this.back(() => this.main()),
+    )
+    void leaderboard(30).then((rows: RankRow[]) => {
+      clear(list)
+      if (!rows.length) {
+        list.append(el('p', { class: 'hint center', textContent: 'ninguém pontuou ainda. seja o primeiro.' }))
+        return
+      }
+      rows.forEach((r, i) => list.append(el('div', { class: `rank-row${i < 3 ? ' top' : ''}` },
+        el('b', { class: 'pos', textContent: String(i + 1) }),
+        el('span', { class: 'who', textContent: r.name }),
+        el('span', { class: 'wl mono', textContent: `${r.wins}v ${r.losses}d` }),
+        el('b', { class: 'elo mono', textContent: String(r.rating) }))))
+    })
   }
 
   settings() {
@@ -158,6 +187,8 @@ export class Menu {
         cfg.ruleId,
         v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin },
         'grid two'),
+      el('h2', { class: 'sec', textContent: 'Arena' }),
+      this.selector(ARENAS, cfg.arena, v => { cfg.arena = v }, 'grid two'),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
       this.selector(QUALITIES, cfg.quality, v => { cfg.quality = v; this.handlers.onQuality(v) }, 'grid five'),
       el('h2', { class: 'sec', textContent: 'Som' }),

@@ -1,18 +1,24 @@
 import type { PlayerInput } from '../core/input.ts'
 
-export interface Binding { left: string[]; right: string[]; up: string[] }
+export interface Binding { left: string[]; right: string[]; up: string[]; special: string[]; push: string[] }
 
-export const P1: Binding = { left: ['KeyA'], right: ['KeyD'], up: ['KeyW', 'Space'] }
-export const P2: Binding = { left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'] }
+export const P1: Binding = { left: ['KeyA'], right: ['KeyD'], up: ['KeyW', 'Space'], special: ['Space'], push: ['KeyF'] }
+export const P2: Binding = {
+  left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'],
+  special: ['ShiftRight', 'Numpad0'], push: ['Slash', 'Numpad1'],
+}
 export const SOLO: Binding = {
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
   up: ['KeyW', 'ArrowUp', 'Space'],
+  special: ['Space'],
+  push: ['KeyF'],
 }
 
 export class InputManager {
   private keys = new Set<string>()
-  touch: { left: boolean; right: boolean; up: boolean } = { left: false, right: false, up: false }
+  touch: { left: boolean; right: boolean; up: boolean; special: boolean; push: boolean } =
+    { left: false, right: false, up: false, special: false, push: false }
   onPause?: () => void
 
   constructor() {
@@ -34,22 +40,32 @@ export class InputManager {
     const dpadR = gp.buttons[15]?.pressed ?? false
     const jump = (gp.buttons[0]?.pressed ?? false) || (gp.buttons[1]?.pressed ?? false) ||
       (gp.buttons[12]?.pressed ?? false) || (gp.buttons[7]?.pressed ?? false)
-    return { left: dpadL || ax < -0.35, right: dpadR || ax > 0.35, up: jump }
+    const special = (gp.buttons[2]?.pressed ?? false) || (gp.buttons[3]?.pressed ?? false) ||
+      (gp.buttons[5]?.pressed ?? false)
+    const push = (gp.buttons[4]?.pressed ?? false) || (gp.buttons[6]?.pressed ?? false)
+    return { left: dpadL || ax < -0.35, right: dpadR || ax > 0.35, up: jump, special, push }
   }
 
   read(binding: Binding, padIndex = -1, useTouch = false): PlayerInput {
     let left = binding.left.some(k => this.keys.has(k))
     let right = binding.right.some(k => this.keys.has(k))
     let up = binding.up.some(k => this.keys.has(k))
+    let special = binding.special.some(k => this.keys.has(k))
+    let push = binding.push.some(k => this.keys.has(k))
     if (padIndex >= 0) {
       const p = this.pad(padIndex)
-      if (p) { left = left || p.left; right = right || p.right; up = up || p.up }
+      if (p) {
+        left = left || p.left; right = right || p.right; up = up || p.up
+        special = special || p.special; push = push || p.push
+      }
     }
     if (useTouch) {
       left = left || this.touch.left
       right = right || this.touch.right
       up = up || this.touch.up
+      special = special || this.touch.special
+      push = push || this.touch.push
     }
-    return { left, right, up }
+    return { left, right, up, special, push }
   }
 }

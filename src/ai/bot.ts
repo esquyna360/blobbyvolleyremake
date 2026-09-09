@@ -1,7 +1,7 @@
 import {
-  BALL_GRAVITATION, BALL_RADIUS, BLOBBY_LOWER_RADIUS, GROUND_PLANE_HEIGHT,
+  BALL_GRAVITATION, BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
-  NET_SPHERE_POSITION, RIGHT_PLANE,
+  NET_SPHERE_POSITION, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -124,7 +124,33 @@ export class Bot {
 
     if (!onGround && w.blobVY[me] < 0) up = true
 
-    return { left, right, up }
+    return { left, right, up, special: this.wantSpecial(w, me, onGround), push: this.wantPush(w, me) }
+  }
+
+  private specialHeld = false
+  private pushHeld = false
+
+  private wantSpecial(w: Match['world'], me: Side, onGround: boolean) {
+    const ready = w.charge[me] >= SPECIAL_FULL && !onGround && w.stun[me] <= 0
+    const dx = w.ballX - w.blobX[me]
+    const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
+    const near = Math.sqrt(dx * dx + dy * dy) < SPECIAL_REACH * 0.8
+    const want = ready && near && this.rng() < 0.5 + PARAMS[this.diff].smash * 0.5
+    if (!want) { this.specialHeld = false; return false }
+    if (this.specialHeld) return false
+    this.specialHeld = true
+    return true
+  }
+
+  private wantPush(w: Match['world'], me: Side) {
+    const foe = other(me)
+    const want = Math.abs(w.blobX[foe] - w.blobX[me]) < PUSH_REACH_X &&
+      Math.abs(w.blobY[foe] - w.blobY[me]) < PUSH_REACH_Y &&
+      this.rng() < PARAMS[this.diff].smash * 0.06
+    if (!want) { this.pushHeld = false; return false }
+    if (this.pushHeld) return false
+    this.pushHeld = true
+    return true
   }
 
   private jumpNoise() { return PARAMS[this.diff].jumpErr }

@@ -103,5 +103,34 @@ export class Hud {
     setTimeout(() => b.remove(), ms + 450)
   }
 
+  fatality() {
+    const host = this.root.parentElement!
+    host.querySelector('.fatality')?.remove()
+    const drips = el('div', { class: 'fat-drips' })
+    for (let i = 0; i < 16; i++) {
+      const d = el('i')
+      d.style.left = `${Math.random() * 100}%`
+      d.style.width = `${4 + Math.random() * 9}px`
+      d.style.animationDelay = `${Math.random() * 0.7}s`
+      d.style.animationDuration = `${2.4 + Math.random() * 2.2}s`
+      drips.append(d)
+    }
+    const splats = el('div', { class: 'fat-drips' })
+    for (let i = 0; i < 9; i++) {
+      const sp = el('div', { class: 'fat-splat' })
+      const size = 60 + Math.random() * 220
+      sp.style.width = `${size}px`
+      sp.style.height = `${size * (0.6 + Math.random() * 0.6)}px`
+      sp.style.left = `${Math.random() * 90}%`
+      sp.style.top = `${Math.random() * 80}%`
+      sp.style.animationDelay = `${Math.random() * 0.5}s`
+      splats.append(sp)
+    }
+    const node = el('div', { class: 'fatality' }, splats, drips,
+      el('div', { class: 'fat-word', textContent: 'FATALITY' }))
+    host.append(node)
+    setTimeout(() => node.remove(), 4700)
+  }
+
   scoreOf(side: Side) { return this.lastScore[side] }
 }

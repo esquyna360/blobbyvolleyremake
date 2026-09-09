@@ -2,9 +2,11 @@ import { Match } from '../core/match.ts'
 import { Rollback } from './rollback.ts'
 import type { PeerId, Transport } from './transport.ts'
 import { LEFT, RIGHT } from '../core/constants.ts'
+import { setArena, arenaId } from '../core/constants.ts'
+import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 4
+const PROTO = 6
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8,
@@ -42,6 +44,8 @@ export type SessionPhase =
 
 export interface SessionOpts {
   ruleId: string
+  arena: ArenaId
+  onArena?: (id: ArenaId) => void
   scoreToWin?: number
   name: string
   host: boolean
@@ -142,7 +146,7 @@ export class NetSession {
       if (!ok) { this.deny(from, Deny.REJECTED); this.setPhase('waiting'); return }
       this.peer = from
       this.sendWelcome(from)
-      this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side)
+      this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side, this.opts.arena)
     }
     if (this.opts.onJoinRequest) this.opts.onJoinRequest(this.peerName, () => settle(true), () => settle(false))
     else settle(true)
@@ -153,12 +157,13 @@ export class NetSession {
   private sendWelcome(to: PeerId) {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
     const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
-    const buf = new Uint8Array(1 + 1 + 1 + 2 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 1 + nameBytes.length + 1 + ruleBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.WELCOME)
     dv.setUint8(o++, PROTO)
     dv.setUint8(o++, this.seed & 1)
+    dv.setUint8(o++, this.opts.arena === 'wide' ? 1 : 0)
     dv.setUint16(o, this.scoreToWin()); o += 2
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
     dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o)
@@ -170,6 +175,7 @@ export class NetSession {
     if (dv.getUint8(1) !== PROTO) { this.setPhase('closed', DENY_TEXT[Deny.PROTO]); return }
     let o = 2
     const serving = dv.getUint8(o++) as Side
+    const arena: ArenaId = dv.getUint8(o++) === 1 ? 'wide' : 'default'
     const stw = dv.getUint16(o); o += 2
     const nl = dv.getUint8(o++)
     this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)) || 'Player'; o += nl
@@ -177,10 +183,11 @@ export class NetSession {
     const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl))
     this.peer = from
     clearInterval(this.helloTimer)
-    this.begin(ruleId, stw, serving)
+    this.begin(ruleId, stw, serving, arena)
   }
 
-  private begin(ruleId: string, stw: number, serving: Side) {
+  private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId) {
+    if (arenaId() !== arena) { setArena(arena); this.opts.onArena?.(arena) }
     this.match = new Match(ruleId, stw || undefined, serving)
     this.rollback = new Rollback(this.match, this.localSide)
     clearInterval(this.helloTimer)
