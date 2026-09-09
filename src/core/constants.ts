@@ -38,6 +38,14 @@ export const BLOBBY_ANIMATION_SPEED = 0.5
 export const SQUISH_TOLERANCE = 11
 export const DEFAULT_SCORE_TO_WIN = 15
 
+export const SPECIAL_FULL = 1
+export const SPECIAL_GAIN_TOUCH = 0.11
+export const SPECIAL_GAIN_FRAME = 0.0009
+export const SPECIAL_REACH = 165
+export const SPECIAL_VELOCITY = BALL_COLLISION_VELOCITY * 2.45
+export const SPECIAL_BALL_FRAMES = 150
+export const STUN_FRAMES = 165
+
 export const TICK_RATE = 60
 export const TICK_MS = 1000 / TICK_RATE
 

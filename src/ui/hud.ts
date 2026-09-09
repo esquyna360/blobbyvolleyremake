@@ -15,6 +15,10 @@ export class Hud {
   private touchesR: HTMLElement[] = []
   private netbar: HTMLElement
   private lastScore = [-1, -1]
+  private barL!: HTMLElement
+  private barR!: HTMLElement
+  private fillL!: HTMLElement
+  private fillR!: HTMLElement
 
   constructor(parent: HTMLElement) {
     this.ptsL = el('span', { class: 'pts', textContent: '0' })
@@ -27,10 +31,15 @@ export class Hud {
     for (let i = 0; i < 3; i++) this.touchesL.push(el('i'))
     for (let i = 0; i < 3; i++) this.touchesR.push(el('i'))
 
+    this.fillL = el('i')
+    this.fillR = el('i')
+    this.barL = el('div', { class: 'charge' }, this.fillL)
+    this.barR = el('div', { class: 'charge' }, this.fillR)
+
     const left = el('div', { class: 'side l' }, this.nameL, this.ptsL,
-      el('div', { class: 'touches' }, ...this.touchesL))
+      el('div', { class: 'touches' }, ...this.touchesL), this.barL)
     const right = el('div', { class: 'side r' }, this.nameR, this.ptsR,
-      el('div', { class: 'touches' }, ...this.touchesR))
+      el('div', { class: 'touches' }, ...this.touchesR), this.barR)
     const mid = el('div', { class: 'mid' },
       el('span', { class: 'sep', textContent: '—' }),
       el('div', { class: 'serve-dots' }, ...this.dots),
@@ -46,7 +55,17 @@ export class Hud {
   setNames(l: string, r: string) { this.nameL.textContent = l; this.nameR.textContent = r }
   setRule(name: string, stw: number) { this.ruleEl.textContent = `${name} · ${stw}` }
 
-  update(scores: number[], touches: number[], serving: number) {
+  update(scores: number[], touches: number[], serving: number, charge?: number[], stun?: number[]) {
+    if (charge) {
+      this.fillL.style.width = `${Math.round(charge[0] * 100)}%`
+      this.fillR.style.width = `${Math.round(charge[1] * 100)}%`
+      this.barL.classList.toggle('ready', charge[0] >= 1)
+      this.barR.classList.toggle('ready', charge[1] >= 1)
+    }
+    if (stun) {
+      this.barL.classList.toggle('stunned', stun[0] > 0)
+      this.barR.classList.toggle('stunned', stun[1] > 0)
+    }
     for (const [i, node] of [[0, this.ptsL], [1, this.ptsR]] as [number, HTMLElement][]) {
       if (scores[i] !== this.lastScore[i]) {
         node.textContent = String(scores[i])

@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Match } from '../src/core/match.ts'
+import { Match, allocState } from '../src/core/match.ts'
+import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
-import { LEFT, RIGHT } from '../src/core/constants.ts'
+import { LEFT, RIGHT, SPECIAL_FULL } from '../src/core/constants.ts'
 import { packInput, unpackInput } from '../src/core/input.ts'
 
 function rng(seed: number) {
@@ -79,4 +80,52 @@ test('rollback never exceeds the configured window', () => {
   const { A, B } = runPair(6, 99, 1800)
   assert.ok(A.stats.maxRollback <= 12 * 3, `rollback too deep: ${A.stats.maxRollback}`)
   assert.ok(B.stats.maxRollback <= 12 * 3, `rollback too deep: ${B.stats.maxRollback}`)
+})
+
+test('special state survives save/restore', () => {
+  const m = new Match('default', 15, LEFT)
+  const NONE = { left: false, right: false, up: false }
+  const UP = { left: false, right: false, up: true }
+  for (let f = 0; f < 40; f++) m.step(NONE, NONE)
+
+  m.world.charge[LEFT] = SPECIAL_FULL
+  m.world.ballX = m.world.blobX[LEFT]
+  m.world.ballY = m.world.blobY[LEFT] - 120
+  m.world.ballVX = 0
+  m.world.ballVY = 0
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+
+  m.step(UP, NONE)
+  m.step(NONE, NONE)
+  m.world.ballX = m.world.blobX[LEFT] + 30
+  m.world.ballY = m.world.blobY[LEFT] - 110
+  m.step(UP, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), true)
+  assert.equal(m.world.superFrames > 0, true)
+
+  const s = allocState()
+  m.save(s)
+  const before = m.checksum()
+  for (let f = 0; f < 10; f++) m.step(NONE, UP)
+  m.restore(s)
+  assert.equal(m.checksum(), before)
+  assert.equal(m.world.superOwner, LEFT)
+})
+
+test('special only fires on a second jump press in the air', () => {
+  const m = new Match('default', 15, LEFT)
+  const NONE = { left: false, right: false, up: false }
+  const UP = { left: false, right: false, up: true }
+  for (let f = 0; f < 40; f++) m.step(NONE, NONE)
+
+  m.world.charge[LEFT] = SPECIAL_FULL
+  m.world.ballX = m.world.blobX[LEFT] + 30
+  m.world.ballY = m.world.blobY[LEFT] - 110
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+
+  m.step(UP, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false)
+  assert.equal(m.world.charge[LEFT], SPECIAL_FULL)
 })

@@ -21,6 +21,7 @@ import { createScenery } from './scenery.ts'
 import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
+import { emoteAt } from '../core/emote.ts'
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
@@ -28,6 +29,7 @@ export interface GameRenderer {
   onEvents(match: Match, events: MatchEvent[]): void
   render(match: Match, alpha: number, dt: number): void
   celebrate(side: Side): void
+  emote(side: Side, id: number): void
   dispose(): void
 }
 
@@ -100,6 +102,34 @@ interface BlobAnim {
   flash: number
 }
 
+interface EmotePop {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+  life: number
+  max: number
+  spin: number
+}
+
+const EMOTE_GEO = new THREE.PlaneGeometry(1, 1)
+
+const emoteTextures = new Map<string, THREE.Texture>()
+
+function emoteTexture(glyph: string): THREE.Texture {
+  const cached = emoteTextures.get(glyph)
+  if (cached) return cached
+  const c = document.createElement('canvas')
+  c.width = c.height = 160
+  const g = c.getContext('2d')!
+  g.font = '124px "Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji",sans-serif'
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillText(glyph, 80, 88)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 4
+  emoteTextures.set(glyph, t)
+  return t
+}
+
 interface Snapshot {
   bx: number; by: number; brot: number
   px: number[]; py: number[]; state: number[]
@@ -137,6 +167,7 @@ export class Stage implements GameRenderer {
   private cur: Snapshot = { bx: 0, by: 0, brot: 0, px: [0, 0], py: [0, 0], state: [0, 0] }
   private ballSpeed = 0
   private sunScreen = new THREE.Vector2(0.5, 0.8)
+  private emotes: EmotePop[] = []
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality
@@ -378,6 +409,65 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           this.flash = Math.max(this.flash, 0.06)
           break
         }
+        case Ev.SPECIAL_READY: {
+          const p = e.side as Side
+          const bx = gx(w.blobX[p]), by = gy(w.blobY[p])
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 90, speed: 2.2, spread: 0.5, up: 1.8,
+            life: 1.1, size: 0.03, color: new THREE.Color(1.0, 0.82, 0.34), drag: 1.6, colorJitter: 0.2,
+          })
+          break
+        }
+        case Ev.SPECIAL_FIRED: {
+          const p = e.side as Side
+          const bx = gx(w.ballX), by = gy(w.ballY)
+          this.trauma = Math.min(1, this.trauma + 0.75)
+          this.hitstop = Math.max(this.hitstop, 0.11)
+          this.aberration = Math.max(this.aberration, 2.2)
+          this.flash = Math.max(this.flash, 0.30)
+          const col = (this.blobs[p].visual.uniforms.uColor.value as THREE.Color)
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 520, speed: 15, spread: 3.14, up: 0.2,
+            life: 0.85, size: 0.05, color: col, drag: 2.0, colorJitter: 0.35,
+          })
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 260, speed: 24, spread: 0.55, up: 0.1,
+            life: 0.45, size: 0.075, color: new THREE.Color(1.0, 0.95, 0.7), drag: 3.0,
+          })
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 140, speed: 5, spread: 3.14, up: 1.4,
+            life: 1.5, size: 0.035, color: new THREE.Color(1.0, 0.76, 0.2), drag: 1.1, colorJitter: 0.25,
+          })
+          this.ball.flash(4.5)
+          const b = this.blobs[p]
+          b.wobble = 1.6
+          b.mouth = 1
+          b.flash = 1
+          b.squashVel -= 3.4
+          break
+        }
+        case Ev.SPECIAL_HIT: {
+          const p = e.side as Side
+          const bx = gx(w.blobX[p]), by = gy(w.blobY[p])
+          this.trauma = Math.min(1, this.trauma + 0.95)
+          this.hitstop = Math.max(this.hitstop, 0.16)
+          this.aberration = Math.max(this.aberration, 3.0)
+          this.flash = Math.max(this.flash, 0.42)
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 460, speed: 17, spread: 3.14, up: 0.6,
+            life: 1.0, size: 0.055, color: new THREE.Color(1.0, 0.35, 0.3), drag: 2.2, colorJitter: 0.4,
+          })
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 200, speed: 7, spread: 3.14, up: 1.9,
+            life: 1.8, size: 0.04, color: new THREE.Color(1.0, 0.92, 0.55), drag: 1.0, colorJitter: 0.3,
+          })
+          const b = this.blobs[p]
+          b.wobble = 2.2
+          b.mouth = 1
+          b.flash = 1
+          b.squashVel -= 5.0
+          break
+        }
       }
     }
   }
@@ -443,6 +533,20 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     // lean into movement
     b.visual.group.rotation.z = THREE.MathUtils.lerp(
       b.visual.group.rotation.z, -vx * 0.028 + (grounded ? 0 : vy * 0.004), 1 - Math.exp(-dt * 12))
+
+    if (world.stun[i] > 0) {
+      b.visual.group.rotation.z += Math.sin(this.time * 9.5) * 0.24
+      b.wobble = Math.max(b.wobble, 0.5 + Math.sin(this.time * 17) * 0.22)
+      u.uWobbleAmp.value = b.wobble
+      if (Math.random() < dt * 30) {
+        const a = this.time * 3.4 + Math.random() * 6.283
+        this.particles.burst({
+          x: wx + Math.cos(a) * 0.8, y: wy + 1.4 + Math.sin(a * 2) * 0.14, z: Math.sin(a) * 0.55,
+          count: 1, speed: 0.3, spread: 1.2, up: 0.5, life: 0.8, size: 0.05,
+          color: new THREE.Color(1.0, 0.88, 0.32), drag: 1.2,
+        })
+      }
+    }
 
     // eyes track the ball
     const bx = gx(THREE.MathUtils.lerp(p.bx, c.bx, alpha))
@@ -516,9 +620,26 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.ball.update(dt, this.ballSpeed)
     this.ball.flash(Math.max(0, (this.ball.mesh.material as THREE.MeshPhysicalMaterial).emissiveIntensity - dt * 4))
 
+    if (match.world.superFrames > 0) {
+      const owner = match.world.superOwner
+      const col = owner >= 0
+        ? (this.blobs[owner as Side].visual.uniforms.uColor.value as THREE.Color)
+        : new THREE.Color(1.0, 0.7, 0.2)
+      this.ball.flash(2.6 + Math.sin(this.time * 30) * 0.6)
+      this.particles.burst({
+        x: bx, y: by, z: 0, count: 14, speed: 1.6, spread: 3.14, up: 0.3,
+        life: 0.5, size: 0.055, color: col, drag: 3.4, colorJitter: 0.35,
+      })
+      this.particles.burst({
+        x: bx, y: by, z: 0, count: 6, speed: 0.7, spread: 3.14, up: 0.9,
+        life: 0.85, size: 0.038, color: new THREE.Color(1.0, 0.9, 0.5), drag: 2.0,
+      })
+    }
+
     this.updateBlob(LEFT, alpha, dt, match)
     this.updateBlob(RIGHT, alpha, dt, match)
 
+    this.updateEmotes(dt)
     this.net.update(dt)
     this.terrain.update(dt)
     this.scenery.update(this.time, dt)
@@ -555,6 +676,52 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     }
   }
 
+  emote(side: Side, id: number) {
+    const def = emoteAt(id)
+    const b = this.blobs[side]
+    const base = b.visual.group.position
+    const mat = new THREE.MeshBasicMaterial({
+      map: emoteTexture(def.glyph), transparent: true, depthTest: false, depthWrite: false,
+      toneMapped: false,
+    })
+    const mesh = new THREE.Mesh(EMOTE_GEO, mat)
+    mesh.position.set(base.x, base.y + 1.5, 0.9)
+    mesh.scale.setScalar(0.05)
+    mesh.renderOrder = 40
+    this.scene.add(mesh)
+    this.emotes.push({ mesh, life: 0, max: 1.9, spin: (Math.random() - 0.5) * 1.4 })
+
+    const col = new THREE.Color(def.color)
+    this.particles.burst({
+      x: base.x, y: base.y + 1.1, z: 0.4, count: id === 1 ? 220 : 90,
+      speed: id === 1 ? 4.2 : 2.0, spread: 3.14, up: id === 0 ? -0.5 : 1.0,
+      life: id === 1 ? 2.4 : 1.2, size: 0.05, color: col, drag: 1.5,
+      colorJitter: id === 1 ? 0.6 : 0.2,
+    })
+    b.wobble = Math.max(b.wobble, 1.0)
+    b.squashVel -= id === 1 ? 3.0 : 1.6
+  }
+
+  private updateEmotes(dt: number) {
+    if (!this.emotes.length) return
+    const keep: EmotePop[] = []
+    for (const e of this.emotes) {
+      e.life += dt
+      const t = e.life / e.max
+      if (t >= 1) { this.scene.remove(e.mesh); e.mesh.material.dispose(); continue }
+      const pop = t < 0.16 ? t / 0.16 : 1
+      const ease = 1 - Math.pow(1 - pop, 3)
+      const s = 1.5 * ease * (1 + Math.sin(this.time * 11 + e.spin) * 0.05)
+      e.mesh.scale.setScalar(s)
+      e.mesh.position.y += dt * 0.55
+      e.mesh.position.x += Math.sin(this.time * 3 + e.spin * 4) * dt * 0.25
+      e.mesh.material.opacity = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1
+      e.mesh.rotation.z = Math.sin(this.time * 5 + e.spin * 3) * 0.18
+      keep.push(e)
+    }
+    this.emotes = keep
+  }
+
   celebrate(side: Side) {
     const x = side === LEFT ? -COURT_HALF_W * 0.5 : COURT_HALF_W * 0.5
     for (let k = 0; k < 3; k++) {
@@ -569,6 +736,8 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   dispose() {
+    for (const e of this.emotes) { this.scene.remove(e.mesh); e.mesh.material.dispose() }
+    this.emotes.length = 0
     this.scene.traverse(o => {
       const m = o as THREE.Mesh
       m.geometry?.dispose()

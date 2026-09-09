@@ -7,8 +7,8 @@ import type { RuleSet } from './logic.ts'
 import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
-export const STATE_FLOATS = 20
-export const STATE_INTS = 12
+export const STATE_FLOATS = 22
+export const STATE_INTS = 18
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -64,7 +64,8 @@ export class Match {
     for (let k = 0; k < this.events.length; k++) {
       const e = this.events[k]
       switch (e.event) {
-        case Ev.BALL_HIT_BLOB: g.onBallHitsPlayer(e.side as Side); break
+        case Ev.BALL_HIT_BLOB:
+        case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
           g.onBallHitsGround(e.side as Side)
           if (!g.isBallValid) { w.ballVX *= 0.6; w.ballVY *= 0.6 }
@@ -97,10 +98,14 @@ export class Match {
     f[8] = w.blobState[0]; f[9] = w.blobState[1]; f[10] = w.animSpeed[0]; f[11] = w.animSpeed[1]
     f[12] = w.ballX; f[13] = w.ballY; f[14] = w.ballVX; f[15] = w.ballVY
     f[16] = w.ballRot; f[17] = w.ballAngVel
+    f[18] = w.charge[0]; f[19] = w.charge[1]
     i[0] = g.scores[0]; i[1] = g.scores[1]; i[2] = g.touches[0]; i[3] = g.touches[1]
     i[4] = g.squish[0]; i[5] = g.squish[1]; i[6] = g.squishWall; i[7] = g.squishGround
     i[8] = g.servingPlayer; i[9] = (g.isBallValid ? 1 : 0) | (g.isGameRunning ? 2 : 0)
     i[10] = g.winner; i[11] = this.frame
+    i[12] = w.stun[0]; i[13] = w.stun[1]
+    i[14] = w.superFrames; i[15] = w.superOwner
+    i[16] = w.prevUp[0]; i[17] = w.prevUp[1]
   }
 
   restore(s: MatchState) {
@@ -110,6 +115,10 @@ export class Match {
     w.blobState[0] = f[8]; w.blobState[1] = f[9]; w.animSpeed[0] = f[10]; w.animSpeed[1] = f[11]
     w.ballX = f[12]; w.ballY = f[13]; w.ballVX = f[14]; w.ballVY = f[15]
     w.ballRot = f[16]; w.ballAngVel = f[17]
+    w.charge[0] = f[18]; w.charge[1] = f[19]
+    w.stun[0] = i[12]; w.stun[1] = i[13]
+    w.superFrames = i[14]; w.superOwner = i[15]
+    w.prevUp[0] = i[16]; w.prevUp[1] = i[17]
     g.scores[0] = i[0]; g.scores[1] = i[1]; g.touches[0] = i[2]; g.touches[1] = i[3]
     g.squish[0] = i[4]; g.squish[1] = i[5]; g.squishWall = i[6]; g.squishGround = i[7]
     g.servingPlayer = i[8] as SideOrNone

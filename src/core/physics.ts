@@ -4,11 +4,13 @@ import {
   BLOBBY_SPEED, BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, GRAVITATION,
   GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
-  STANDARD_BALL_HEIGHT,
+  STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
+  SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
 } from './constants.ts'
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
+import { NO_INPUT } from './input.ts'
 import type { PlayerInput } from './input.ts'
 
 export class PhysicWorld {
@@ -26,7 +28,46 @@ export class PhysicWorld {
   ballRot = 0
   ballAngVel = STANDARD_BALL_ANGULAR_VELOCITY
 
+  charge = [0, 0]
+  stun = [0, 0]
+  prevUp = [0, 0]
+  superFrames = 0
+  superOwner = -1
+
   blobHitGround(p: Side) { return this.blobY[p] >= GROUND_PLANE_HEIGHT }
+
+  private addCharge(p: Side, amount: number, out: MatchEvent[]) {
+    if (this.charge[p] >= SPECIAL_FULL) return
+    this.charge[p] += amount
+    if (this.charge[p] >= SPECIAL_FULL) {
+      this.charge[p] = SPECIAL_FULL
+      out.push({ event: Ev.SPECIAL_READY, side: p, intensity: 1 })
+    }
+  }
+
+  /** Pulo de novo no ar, com a barra cheia e a bola por perto: manda com tudo no ângulo da batida. */
+  private trySpecial(p: Side, raw: PlayerInput, isBallValid: boolean, wasGround: boolean, out: MatchEvent[]) {
+    if (!isBallValid || this.stun[p] > 0) return
+    if (this.charge[p] < SPECIAL_FULL) return
+    if (!raw.up || this.prevUp[p] === 1) return
+    if (wasGround) return
+
+    const cx = this.blobX[p]
+    const cy = this.blobY[p] - BLOBBY_UPPER_SPHERE
+    let nx = this.ballX - cx
+    let ny = this.ballY - cy
+    const d = Math.sqrt(nx * nx + ny * ny)
+    if (d > SPECIAL_REACH) return
+
+    const l = d || 1
+    nx /= l; ny /= l
+    this.charge[p] = 0
+    this.ballVX = nx * SPECIAL_VELOCITY
+    this.ballVY = ny * SPECIAL_VELOCITY
+    this.superFrames = SPECIAL_BALL_FRAMES
+    this.superOwner = p
+    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
+  }
 
   private topBallCollision(p: Side) {
     const dx = this.ballX - this.blobX[p]
@@ -93,6 +134,16 @@ export class PhysicWorld {
     this.ballY += this.ballVY
 
     out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity })
+    this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
+
+    if (this.superFrames > 0) {
+      if (this.superOwner !== p) {
+        this.stun[p] = STUN_FRAMES
+        out.push({ event: Ev.SPECIAL_HIT, side: p, intensity: 1 })
+      }
+      this.superFrames = 0
+      this.superOwner = -1
+    }
     return true
   }
 
@@ -143,19 +194,35 @@ export class PhysicWorld {
   }
 
   step(li: PlayerInput, ri: PlayerInput, isBallValid: boolean, isGameRunning: boolean, out: MatchEvent[]) {
-    this.handleBlob(LEFT, li)
-    this.handleBlob(RIGHT, ri)
+    if (this.stun[LEFT] > 0) this.stun[LEFT]--
+    if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
+    if (this.superFrames > 0 && --this.superFrames === 0) this.superOwner = -1
+
+    const el = this.stun[LEFT] > 0 ? NO_INPUT : li
+    const er = this.stun[RIGHT] > 0 ? NO_INPUT : ri
+    const groundL = this.blobHitGround(LEFT)
+    const groundR = this.blobHitGround(RIGHT)
+
+    this.handleBlob(LEFT, el)
+    this.handleBlob(RIGHT, er)
 
     if (isGameRunning) {
       this.ballX += this.ballVX
       this.ballY += 0.5 * BALL_GRAVITATION + this.ballVY
       this.ballVY += BALL_GRAVITATION
+      this.addCharge(LEFT, SPECIAL_GAIN_FRAME, out)
+      this.addCharge(RIGHT, SPECIAL_GAIN_FRAME, out)
     }
 
     if (isBallValid) {
       this.handleBlobBallCollision(LEFT, out)
       this.handleBlobBallCollision(RIGHT, out)
     }
+
+    this.trySpecial(LEFT, li, isBallValid, groundL, out)
+    this.trySpecial(RIGHT, ri, isBallValid, groundR, out)
+    this.prevUp[LEFT] = li.up ? 1 : 0
+    this.prevUp[RIGHT] = ri.up ? 1 : 0
 
     this.handleBallWorldCollisions(out)
 
@@ -181,5 +248,8 @@ export class PhysicWorld {
     else { this.ballX = 400; this.ballY = 450 }
     this.ballVX = 0; this.ballVY = 0
     this.ballAngVel = (side === RIGHT ? -1 : 1) * STANDARD_BALL_ANGULAR_VELOCITY
+    this.superFrames = 0
+    this.superOwner = -1
+    this.stun[LEFT] = 0; this.stun[RIGHT] = 0
   }
 }

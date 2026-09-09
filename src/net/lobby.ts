@@ -7,6 +7,7 @@ export interface RoomAd {
   code: string
   name: string
   rule: string
+  lock: number
   ts: number
   [k: string]: string | number
 }
@@ -38,7 +39,7 @@ export class Lobby {
     }
   }
 
-  advertise(ad: { code: string; name: string; rule: string } | null) {
+  advertise(ad: { code: string; name: string; rule: string; lock: number } | null) {
     this.mine = ad ? { ...ad, ts: Date.now() } : null
     if (!ad) {
       this.scheduleClose()

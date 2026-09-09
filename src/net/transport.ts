@@ -70,7 +70,7 @@ export async function relayHealth(): Promise<{ open: number; total: number }> {
 
 export interface Transport {
   readonly kind: string
-  send(data: Uint8Array): void
+  send(data: Uint8Array, to?: PeerId): void
   onData(cb: (data: Uint8Array, peer: PeerId) => void): void
   onPeerJoin(cb: (peer: PeerId) => void): void
   onPeerLeave(cb: (peer: PeerId) => void): void
@@ -104,7 +104,7 @@ export async function createRoomTransport(roomId: string, strategy: 'nostr' | 't
 
   return {
     kind: `room:${strategy}`,
-    send: d => { void sendRaw(d) },
+    send: (d, to) => { void (to ? sendRaw(d, to) : sendRaw(d)) },
     onData: cb => dataCbs.push(cb),
     onPeerJoin: cb => joinCbs.push(cb),
     onPeerLeave: cb => leaveCbs.push(cb),

@@ -319,6 +319,27 @@ export class GameAudio {
     this.bell(659.25, 0, 0.5, 0.05)
   }
 
+  emote(id: number) {
+    if (!this.ctx) return
+    if (id === 0) { this.bell(392.0, 0, 0.6, 0.075); this.bell(293.66, 0.14, 0.9, 0.06) }
+    else if (id === 1) [523.25, 659.25, 880].forEach((f, i) => this.bell(f, i * 0.08, 0.6, 0.085))
+    else { this.thump(660, 0.55, 0.09, 0.07, 'square'); this.thump(880, 0.5, 0.09, 0.055, 'square') }
+  }
+
+  special(kind: 'ready' | 'fired' | 'hit', pan = 0) {
+    if (!this.ctx) return
+    if (kind === 'ready') { this.bell(880, 0, 0.5, 0.07); this.bell(1174.7, 0.09, 0.6, 0.055) }
+    else if (kind === 'fired') {
+      this.thump(240, 0.25, 0.28, 0.30, 'sawtooth')
+      this.burst(0.10, 0.16, 'bandpass', 1800, 1.2, pan)
+      this.bell(1318.5, 0.02, 0.5, 0.07)
+    } else {
+      this.thump(70, 0.5, 0.55, 0.34, 'sine')
+      this.burst(0.35, 0.20, 'lowpass', 900, 0.7, pan)
+      this.bell(196.0, 0.05, 1.1, 0.09)
+    }
+  }
+
   finish(won: boolean) {
     if (!this.ctx) return
     const notes = won ? [523.25, 659.25, 783.99, 1046.5] : [493.88, 415.3, 329.63]
@@ -343,6 +364,9 @@ export class GameAudio {
           this.point(localSide !== e.side)
           break
         case Ev.RESET_BALL: this.serve(); break
+        case Ev.SPECIAL_READY: if (localSide === e.side) this.special('ready'); break
+        case Ev.SPECIAL_FIRED: this.special('fired', ballPan); break
+        case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break
       }
     }
 

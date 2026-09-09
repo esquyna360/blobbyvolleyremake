@@ -14,9 +14,10 @@ import { Hud } from './ui/hud.ts'
 import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
 import type { GameConfig } from './ui/menu.ts'
 import { InputManager, P1, P2, SOLO } from './ui/input.ts'
-import { NetSession } from './net/session.ts'
+import { NetSession, passHash } from './net/session.ts'
 import { createManualTransport, createRoomTransport, ensureIce, hasTurn, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
+import { EMOTES } from './core/emote.ts'
 import { GameAudio } from './audio/audio.ts'
 import { Lobby } from './net/lobby.ts'
 
@@ -75,6 +76,8 @@ class App {
   private lastSend = 0
   private touchEls: HTMLElement | null = null
   private touchMenu: HTMLElement | null = null
+  private touchEmotes: HTMLElement | null = null
+  private emoteAt = [0, 0]
 
   constructor() {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
@@ -91,7 +94,8 @@ class App {
 
     this.menu = new Menu(this.ui, this.cfg, {
       onStart: c => this.startLocal(c),
-      onJoinRoom: (code, c) => void this.joinRoom(code, c),
+      onCreateRoom: (code, pass, c) => void this.openRoom(code, pass, c),
+      onJoinRoom: (code, pass, c) => void this.joinRoom(code, pass, c),
       onManual: (host, c) => this.startManual(host, c),
       onResume: () => this.resume(),
       onQuit: () => this.quitToMenu(),
@@ -109,6 +113,7 @@ class App {
 
     this.buildTouch()
     this.bindAudio()
+    this.bindEmotes()
     addEventListener('resize', () => this.resize())
     this.resize()
 
@@ -185,6 +190,34 @@ class App {
     })
   }
 
+  // ---------- emotes ----------
+
+  private bindEmotes() {
+    const P1_KEYS = ['Digit1', 'Digit2', 'Digit3']
+    const P2_KEYS = ['Digit8', 'Digit9', 'Digit0']
+    addEventListener('keydown', e => {
+      if (e.repeat || e.target instanceof HTMLInputElement) return
+      let id = P1_KEYS.indexOf(e.code)
+      if (id >= 0) { this.sendEmote(this.session || this.bot ? this.localSide : LEFT, id); return }
+      id = P2_KEYS.indexOf(e.code)
+      if (id >= 0 && !this.session && !this.bot) this.sendEmote(RIGHT, id)
+    })
+  }
+
+  sendEmote(side: Side, id: number) {
+    if (this.phase !== 'playing' && this.phase !== 'over') return
+    const now = performance.now()
+    if (now - this.emoteAt[side] < 700) return
+    this.emoteAt[side] = now
+    if (this.session && side === this.localSide) { this.session.emote(id); return }
+    this.playEmote(side, id)
+  }
+
+  private playEmote(side: Side, id: number) {
+    this.stage.emote(side, id)
+    this.audio.emote(id)
+  }
+
   private buildTouch() {
     if (!isTouch) return
     const mk = (label: string, key: 'left' | 'right' | 'up', big = false) => {
@@ -213,12 +246,26 @@ class App {
     menu.addEventListener('click', openMenu)
     this.touchMenu = menu
 
-    this.ui.append(this.touchEls, menu)
+    const emotes = el('div', { class: 'temotes' })
+    EMOTES.forEach((def, id) => {
+      const b = el('div', { class: 'tem', textContent: def.glyph })
+      const fire = (e: Event) => {
+        e.preventDefault()
+        this.sendEmote(this.session || this.bot ? this.localSide : LEFT, id)
+      }
+      b.addEventListener('touchstart', fire, { passive: false })
+      b.addEventListener('click', fire)
+      emotes.append(b)
+    })
+    this.touchEmotes = emotes
+
+    this.ui.append(this.touchEls, menu, emotes)
   }
 
   private setTouchVisible(v: boolean) {
     this.touchEls?.classList.toggle('on', v && isTouch)
     this.touchMenu?.classList.toggle('on', v && isTouch)
+    this.touchEmotes?.classList.toggle('on', v && isTouch)
   }
 
   // ---------- lifecycle ----------
@@ -315,15 +362,34 @@ class App {
 
   // ---------- online ----------
 
-  private async joinRoom(code: string, cfg: GameConfig) {
+  private roomCode = ''
+  private roomPass = ''
+
+  private async openRoom(code: string, pass: string, cfg: GameConfig) {
     this.cfg = cfg
     localStorage.setItem('bv.name', cfg.name)
     this.closeSession()
+    this.roomCode = code
+    this.roomPass = pass
+    try {
+      const transport = await createRoomTransport(code, 'nostr')
+      this.attachSession(transport, cfg, true, pass)
+      this.lobby.advertise({ code, name: cfg.name, rule: getRules(cfg.ruleId).name, lock: pass ? 1 : 0 })
+    } catch (e) {
+      this.menu.status(`falha no relay (${String(e).slice(0, 60)})`)
+    }
+  }
+
+  private async joinRoom(code: string, pass: string, cfg: GameConfig) {
+    this.cfg = cfg
+    localStorage.setItem('bv.name', cfg.name)
+    this.closeSession()
+    this.roomCode = code
+    this.roomPass = pass
     try {
       const transport = await createRoomTransport(code || 'BLOBBY', 'nostr')
-      this.attachSession(transport, cfg)
-      this.lobby.advertise({ code, name: cfg.name, rule: getRules(cfg.ruleId).name })
-      this.menu.status(`sala ${code} aberta · esperando oponente…`)
+      this.attachSession(transport, cfg, false, pass)
+      this.menu.status(`procurando a sala ${code}…`)
       this.armJoinDiagnostic()
     } catch (e) {
       this.menu.status(`falha no relay (${String(e).slice(0, 60)})`)
@@ -334,17 +400,23 @@ class App {
     this.cfg = cfg
     this.closeSession()
     const h = createManualTransport(asHost)
-    this.attachSession(h.transport, cfg)
+    this.attachSession(h.transport, cfg, asHost, '')
     return { local: h.localDescription, accept: h.accept }
   }
 
-  private attachSession(transport: Awaited<ReturnType<typeof createRoomTransport>>, cfg: GameConfig) {
+  private attachSession(
+    transport: Awaited<ReturnType<typeof createRoomTransport>>,
+    cfg: GameConfig, host: boolean, pass: string,
+  ) {
     this.session = new NetSession(transport, {
       ruleId: cfg.ruleId,
       scoreToWin: cfg.scoreToWin,
       name: cfg.name,
+      host,
+      pass: passHash(pass),
       onPhase: (p, info) => {
-        if (p === 'handshake') this.menu.status('oponente encontrado · sincronizando…')
+        if (p === 'handshake') this.menu.status('sala encontrada · pedindo pra entrar…')
+        if (p === 'waiting' && this.phase !== 'playing') this.menu.waiting(this.roomCode, this.roomPass)
         if (p === 'closed') {
           this.menu.status(`conexão encerrada${info ? ` (${info})` : ''}`)
           if (this.phase === 'playing') {
@@ -353,6 +425,10 @@ class App {
           }
         }
         if (p === 'desync') this.hud.banner('DESSINCRONIZOU', 1800, '#ff6b6b')
+      },
+      onEmote: (id, side) => this.playEmote(side, id),
+      onJoinRequest: (name, accept, reject) => {
+        this.menu.askJoin(name, accept, () => { reject(); this.menu.waiting(this.roomCode, this.roomPass) })
       },
       onReady: s => {
         this.match = s.match!
@@ -447,7 +523,7 @@ class App {
     if (m) {
       const alpha = this.acc / TICK_MS
       this.stage.render(m, alpha, dt)
-      this.hud.update(m.logic.scores, m.logic.touches, m.logic.servingPlayer)
+      this.hud.update(m.logic.scores, m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
       this.checkWin()
     }
     if (this.session && this.phase === 'playing') this.hud.showNet(this.session.stats())

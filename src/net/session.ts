@@ -1,10 +1,31 @@
 import { Match } from '../core/match.ts'
 import { Rollback } from './rollback.ts'
-import type { Transport } from './transport.ts'
+import type { PeerId, Transport } from './transport.ts'
+import { LEFT, RIGHT } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 3
-const enum P { HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6 }
+const PROTO = 4
+const enum P {
+  HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
+  WELCOME = 7, DENY = 8,
+}
+
+const enum Deny { PROTO = 0, PASS = 1, REJECTED = 2, FULL = 3 }
+
+const DENY_TEXT: Record<number, string> = {
+  [Deny.PROTO]: 'versão incompatível',
+  [Deny.PASS]: 'senha errada',
+  [Deny.REJECTED]: 'o host recusou',
+  [Deny.FULL]: 'sala cheia',
+}
+
+export function passHash(pass: string): number {
+  const t = pass.trim()
+  if (!t) return 0
+  let h = 2166136261
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return (h >>> 0) || 1
+}
 
 export interface NetStats {
   rttMs: number
@@ -16,15 +37,19 @@ export interface NetStats {
   kind: string
 }
 
-export type SessionPhase = 'connecting' | 'handshake' | 'playing' | 'desync' | 'closed'
+export type SessionPhase =
+  | 'connecting' | 'waiting' | 'handshake' | 'approval' | 'playing' | 'desync' | 'closed'
 
 export interface SessionOpts {
   ruleId: string
   scoreToWin?: number
   name: string
+  host: boolean
+  pass?: number
   onReady: (s: NetSession) => void
   onPhase?: (p: SessionPhase, info?: string) => void
-  onEmote?: (id: number) => void
+  onEmote?: (id: number, side: Side) => void
+  onJoinRequest?: (name: string, accept: () => void, reject: () => void) => void
 }
 
 export class NetSession {
@@ -36,9 +61,9 @@ export class NetSession {
   peerName = 'Player'
   phase: SessionPhase = 'connecting'
 
-  private priority = (Math.random() * 0xffffffff) >>> 0
   private seed = (Math.random() * 0xffffffff) >>> 0
-  private peerSeed = 0
+  private peer: PeerId | null = null
+  private pending: PeerId | null = null
   private helloTimer = 0
   private pingTimer = 0
   private lastAckedSend = 0
@@ -49,10 +74,17 @@ export class NetSession {
   constructor(transport: Transport, opts: SessionOpts) {
     this.transport = transport
     this.opts = opts
-    transport.onData(d => this.onData(d))
-    transport.onPeerJoin(() => this.startHandshake())
-    transport.onPeerLeave(() => this.setPhase('closed', 'peer saiu'))
-    if (transport.peers().length > 0) this.startHandshake()
+    this.localSide = opts.host ? LEFT : RIGHT
+    transport.onData((d, from) => this.onData(d, from))
+    transport.onPeerJoin(() => { if (!opts.host) this.startHandshake() })
+    transport.onPeerLeave(p => {
+      if (p === this.pending) { this.pending = null; if (this.phase === 'approval') this.setPhase('waiting') }
+      if (this.peer === null || p === this.peer) {
+        if (this.phase === 'playing' || this.phase === 'handshake') this.setPhase('closed', 'peer saiu')
+      }
+    })
+    if (opts.host) this.setPhase('waiting')
+    else if (transport.peers().length > 0) this.startHandshake()
   }
 
   private setPhase(p: SessionPhase, info?: string) {
@@ -73,45 +105,85 @@ export class NetSession {
 
   private sendHello() {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
-    const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
-    const buf = new Uint8Array(1 + 1 + 4 + 4 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const buf = new Uint8Array(1 + 1 + 4 + 1 + nameBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.HELLO)
     dv.setUint8(o++, PROTO)
-    dv.setUint32(o, this.priority); o += 4
-    dv.setUint32(o, this.seed); o += 4
-    dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
-    dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o); o += ruleBytes.length
+    dv.setUint32(o, this.opts.pass ?? 0); o += 4
+    dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o)
     this.transport.send(buf)
   }
 
-  private onHello(dv: DataView, buf: Uint8Array) {
-    let o = 1
-    const proto = dv.getUint8(o++)
-    if (proto !== PROTO) { this.setPhase('closed', 'versão incompatível'); return }
-    const prio = dv.getUint32(o); o += 4
-    const seed = dv.getUint32(o); o += 4
-    const nl = dv.getUint8(o++); this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)); o += nl
-    const rl = dv.getUint8(o++); const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl)); o += rl
+  private deny(to: PeerId | null, reason: Deny) {
+    const b = new Uint8Array([P.DENY, reason])
+    this.transport.send(b, to ?? undefined)
+  }
 
-    this.peerSeed = seed
-    if (this.phase === 'playing') return
+  /** Só o host processa HELLO: valida senha e pede aprovação antes de abrir a partida. */
+  private onHello(dv: DataView, buf: Uint8Array, from: PeerId) {
+    if (!this.opts.host) return
+    const proto = dv.getUint8(1)
+    if (proto !== PROTO) { this.deny(from, Deny.PROTO); return }
+    if (this.peer !== null && this.peer !== from) { this.deny(from, Deny.FULL); return }
+    if (this.peer === from) { this.sendWelcome(from); return }
+    if (dv.getUint32(2) !== (this.opts.pass ?? 0)) { this.deny(from, Deny.PASS); return }
+    if (this.pending === from) return
+    if (this.pending !== null) { this.deny(from, Deny.FULL); return }
 
-    // Deterministic role assignment.
-    let iAmLeft: boolean
-    if (prio === this.priority) { this.priority = (this.priority + 1) >>> 0; this.sendHello(); return }
-    iAmLeft = this.priority > prio
-    this.localSide = (iAmLeft ? 0 : 1) as Side
+    const nl = dv.getUint8(6)
+    this.peerName = new TextDecoder().decode(buf.subarray(7, 7 + nl)) || 'Player'
+    this.pending = from
+    this.setPhase('approval', this.peerName)
 
-    const combined = (this.seed ^ this.peerSeed) >>> 0
-    const serving = (combined & 1) as Side
-    const rules = iAmLeft ? this.opts.ruleId : ruleId
+    const settle = (ok: boolean) => {
+      if (this.pending !== from) return
+      this.pending = null
+      if (!ok) { this.deny(from, Deny.REJECTED); this.setPhase('waiting'); return }
+      this.peer = from
+      this.sendWelcome(from)
+      this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side)
+    }
+    if (this.opts.onJoinRequest) this.opts.onJoinRequest(this.peerName, () => settle(true), () => settle(false))
+    else settle(true)
+  }
 
-    this.match = new Match(rules, this.opts.scoreToWin, serving)
+  private scoreToWin() { return this.opts.scoreToWin ?? 0 }
+
+  private sendWelcome(to: PeerId) {
+    const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
+    const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
+    const buf = new Uint8Array(1 + 1 + 1 + 2 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const dv = new DataView(buf.buffer)
+    let o = 0
+    dv.setUint8(o++, P.WELCOME)
+    dv.setUint8(o++, PROTO)
+    dv.setUint8(o++, this.seed & 1)
+    dv.setUint16(o, this.scoreToWin()); o += 2
+    dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
+    dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o)
+    this.transport.send(buf, to)
+  }
+
+  private onWelcome(dv: DataView, buf: Uint8Array, from: PeerId) {
+    if (this.opts.host || this.phase === 'playing') return
+    if (dv.getUint8(1) !== PROTO) { this.setPhase('closed', DENY_TEXT[Deny.PROTO]); return }
+    let o = 2
+    const serving = dv.getUint8(o++) as Side
+    const stw = dv.getUint16(o); o += 2
+    const nl = dv.getUint8(o++)
+    this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)) || 'Player'; o += nl
+    const rl = dv.getUint8(o++)
+    const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl))
+    this.peer = from
+    clearInterval(this.helloTimer)
+    this.begin(ruleId, stw, serving)
+  }
+
+  private begin(ruleId: string, stw: number, serving: Side) {
+    this.match = new Match(ruleId, stw || undefined, serving)
     this.rollback = new Rollback(this.match, this.localSide)
     clearInterval(this.helloTimer)
-    this.sendHello()
     this.setPhase('playing')
     this.startPing()
     this.opts.onReady(this)
@@ -127,11 +199,17 @@ export class NetSession {
     }, 1000) as unknown as number
   }
 
-  private onData(buf: Uint8Array) {
+  private onData(buf: Uint8Array, from: PeerId) {
     if (buf.length < 1) return
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-    switch (dv.getUint8(0)) {
-      case P.HELLO: this.onHello(dv, buf); break
+    const tag = dv.getUint8(0)
+    if (tag === P.HELLO) { this.onHello(dv, buf, from); return }
+    // Antes de ter par definido, o host só escuta HELLO e quem entra só escuta WELCOME/DENY.
+    if (this.peer !== null) { if (from !== this.peer) return }
+    else if (this.opts.host || (tag !== P.WELCOME && tag !== P.DENY)) return
+    switch (tag) {
+      case P.WELCOME: this.onWelcome(dv, buf, from); break
+      case P.DENY: this.setPhase('closed', DENY_TEXT[dv.getUint8(1)] ?? 'recusado'); break
       case P.INPUT: {
         if (!this.rollback) return
         const start = dv.getUint32(1)
@@ -159,7 +237,7 @@ export class NetSession {
         }
         break
       }
-      case P.EMOTE: this.opts.onEmote?.(dv.getUint8(1)); break
+      case P.EMOTE: this.opts.onEmote?.(dv.getUint8(1), (1 - this.localSide) as Side); break
       case P.BYE: this.setPhase('closed', 'peer saiu'); break
     }
   }
@@ -200,7 +278,7 @@ export class NetSession {
     const b = new Uint8Array(2)
     b[0] = P.EMOTE; b[1] = id
     this.transport.send(b)
-    this.opts.onEmote?.(id)
+    this.opts.onEmote?.(id, this.localSide)
   }
 
   stats(): NetStats {

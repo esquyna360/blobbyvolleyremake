@@ -10,6 +10,9 @@ export const enum Ev {
   RESET_BALL = 6,
   SCORE = 7,
   GAME_OVER = 8,
+  SPECIAL_READY = 9,
+  SPECIAL_FIRED = 10,
+  SPECIAL_HIT = 11,
 }
 
 export interface MatchEvent { event: Ev; side: SideOrNone; intensity: number }

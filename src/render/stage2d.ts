@@ -8,6 +8,7 @@ import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
 import type { GameRenderer } from './stage.ts'
+import { emoteAt } from '../core/emote.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const HORIZON = 418
@@ -17,6 +18,8 @@ const BLOB_DARK = ['#8e0f20', '#123f96']
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
 interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string }
+interface Ring { x: number; y: number; r: number; max: number; life: number; color: string }
+interface Pop { side: Side; glyph: string; life: number; max: number; seed: number }
 
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
 
@@ -31,6 +34,9 @@ export class Stage2D implements GameRenderer {
   private prev = snap()
   private cur = snap()
   private dust: Dust[] = []
+  private rings: Ring[] = []
+  private trail: { x: number; y: number; life: number }[] = []
+  private pops: Pop[] = []
   private craters: { x: number; r: number }[] = []
   private time = 0
   private trauma = 0
@@ -119,8 +125,63 @@ export class Stage2D implements GameRenderer {
         case Ev.SCORE:
           this.flash = Math.max(this.flash, 0.16)
           break
+        case Ev.SPECIAL_READY:
+          this.burst(w.blobX[e.side as Side], w.blobY[e.side as Side] - 20, 26, 120, '#ffd257', 1.5, 5)
+          break
+        case Ev.SPECIAL_FIRED: {
+          const p = e.side as Side
+          this.trauma = Math.min(1, this.trauma + 0.7)
+          this.flash = Math.max(this.flash, 0.34)
+          this.burst(w.ballX, w.ballY, 90, 520, BLOB_FILL[p], 0.3, 7)
+          this.burst(w.ballX, w.ballY, 50, 700, '#fff6d8', 0.15, 5)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 10, max: 260, life: 0, color: '#ffe9a8' })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 170, life: -0.08, color: BLOB_FILL[p] })
+          break
+        }
+        case Ev.SPECIAL_HIT: {
+          const p = e.side as Side
+          this.trauma = Math.min(1, this.trauma + 0.95)
+          this.flash = Math.max(this.flash, 0.46)
+          this.burst(w.blobX[p], w.blobY[p], 110, 620, '#ff5a4d', 0.5, 8)
+          this.burst(w.blobX[p], w.blobY[p], 60, 260, '#ffe07a', 1.4, 6)
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p], r: 12, max: 300, life: 0, color: '#ff8a7a' })
+          break
+        }
       }
     }
+  }
+
+  emote(side: Side, id: number) {
+    const def = emoteAt(id)
+    this.pops.push({ side, glyph: def.glyph, life: 0, max: 1.9, seed: Math.random() * 6.28 })
+    if (this.pops.length > 4) this.pops.shift()
+    const x = this.cur.px[side]
+    const y = this.cur.py[side] - BLOBBY_UPPER_SPHERE
+    this.burst(x, y, id === 1 ? 42 : 20, id === 1 ? 190 : 110, def.color, id === 1 ? 1.1 : 0.7, id === 1 ? 5 : 4)
+  }
+
+  private drawPops(px: number[], py: number[]) {
+    if (!this.pops.length) return
+    const c = this.ctx
+    for (const e of this.pops) {
+      const t = e.life / e.max
+      if (t >= 1) continue
+      const pop = t < 0.16 ? t / 0.16 : 1
+      const ease = 1 - Math.pow(1 - pop, 3)
+      const size = 46 * ease * (1 + Math.sin(this.time * 11 + e.seed) * 0.06)
+      const x = px[e.side] + Math.sin(this.time * 3 + e.seed) * 6
+      const y = py[e.side] - BLOBBY_UPPER_SPHERE - 62 - t * 34
+      c.save()
+      c.globalAlpha = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1
+      c.translate(x, y)
+      c.rotate(Math.sin(this.time * 5 + e.seed) * 0.18)
+      c.font = `${size}px "Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji",sans-serif`
+      c.textAlign = 'center'
+      c.textBaseline = 'middle'
+      c.fillText(e.glyph, 0, 0)
+      c.restore()
+    }
+    c.globalAlpha = 1
   }
 
   celebrate(side: Side) {
@@ -133,6 +194,11 @@ export class Stage2D implements GameRenderer {
 
   private step(dt: number) {
     this.time += dt
+    if (this.pops.length) {
+      const alive: Pop[] = []
+      for (const e of this.pops) { e.life += dt; if (e.life < e.max) alive.push(e) }
+      this.pops = alive
+    }
     this.trauma = Math.max(0, this.trauma - dt * 2.2)
     this.flash = Math.max(0, this.flash - dt * 1.6)
     const keep: Dust[] = []
@@ -146,6 +212,22 @@ export class Stage2D implements GameRenderer {
       keep.push(d)
     }
     this.dust = keep
+
+    const rings: Ring[] = []
+    for (const r of this.rings) {
+      r.life += dt
+      if (r.life >= 0.55) continue
+      rings.push(r)
+    }
+    this.rings = rings
+
+    const trail: typeof this.trail = []
+    for (const t of this.trail) {
+      t.life += dt
+      if (t.life >= 0.38) continue
+      trail.push(t)
+    }
+    this.trail = trail
   }
 
   private background() {
@@ -210,8 +292,14 @@ export class Stage2D implements GameRenderer {
     c.fillRect(0, seaBottom, this.cw, this.ch - seaBottom)
   }
 
-  private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number }) {
+  private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number }, stunned = false) {
     const c = this.ctx
+    if (stunned) {
+      c.save()
+      c.translate(x, y)
+      c.rotate(Math.sin(this.time * 9.5) * 0.16)
+      c.translate(-x, -y)
+    }
     const squash = 1 + Math.sin(state * 1.6) * 0.045
     const ru = BLOBBY_UPPER_RADIUS * squash
     const rl = BLOBBY_LOWER_RADIUS / squash
@@ -247,6 +335,7 @@ export class Stage2D implements GameRenderer {
       c.beginPath(); c.arc(px + ex, py + ey, ru * 0.145, 0, Math.PI * 2)
       c.fillStyle = '#11151c'; c.fill()
     }
+    if (stunned) c.restore()
   }
 
   private drawBall(x: number, y: number, rot: number) {
@@ -269,6 +358,30 @@ export class Stage2D implements GameRenderer {
     c.restore()
   }
 
+  private stars(x: number, y: number) {
+    const c = this.ctx
+    const cy = y - 62
+    for (let i = 0; i < 5; i++) {
+      const a = this.time * 3.1 + (i * Math.PI * 2) / 5
+      const sx = x + Math.cos(a) * 34
+      const sy = cy + Math.sin(a) * 11
+      const s = 5 + Math.sin(a * 2) * 1.6
+      c.save()
+      c.translate(sx, sy)
+      c.rotate(a * 1.7)
+      c.fillStyle = i % 2 ? '#fff0b0' : '#ffd257'
+      c.beginPath()
+      for (let k = 0; k < 10; k++) {
+        const rr = k % 2 ? s * 0.42 : s
+        const ang = (k * Math.PI) / 5 - Math.PI / 2
+        const px = Math.cos(ang) * rr, py = Math.sin(ang) * rr
+        if (k === 0) c.moveTo(px, py); else c.lineTo(px, py)
+      }
+      c.closePath(); c.fill()
+      c.restore()
+    }
+  }
+
   private shadow(x: number, y: number, r: number) {
     const c = this.ctx
     const h = Math.max(0, GROUND - y)
@@ -279,12 +392,18 @@ export class Stage2D implements GameRenderer {
     c.fill()
   }
 
-  render(_match: Match, alpha: number, dt: number) {
+  render(match: Match, alpha: number, dt: number) {
     this.step(dt)
     const c = this.ctx
     const p = this.prev, q = this.cur
     const lerp = (a: number, b: number) => a + (b - a) * alpha
     const bx = lerp(p.bx, q.bx), by = lerp(p.by, q.by), rot = lerp(p.rot, q.rot)
+    const w = match.world
+    const superOn = w.superFrames > 0
+    if (superOn) {
+      this.trail.push({ x: bx, y: by, life: 0 })
+      if (this.trail.length > 26) this.trail.shift()
+    }
 
     c.setTransform(1, 0, 0, 1, 0, 0)
     this.background()
@@ -309,8 +428,43 @@ export class Stage2D implements GameRenderer {
     for (const s of [0, 1] as Side[]) this.shadow(lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
 
     for (const s of [0, 1] as Side[]) {
-      this.blob(s, lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), lerp(p.st[s], q.st[s]), { x: bx, y: by })
+      this.blob(s, lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0)
     }
+
+    for (const s of [0, 1] as Side[]) {
+      if (w.stun[s] > 0) this.stars(lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]))
+    }
+
+    if (this.trail.length) {
+      const col = w.superOwner >= 0 ? BLOB_FILL[w.superOwner as Side] : '#ffb02e'
+      for (const t of this.trail) {
+        const k = Math.max(0, 1 - t.life / 0.38)
+        c.globalAlpha = k * 0.55
+        c.fillStyle = k > 0.6 ? '#fff3c4' : col
+        c.beginPath(); c.arc(t.x, t.y, BALL_RADIUS * (0.35 + k * 0.6), 0, Math.PI * 2); c.fill()
+      }
+      c.globalAlpha = 1
+    }
+
+    if (superOn) {
+      const pulse = 1 + Math.sin(this.time * 26) * 0.12
+      const g = c.createRadialGradient(bx, by, BALL_RADIUS * 0.4, bx, by, BALL_RADIUS * 2.4 * pulse)
+      g.addColorStop(0, 'rgba(255,246,200,0.75)')
+      g.addColorStop(0.5, 'rgba(255,170,40,0.35)')
+      g.addColorStop(1, 'rgba(255,140,0,0)')
+      c.fillStyle = g
+      c.beginPath(); c.arc(bx, by, BALL_RADIUS * 2.4 * pulse, 0, Math.PI * 2); c.fill()
+    }
+
+    for (const r of this.rings) {
+      const k = Math.max(0, r.life / 0.55)
+      if (k <= 0) continue
+      c.globalAlpha = Math.max(0, 1 - k) * 0.85
+      c.strokeStyle = r.color
+      c.lineWidth = 7 * (1 - k) + 1.5
+      c.beginPath(); c.arc(r.x, r.y, r.r + (r.max - r.r) * k, 0, Math.PI * 2); c.stroke()
+    }
+    c.globalAlpha = 1
 
     this.drawBall(bx, by, rot)
 
@@ -331,6 +485,10 @@ export class Stage2D implements GameRenderer {
     c.beginPath(); c.arc(nx, NET_SPHERE_POSITION, NET_RADIUS + 2.5, 0, Math.PI * 2)
     c.fillStyle = '#eef3fa'; c.fill()
 
+    this.drawPops(
+      [lerp(p.px[0], q.px[0]), lerp(p.px[1], q.px[1])],
+      [lerp(p.py[0], q.py[0]), lerp(p.py[1], q.py[1])])
+
     for (const d of this.dust) {
       c.globalAlpha = Math.max(0, 1 - d.life / d.max)
       c.fillStyle = d.color
@@ -348,5 +506,8 @@ export class Stage2D implements GameRenderer {
   dispose() {
     this.dust.length = 0
     this.craters.length = 0
+    this.rings.length = 0
+    this.trail.length = 0
+    this.pops.length = 0
   }
 }
