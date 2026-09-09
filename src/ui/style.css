@@ -124,6 +124,7 @@ html, body {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .brand p { color: var(--muted); font-size: 12.5px; letter-spacing: 0.2em; text-transform: uppercase; margin-top: 8px; }
+.brand p.build { font-size: 10px; letter-spacing: 0.12em; opacity: 0.5; margin-top: 5px; }
 
 h2.sec {
   font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase;
@@ -218,6 +219,17 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 }
 .tbtn.big { width: 104px; height: 104px; border-radius: 34px; background: rgba(255,210,87,0.16); border-color: rgba(255,210,87,0.4); }
 .tbtn.press { background: rgba(255,255,255,0.22); transform: scale(0.94); }
+
+.tmenu {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top)); left: 16px;
+  padding: 10px 14px; border-radius: 14px;
+  background: rgba(255,255,255,0.07); border: 1px solid var(--line);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: none; font-size: 11px; letter-spacing: 0.14em; color: var(--ink);
+}
+.tmenu.on { display: block; }
+.tmenu:active { background: rgba(255,255,255,0.22); transform: scale(0.94); }
 
 .corner {
   position: absolute; bottom: 14px; left: 16px;

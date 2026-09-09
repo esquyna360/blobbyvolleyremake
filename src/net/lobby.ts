@@ -14,6 +14,7 @@ export interface RoomAd {
 const LOBBY_ID = 'lobby-v1'
 const BEAT_MS = 2000
 const TTL_MS = 7000
+const GRACE_MS = 20000
 
 export class Lobby {
   private room: TRoom | null = null
@@ -24,6 +25,8 @@ export class Lobby {
   private mine: RoomAd | null = null
   private beat = 0
   private prune = 0
+  private closeTimer = 0
+  private gen = 0
 
   watch(cb: (rooms: RoomAd[]) => void): () => void {
     this.watchers.add(cb)
@@ -31,26 +34,40 @@ export class Lobby {
     cb(this.list())
     return () => {
       this.watchers.delete(cb)
-      if (!this.watchers.size && !this.mine) this.close()
+      this.scheduleClose()
     }
   }
 
   advertise(ad: { code: string; name: string; rule: string } | null) {
     this.mine = ad ? { ...ad, ts: Date.now() } : null
     if (!ad) {
-      if (!this.watchers.size) this.close()
+      this.scheduleClose()
       return
     }
     void this.open().then(() => this.emitAd())
   }
 
+  /**
+   * Abrir uma sala passa por advertise(null) seguido de advertise(ad) segundos depois.
+   * Derrubar a sala do lobby no meio disso perde todos os peers e o anúncio nunca sai.
+   */
+  private scheduleClose() {
+    clearTimeout(this.closeTimer)
+    this.closeTimer = setTimeout(() => {
+      if (!this.watchers.size && !this.mine) this.close()
+    }, GRACE_MS) as unknown as number
+  }
+
   private async open() {
+    clearTimeout(this.closeTimer)
     if (this.room) return
     if (this.opening) return this.opening
+    const gen = ++this.gen
     this.opening = (async () => {
       const mod = await import('trystero/nostr')
       await ensureIce()
       const room = mod.joinRoom(ROOM_CONFIG, LOBBY_ID)
+      if (gen !== this.gen) { room.leave(); return }
       const [send, get] = room.makeAction<RoomAd>('ad')
       get(ad => {
         if (!ad || typeof ad.code !== 'string') return
@@ -92,6 +109,8 @@ export class Lobby {
   }
 
   close() {
+    this.gen++
+    clearTimeout(this.closeTimer)
     clearInterval(this.beat)
     clearInterval(this.prune)
     this.room?.leave()

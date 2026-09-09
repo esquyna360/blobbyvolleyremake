@@ -31,7 +31,7 @@ export class GameAudio {
 
   constructor() {
     const saved = localStorage.getItem('bv.volume') as VolumeId | null
-    this.volume = saved && saved in LEVEL ? saved : 'normal'
+    this.volume = saved && saved in LEVEL ? saved : 'low'
   }
 
   /** Browsers only allow audio after a gesture, so this is called from the first click/keypress. */

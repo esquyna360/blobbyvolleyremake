@@ -86,7 +86,8 @@ export class Menu {
   private brand() {
     return el('div', { class: 'brand' },
       el('h1', {}, 'BLOBBY', el('br'), 'VOLLEY'),
-      el('p', { textContent: 'remake · three.js · p2p rollback' }))
+      el('p', { textContent: 'remake · three.js · p2p rollback' }),
+      el('p', { class: 'build mono', textContent: `build ${__BUILD__}` }))
   }
 
   private selector<T extends string>(

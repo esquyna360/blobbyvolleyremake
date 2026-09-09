@@ -74,6 +74,7 @@ class App {
   private last = performance.now()
   private lastSend = 0
   private touchEls: HTMLElement | null = null
+  private touchMenu: HTMLElement | null = null
 
   constructor() {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
@@ -201,11 +202,23 @@ class App {
     this.touchEls = el('div', { class: 'touch' },
       el('div', { class: 'tpad' }, mk('◀', 'left'), mk('▶', 'right')),
       el('div', { class: 'tpad' }, mk('▲', 'up', true)))
-    this.ui.append(this.touchEls)
+
+    const menu = el('div', { class: 'tmenu', textContent: 'MENU' })
+    const openMenu = (e: Event) => {
+      e.preventDefault()
+      if (this.phase === 'playing') this.pause()
+      else if (this.phase === 'paused') this.resume()
+    }
+    menu.addEventListener('touchstart', openMenu, { passive: false })
+    menu.addEventListener('click', openMenu)
+    this.touchMenu = menu
+
+    this.ui.append(this.touchEls, menu)
   }
 
   private setTouchVisible(v: boolean) {
     this.touchEls?.classList.toggle('on', v && isTouch)
+    this.touchMenu?.classList.toggle('on', v && isTouch)
   }
 
   // ---------- lifecycle ----------
