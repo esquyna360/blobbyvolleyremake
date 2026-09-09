@@ -42,21 +42,33 @@ export const supabaseInfo = () => ({ url: SUPABASE_URL, key: SUPABASE_KEY })
 export const iceConfig = (): RTCConfiguration => RTC_CONFIG
 
 let supaUp: Promise<boolean> | null = null
+let supaFailAt = 0
 
-/** Projeto free hiberna depois de uma semana parado; se hibernou, cai pro Nostr. */
+/** Handshake TLS lento (IPv6 caindo pro IPv4, antivírus) chega a passar de 9s. */
+const PROBE_MS = 12000
+const RECHECK_MS = 30000
+
+/**
+ * Projeto free hiberna depois de uma semana parado; se hibernou, cai pro Nostr.
+ * Um "não" nunca é definitivo: máquina com DNS lento reprovava pra sessão inteira.
+ */
 function supabaseAlive(): Promise<boolean> {
+  if (supaFailAt && Date.now() - supaFailAt > RECHECK_MS) { supaUp = null; supaFailAt = 0 }
   if (!supaUp) {
     supaUp = (async () => {
       try {
         const ctl = new AbortController()
-        const t = setTimeout(() => ctl.abort(), 5000)
+        const t = setTimeout(() => ctl.abort(), PROBE_MS)
         const r = await fetch(`${SUPABASE_URL}/rest/v1/`, {
           headers: { apikey: SUPABASE_KEY },
           signal: ctl.signal,
         })
         clearTimeout(t)
-        return r.status < 500
+        const ok = r.status < 500
+        if (!ok) supaFailAt = Date.now()
+        return ok
       } catch {
+        supaFailAt = Date.now()
         return false
       }
     })()

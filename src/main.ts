@@ -23,7 +23,9 @@ import { EMOTES } from './core/emote.ts'
 import { Ev } from './core/events.ts'
 import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
-import { Lobby } from './net/lobby.ts'
+import { Lobby, openAd } from './net/lobby.ts'
+import type { RoomAd } from './net/lobby.ts'
+import { LiveHost, Spectator } from './net/spectate.ts'
 
 type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
@@ -72,6 +74,8 @@ class App {
   match: Match | null = null
   bot: Bot | null = null
   session: NetSession | null = null
+  spectator: Spectator | null = null
+  live: LiveHost | null = null
   localSide: Side = LEFT
 
   private acc = 0
@@ -110,6 +114,9 @@ class App {
       onVolume: v => { this.audio.setVolume(v); this.audio.ui() },
       onQuality: q => this.applyQuality(q, true),
       onWatchRooms: cb => this.lobby.watch(cb),
+      onWatch: ad => this.watchRoom(ad),
+      onStopWatch: () => { this.phase = 'menu'; this.leaveWatch(true) },
+      onLobbyNet: cb => this.lobby.onNet(cb),
       onLeaveOnline: () => this.closeSession(),
       onRematch: () => this.session?.requestRematch(),
     })
@@ -215,6 +222,7 @@ class App {
   }
 
   sendEmote(side: Side, id: number) {
+    if (this.spectator) return
     if (this.phase !== 'playing' && this.phase !== 'over') return
     const now = performance.now()
     if (now - this.emoteAt[side] < 700) return
@@ -273,9 +281,10 @@ class App {
   }
 
   private setTouchVisible(v: boolean) {
-    this.touchEls?.classList.toggle('on', v && isTouch)
+    const play = v && isTouch && !this.spectator
+    this.touchEls?.classList.toggle('on', play)
     this.touchMenu?.classList.toggle('on', v && isTouch)
-    this.touchEmotes?.classList.toggle('on', v && isTouch)
+    this.touchEmotes?.classList.toggle('on', play)
   }
 
   // ---------- lifecycle ----------
@@ -324,7 +333,7 @@ class App {
     this.phase = 'playing'
     this.peerWantsRematch = false
     clearTimeout(this.joinTimer)
-    this.lobby.advertise(null)
+    this.startLive()
     this.menu.release()
     this.menu.hide()
     this.hud.clearFx()
@@ -337,6 +346,7 @@ class App {
 
   pause() {
     if (this.session) return
+    if (this.spectator) { this.phase = 'paused'; this.menu.watchPause(); return }
     this.phase = 'paused'
     this.hud.clearFx()
     this.menu.pause()
@@ -352,6 +362,7 @@ class App {
   }
 
   quitToMenu() {
+    this.leaveWatch(false)
     this.closeSession()
     this.hud.clearFx()
     this.hud.root.style.opacity = '0'
@@ -378,11 +389,93 @@ class App {
 
   private joinTimer = 0
 
+  /** Só o host transmite: a simulação dele é a fonte única pra quem assiste. */
+  private startLive() {
+    const s = this.session
+    if (!s?.opts.host) { this.stopLive(); this.lobby.advertise(null); return }
+    this.lobby.advertise({
+      ...openAd(this.roomCode, this.cfg.name, getRules(this.cfg.ruleId).name, this.roomPass ? 1 : 0),
+      live: 1, foe: s.peerName,
+    })
+    this.adScore = [-1, -1]
+    if (!this.live) {
+      this.live = new LiveHost(this.roomCode, () => this.session?.rollback ?? null, () => ({
+        rule: this.cfg.ruleId,
+        stw: this.match?.logic.scoreToWin ?? 0,
+        arena: this.cfg.arena,
+        nl: s.localSide === LEFT ? this.cfg.name : s.peerName,
+        nr: s.localSide === LEFT ? s.peerName : this.cfg.name,
+      }))
+      this.live.start()
+    }
+    this.live.reset()
+  }
+
+  private stopLive() {
+    this.live?.stop()
+    this.live = null
+  }
+
+  private adScore = [-1, -1]
+
   private closeSession() {
     clearTimeout(this.joinTimer)
+    this.stopLive()
     this.lobby.advertise(null)
     if (this.session) { try { this.session.close() } catch { /* ignore */ } }
     this.session = null
+  }
+
+  // ---------- assistir ----------
+
+  watchRoom(ad: RoomAd) {
+    this.closeSession()
+    this.leaveWatch(false)
+    this.bot = null
+    this.demoBot = null
+    this.spectator = new Spectator(ad.code, {
+      onArena: id => this.applyArena(id),
+      onReady: (m, meta) => {
+        this.match = m
+        this.hud.setRule(getRules(meta.rule).name, m.logic.scoreToWin)
+        this.hud.setNames(meta.nl.toUpperCase(), meta.nr.toUpperCase())
+        this.stage.capture(m)
+        this.stage.capture(m)
+        if (this.phase !== 'playing') {
+          this.phase = 'playing'
+          this.menu.release()
+          this.menu.hide()
+          this.hud.clearFx()
+          this.hud.root.style.opacity = '1'
+          this.hud.showNet(null)
+          this.hud.setLive(true)
+          this.setTouchVisible(true)
+        }
+      },
+      onEnd: () => {
+        if (!this.spectator) return
+        this.hud.banner('TRANSMISSÃO ENCERRADA', 1600, '#ff6b6b')
+        setTimeout(() => this.leaveWatch(true), 1700)
+      },
+    })
+    this.spectator.start()
+    this.hud.setNames('—', '—')
+    this.menu.watching(ad)
+  }
+
+  leaveWatch(toMenu: boolean) {
+    if (!this.spectator) return
+    this.spectator.stop()
+    this.spectator = null
+    this.hud.setLive(false)
+    this.hud.clearFx()
+    this.hud.root.style.opacity = '0'
+    this.setTouchVisible(false)
+    if (toMenu) {
+      this.startDemo()
+      this.menu.show()
+      this.menu.watchList()
+    }
   }
 
   // ---------- online ----------
@@ -400,7 +493,7 @@ class App {
     try {
       const transport = await createRoomTransport(code)
       this.attachSession(transport, cfg, true, pass)
-      this.lobby.advertise({ code, name: cfg.name, rule: getRules(cfg.ruleId).name, lock: pass ? 1 : 0 })
+      this.lobby.advertise(openAd(code, cfg.name, getRules(cfg.ruleId).name, pass ? 1 : 0))
     } catch (e) {
       this.menu.status(`falha no relay (${String(e).slice(0, 60)})`)
     }
@@ -500,6 +593,15 @@ class App {
     const m = this.match
     if (!m) return
 
+    if (this.spectator) {
+      if (!this.spectator.advance()) return
+      this.stage.capture(m)
+      this.stage.onEvents(m, m.events)
+      this.audio.onEvents(m.events, m.world, NO_PLAYER)
+      this.uiEvents(m.events)
+      return
+    }
+
     if (this.session?.rollback) {
       const rb = this.session.rollback
       const mine = this.phase === 'playing' ? this.input.read(SOLO, 0, true) : NO_INPUT
@@ -540,6 +642,13 @@ class App {
     const w = m.logic.winner as Side
     this.phase = 'over'
     this.stage.celebrate(w)
+    if (this.spectator) {
+      const nm = w === LEFT ? this.hud.nameOf(LEFT) : this.hud.nameOf(RIGHT)
+      this.hud.banner(`${nm} VENCE`, 2200, w === LEFT ? '#ff3b47' : '#3a8cff')
+      this.audio.finish(true)
+      setTimeout(() => { this.phase = 'menu'; this.leaveWatch(true) }, 2600)
+      return
+    }
     const iWon = this.session ? w === this.localSide : (this.bot ? w === LEFT : true)
     this.audio.finish(iWon)
     const title = this.session || this.bot ? (iWon ? 'VITÓRIA' : 'DERROTA') : (w === LEFT ? 'P1 VENCE' : 'P2 VENCE')
@@ -585,16 +694,21 @@ class App {
       steps++
     }
     if (steps === 8) this.acc = 0
+    if (this.spectator?.needsCatchUp()) { this.stepSim(); this.stepSim() }
 
     const m = this.match
     if (m) {
       const alpha = this.acc / TICK_MS
       this.stage.render(m, alpha, dt)
       this.hud.update(m.logic.scores, m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
+      if (this.live && (m.logic.scores[LEFT] !== this.adScore[0] || m.logic.scores[RIGHT] !== this.adScore[1])) {
+        this.adScore = [m.logic.scores[LEFT], m.logic.scores[RIGHT]]
+        this.lobby.patchAd({ sl: this.adScore[0], sr: this.adScore[1] })
+      }
       this.checkWin()
     }
     if (this.session && this.phase === 'playing') this.hud.showNet(this.session.stats())
-    if (this.phase === 'playing') this.autoScale(dt)
+    if (this.phase === 'playing' && !this.spectator) this.autoScale(dt)
   }
 }
 

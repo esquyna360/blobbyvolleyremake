@@ -67,17 +67,58 @@ function loopback(): Promise<string> {
   })
 }
 
-function wsProbe(url: string): Promise<string> {
+/**
+ * Abre o WebSocket, entra no tópico do lobby e manda um broadcast pra si mesmo.
+ * Testar só o handshake escondia o caso real: socket abre, mas entrar demora
+ * mais que o jogo esperava e a pessoa some do lobby sem erro nenhum.
+ */
+function lobbyProbe(url: string): Promise<{ ok: boolean; info: string }> {
   return new Promise(resolve => {
     const t0 = performance.now()
     let ws: WebSocket
-    try { ws = new WebSocket(url) } catch (e) { resolve(`bloqueado: ${String(e).slice(0, 50)}`); return }
-    const end = (r: string) => { clearTimeout(timer); try { ws.close() } catch { /* ignore */ } resolve(r) }
-    const timer = setTimeout(() => end('sem resposta em 8s'), 8000)
-    ws.onopen = () => end(`ok (${ms(t0)})`)
-    ws.onerror = () => end('recusado — firewall/proxy bloqueando WebSocket?')
+    try { ws = new WebSocket(url) } catch (e) {
+      resolve({ ok: false, info: `bloqueado: ${String(e).slice(0, 50)}` }); return
+    }
+    let open = 0
+    const end = (ok: boolean, info: string) => {
+      clearTimeout(timer)
+      try { ws.close() } catch { /* ignore */ }
+      resolve({ ok, info })
+    }
+    const timer = setTimeout(() => end(false, open
+      ? `abriu em ${open}ms mas não entrou no canal em 25s`
+      : 'sem resposta em 25s — firewall/proxy bloqueando WebSocket?'), 25000)
+    ws.onerror = () => end(false, 'recusado — firewall/proxy bloqueando WebSocket?')
+    ws.onopen = () => {
+      open = Math.round(performance.now() - t0)
+      ws.send(JSON.stringify({
+        topic: TOPIC, event: 'phx_join', ref: '1',
+        payload: { config: { broadcast: { self: true }, presence: { key: '' }, private: false } },
+      }))
+    }
+    ws.onmessage = ev => {
+      let m: { event?: string; payload?: { status?: string } }
+      try { m = JSON.parse(String(ev.data)) as typeof m } catch { return }
+      if (m.event === 'phx_reply') {
+        if (m.payload?.status !== 'ok') { end(false, `canal recusou: ${m.payload?.status ?? '?'}`); return }
+        const join = Math.round(performance.now() - t0) - open
+        ws.send(JSON.stringify({
+          topic: TOPIC, event: 'broadcast', ref: '2',
+          payload: { type: 'broadcast', event: 'ping', payload: {} },
+        }))
+        setTimeout(() => end(true, `${open}ms pra abrir + ${join}ms pra entrar, sem eco${slow(open)}`), 2500)
+        return
+      }
+      if (m.event === 'broadcast') {
+        const total = Math.round(performance.now() - t0)
+        end(true, `entrou e recebeu de volta em ${total}ms${slow(open)}`)
+      }
+    }
   })
 }
+
+const TOPIC = 'realtime:blobby-lobby-v1'
+const slow = (open: number) => (open > 4000 ? ` — WebSocket LENTO (${open}ms), rede/IPv6 do seu lado` : '')
 
 export async function runDiag(onLine: (l: DiagLine) => void) {
   const push = (label: string, ok: boolean | null, info: string) => onLine({ label, ok, info })
@@ -105,9 +146,9 @@ export async function runDiag(onLine: (l: DiagLine) => void) {
   } catch (e) { rest = `falhou: ${String(e).slice(0, 60)}` }
   push('signaling HTTP', restOk, rest)
 
-  push('signaling WebSocket', null, 'testando…')
-  const ws = await wsProbe(`${sb.url.replace('https://', 'wss://')}/realtime/v1/websocket?apikey=${sb.key}&vsn=1.0.0`)
-  push('signaling WebSocket', ws.startsWith('ok'), ws)
+  push('lobby (WebSocket + canal)', null, 'testando…')
+  const lb2 = await lobbyProbe(`${sb.url.replace('https://', 'wss://')}/realtime/v1/websocket?apikey=${sb.key}&vsn=1.0.0`)
+  push('lobby (WebSocket + canal)', lb2.ok, lb2.info)
 
   const t2 = performance.now()
   let turn = 'sem resposta'

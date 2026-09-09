@@ -152,6 +152,29 @@ export class Rollback {
     this.stats.frameAdvantage = this.frame - this.remoteReportedFrame
   }
 
+  /** Estado no início do frame, se o anel ainda o guarda — base do snapshot pra quem assiste. */
+  stateAt(frame: number): MatchState | null {
+    const i = this.idx(frame)
+    return this.stateFrame[i] === frame ? this.states[i] : null
+  }
+
+  /** Inputs dos dois lados já confirmados: dá pra reproduzir a partida byte a byte. */
+  confirmedWindow(from: number): { start: number; l: Uint8Array; r: Uint8Array } | null {
+    const last = this.confirmed
+    if (last < 0 || from > last) return null
+    const cap = Math.min(last - Math.max(0, from) + 1, 120)
+    const start = last + 1 - cap
+    const l = new Uint8Array(cap)
+    const r = new Uint8Array(cap)
+    for (let k = 0; k < cap; k++) {
+      const f = start + k
+      const i = this.idx(f)
+      l[k] = this.stamp[0][i] === f ? this.inputs[0][i] : 0
+      r[k] = this.stamp[1][i] === f ? this.inputs[1][i] : 0
+    }
+    return { start, l, r }
+  }
+
   /** Inputs for every simulated local frame from `from` onwards, for redundant sending. */
   localWindow(from: number): { start: number; bits: Uint8Array } {
     const last = this.frame - 1

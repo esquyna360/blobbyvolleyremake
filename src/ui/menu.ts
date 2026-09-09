@@ -3,7 +3,7 @@ import { RULES } from '../core/logic.ts'
 import { VOLUMES } from '../audio/audio.ts'
 import type { VolumeId } from '../audio/audio.ts'
 import type { Difficulty } from '../ai/bot.ts'
-import type { RoomAd } from '../net/lobby.ts'
+import type { LobbyNet, RoomAd } from '../net/lobby.ts'
 import { ARENAS } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
 import { runDiag } from '../net/diag.ts'
@@ -61,6 +61,9 @@ export interface MenuHandlers {
   onWatchRooms(cb: (rooms: RoomAd[]) => void): () => void
   onLeaveOnline(): void
   onRematch?(): void
+  onWatch(ad: RoomAd): void
+  onStopWatch(): void
+  onLobbyNet(cb: (n: LobbyNet, info: string) => void): () => void
 }
 
 export class Menu {
@@ -69,6 +72,8 @@ export class Menu {
   private handlers: MenuHandlers
   private container: HTMLElement
   private cleanup: (() => void) | null = null
+  private netOff: (() => void) | null = null
+  private pendingNet: (() => void) | null = null
   private currentScreen: () => void = () => this.main()
 
   constructor(parent: HTMLElement, cfg: GameConfig, handlers: MenuHandlers) {
@@ -83,10 +88,28 @@ export class Menu {
   hide() { this.container.style.display = 'none' }
   show() { this.container.style.display = '' }
   destroy() { this.cleanup?.(); this.container.remove() }
-  release() { this.cleanup?.(); this.cleanup = null }
+  release() {
+    this.cleanup?.(); this.cleanup = null
+    this.netOff?.(); this.netOff = null
+    this.pendingNet?.(); this.pendingNet = null
+  }
+
+  /** Em que rede o lobby está. Quando falha em silêncio, é o único jeito de saber. */
+  private netLine() {
+    const row = el('div', { class: 'netline connecting', textContent: 'lobby: conectando…' })
+    this.pendingNet?.()
+    this.pendingNet = this.handlers.onLobbyNet((n, info) => {
+      row.className = `netline ${n}`
+      row.textContent = info
+    })
+    return row
+  }
 
   private panel(...children: (Node | string)[]) {
     if (this.cleanup) { this.cleanup(); this.cleanup = null }
+    this.netOff?.()
+    this.netOff = this.pendingNet
+    this.pendingNet = null
     clear(this.container)
     this.container.append(el('div', { class: 'panel' }, ...children))
   }
@@ -212,12 +235,16 @@ export class Menu {
       nameIn,
       el('div', { class: 'grid', style: 'margin-top:18px' },
         el('button', { class: 'primary', onclick: () => this.createRoom() }, 'CRIAR SALA'),
-        el('button', { class: 'primary alt', onclick: () => this.joinRoom() }, 'ENTRAR NUMA SALA')),
+        el('button', { class: 'primary alt', onclick: () => this.joinRoom() }, 'ENTRAR NUMA SALA'),
+        el('button', { class: 'center', onclick: () => this.watchList() }, '📺 ASSISTIR AO VIVO')),
+      this.netLine(),
       el('div', { class: 'hint foot' }, 'Sem servidor: WebRTC direto entre vocês.'),
       el('div', { class: 'grid' },
         el('button', { class: 'ghost center small', onclick: () => this.diag() }, 'Testar minha conexão')),
       this.back(() => { this.handlers.onLeaveOnline(); this.main() }),
     )
+    // abre o lobby já aqui: é o que faz a linha de status dizer algo de verdade
+    this.cleanup = this.handlers.onWatchRooms(() => { /* só pra manter o canal vivo */ })
   }
 
   /** Roda os testes de rede e mostra linha a linha — pra quem não consegue conectar. */
@@ -320,11 +347,12 @@ export class Menu {
     const list = el('div', { class: 'grid rooms' })
     const render = (rooms: RoomAd[]) => {
       clear(list)
-      if (!rooms.length) {
+      const open = rooms.filter(r => !r.live)
+      if (!open.length) {
         list.append(el('div', { class: 'hint center', textContent: 'nenhuma sala aberta agora' }))
         return
       }
-      for (const r of rooms) {
+      for (const r of open) {
         list.append(el('button', { class: 'center room', onclick: () => { code.value = r.code; enter(r.code) } },
           `${r.lock ? '🔒' : '🎾'} ${r.name}`, el('small', { textContent: `${r.code} · ${r.rule}` })))
       }
@@ -335,6 +363,7 @@ export class Menu {
       this.title('ENTRAR'),
       el('h2', { class: 'sec', textContent: 'Salas abertas' }),
       list,
+      this.netLine(),
       el('h2', { class: 'sec', textContent: 'Ou pelo código' }),
       code,
       el('div', { style: 'margin-top:9px' }, pass),
@@ -350,6 +379,61 @@ export class Menu {
     )
     this.cleanup = this.handlers.onWatchRooms(render)
     return status
+  }
+
+  /** Salas com partida rolando: entra só pra ver, sem atrapalhar quem joga. */
+  watchList() {
+    this.currentScreen = () => this.watchList()
+    const list = el('div', { class: 'grid rooms' })
+    const render = (rooms: RoomAd[]) => {
+      clear(list)
+      const live = rooms.filter(r => r.live)
+      if (!live.length) {
+        list.append(el('div', { class: 'hint center', textContent: 'ninguém jogando agora' }))
+        return
+      }
+      for (const r of live) {
+        list.append(el('button', { class: 'center room live', onclick: () => this.handlers.onWatch(r) },
+          el('span', { class: 'livedot' }),
+          `${r.name} vs ${r.foe || '?'}`,
+          el('small', { textContent: `${r.sl} — ${r.sr} · ${r.rule}` })))
+      }
+    }
+    render([])
+    this.panel(
+      this.title('AO VIVO', 'partidas rolando agora'),
+      list,
+      this.netLine(),
+      el('div', { class: 'hint foot' }, 'Você vê a partida em tempo real, com uns instantes de atraso.'),
+      this.back(() => this.online()),
+    )
+    this.cleanup = this.handlers.onWatchRooms(render)
+  }
+
+  /** Some do caminho: quem assiste vê o jogo, não o menu. */
+  watching(ad: RoomAd) {
+    this.currentScreen = () => this.watching(ad)
+    this.panel(
+      this.title('CONECTANDO', `${ad.name} vs ${ad.foe || '?'}`),
+      el('div', { class: 'spinner' }),
+      el('div', { class: 'status', textContent: 'esperando a transmissão…' }),
+      el('div', { class: 'grid' },
+        el('button', { class: 'center', onclick: () => this.handlers.onStopWatch() }, 'Cancelar')),
+    )
+    this.show()
+  }
+
+  watchPause() {
+    this.currentScreen = () => this.watchPause()
+    this.show()
+    this.panel(
+      this.title('ASSISTINDO'),
+      el('div', { class: 'grid' },
+        el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'VOLTAR PRO JOGO'),
+        el('button', { class: 'center', onclick: () => this.handlers.onStopWatch() }, 'Parar de assistir')),
+      el('h2', { class: 'sec', textContent: 'Gráficos' }),
+      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid five'),
+    )
   }
 
   manual(asHost: boolean) {
