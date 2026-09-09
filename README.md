@@ -13,7 +13,7 @@ Remake em Three.js do [Blobby Volley 2](https://github.com/danielknobe/blobbyvol
 - Quatro conjuntos de regras: Clássico, Tennis, Blitz e Jumping Jack.
 - Lista de salas abertas em tempo real, também sem servidor: os hosts anunciam a sala pelo próprio relay de signaling.
 - Áudio procedural (mar, vento, pad, sons de toque) gerado em WebAudio — nenhum arquivo de som no repositório.
-- Quatro presets gráficos (Baixa → Ultra), detecção automática do preset na primeira vez e queda automática se o FPS não segurar.
+- Cinco presets gráficos: um modo **2D em Canvas puro** (roda só na CPU, para máquinas sem GPU decente) e quatro presets 3D de Baixa a Ultra. Detecção automática na primeira vez e queda automática se o FPS não segurar.
 
 ## Controles
 
@@ -35,6 +35,8 @@ A bola fica parada no ar antes do saque: pule nela para começar o ponto.
 **Sem relay (conexão direta).** `Criar convite` gera um bloco de texto; mande para a outra pessoa, ela cola em `Colar convite`, devolve o código de resposta e você cola de volta. Útil quando o signaling está bloqueado.
 
 O signaling usa relays Nostr públicos só para os dois navegadores se acharem. Depois disso a partida é WebRTC direto entre os dois, sem servidor no meio.
+
+**Limitação conhecida:** só há STUN configurado, não TURN. Se um dos lados estiver atrás de CGNAT (rede móvel 4G/5G costuma estar), a conexão direta não fecha e a sala não aparece nem conecta. Wi-Fi doméstico dos dois lados funciona. Um TURN resolveria, mas exigiria um servidor — que é justamente o que este projeto evita.
 
 ## Rodando local
 

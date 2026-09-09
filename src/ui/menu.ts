@@ -10,7 +10,7 @@ export interface GameConfig {
   difficulty: Difficulty
   ruleId: string
   scoreToWin: number
-  quality: 'low' | 'medium' | 'high' | 'ultra'
+  quality: 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
   name: string
 }
 
@@ -27,6 +27,7 @@ const DIFFS: [Difficulty, string, string][] = [
 ]
 
 const QUALITIES: [GameConfig['quality'], string, string][] = [
+  ['cpu', '2D', 'só CPU, sem 3D'],
   ['low', 'Baixa', 'PC fraco'],
   ['medium', 'Média', 'sombra + bloom'],
   ['high', 'Alta', 'god rays'],
@@ -107,7 +108,7 @@ export class Menu {
       this.selector(QUALITIES, this.cfg.quality, v => {
         this.cfg.quality = v
         this.handlers.onQuality(v)
-      }),
+      }, 'grid five'),
     ]
   }
 

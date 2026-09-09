@@ -22,6 +22,15 @@ import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
 
+export interface GameRenderer {
+  setSize(w: number, h: number): void
+  capture(match: Match): void
+  onEvents(match: Match, events: MatchEvent[]): void
+  render(match: Match, alpha: number, dt: number): void
+  celebrate(side: Side): void
+  dispose(): void
+}
+
 export interface Quality {
   shadows: boolean
   shadowSize: number
@@ -96,7 +105,7 @@ interface Snapshot {
   px: number[]; py: number[]; state: number[]
 }
 
-export class Stage {
+export class Stage implements GameRenderer {
   renderer: THREE.WebGLRenderer
   scene = new THREE.Scene()
   camera: THREE.PerspectiveCamera

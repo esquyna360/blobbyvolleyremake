@@ -8,12 +8,14 @@ import { packInput, NO_INPUT } from './core/input.ts'
 import type { PlayerInput } from './core/input.ts'
 import { Bot } from './ai/bot.ts'
 import { Stage, QUALITY_PRESETS } from './render/stage.ts'
+import type { GameRenderer } from './render/stage.ts'
+import { Stage2D } from './render/stage2d.ts'
 import { Hud } from './ui/hud.ts'
 import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
 import type { GameConfig } from './ui/menu.ts'
 import { InputManager, P1, P2, SOLO } from './ui/input.ts'
 import { NetSession } from './net/session.ts'
-import { createManualTransport, createRoomTransport } from './net/transport.ts'
+import { createManualTransport, createRoomTransport, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
 import { GameAudio } from './audio/audio.ts'
 import { Lobby } from './net/lobby.ts'
@@ -22,7 +24,7 @@ type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
 const isTouch = matchMedia('(pointer: coarse)').matches
 
-const QUALITY_ORDER: GameConfig['quality'][] = ['low', 'medium', 'high', 'ultra']
+const QUALITY_ORDER: GameConfig['quality'][] = ['cpu', 'low', 'medium', 'high', 'ultra']
 
 function gpuName(): string {
   try {
@@ -34,11 +36,15 @@ function gpuName(): string {
   return ''
 }
 
+function makeRenderer(canvas: HTMLCanvasElement, q: GameConfig['quality']): GameRenderer {
+  return q === 'cpu' ? new Stage2D(canvas) : new Stage(canvas, QUALITY_PRESETS[q])
+}
+
 function detectQuality(): GameConfig['quality'] {
   const gpu = gpuName()
   const cores = navigator.hardwareConcurrency || 4
   const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
-  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return 'low'
+  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return 'cpu'
   if (cores <= 4 || mem <= 4) return 'low'
   if (isTouch) return 'medium'
   if (/apple m\d/.test(gpu)) return 'high'
@@ -50,7 +56,7 @@ function detectQuality(): GameConfig['quality'] {
 class App {
   ui = document.getElementById('ui') as HTMLElement
   canvas = document.getElementById('gl') as HTMLCanvasElement
-  stage: Stage
+  stage: GameRenderer
   hud: Hud
   menu: Menu
   input = new InputManager()
@@ -73,11 +79,11 @@ class App {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
     const savedName = localStorage.getItem('bv.name')
     this.cfg = { ...DEFAULT_CONFIG }
-    if (savedQ && QUALITY_PRESETS[savedQ]) { this.cfg.quality = savedQ; this.userPickedQuality = true }
+    if (savedQ && (savedQ === 'cpu' || QUALITY_PRESETS[savedQ])) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
 
-    this.stage = new Stage(this.canvas, QUALITY_PRESETS[this.cfg.quality])
+    this.stage = makeRenderer(this.canvas, this.cfg.quality)
     this.hud = new Hud(this.ui)
     this.hud.root.style.opacity = '0'
 
@@ -119,7 +125,7 @@ class App {
   }
 
   applyQuality(q: GameConfig['quality'], byUser: boolean) {
-    if (!QUALITY_PRESETS[q]) return
+    if (q !== 'cpu' && !QUALITY_PRESETS[q]) return
     this.cfg.quality = q
     if (byUser) { this.userPickedQuality = true; localStorage.setItem('bv.quality', q) }
     const old = this.canvas
@@ -127,9 +133,9 @@ class App {
     next.id = 'gl'
     old.parentNode!.insertBefore(next, old)
     const prev = this.stage
-    let built: Stage
+    let built: GameRenderer
     try {
-      built = new Stage(next, QUALITY_PRESETS[q])
+      built = makeRenderer(next, q)
     } catch (e) {
       console.error('quality switch failed', e)
       next.remove()
@@ -235,6 +241,7 @@ class App {
 
   private begin() {
     this.phase = 'playing'
+    clearTimeout(this.joinTimer)
     this.lobby.advertise(null)
     this.menu.release()
     this.menu.hide()
@@ -270,7 +277,21 @@ class App {
     this.menu.main()
   }
 
+  private armJoinDiagnostic() {
+    clearTimeout(this.joinTimer)
+    this.joinTimer = setTimeout(async () => {
+      if (this.phase === 'playing') return
+      const h = await relayHealth()
+      this.menu.status(h.open === 0
+        ? 'sem conexão com os relays de signaling — rede bloqueando WebSocket?'
+        : `relays ${h.open}/${h.total} ok, mas ninguém apareceu. Se um lado estiver no 4G/5G a conexão direta não fecha (CGNAT) — testem os dois no Wi-Fi ou usem Criar/Colar convite.`)
+    }, 14000) as unknown as number
+  }
+
+  private joinTimer = 0
+
   private closeSession() {
+    clearTimeout(this.joinTimer)
     this.lobby.advertise(null)
     if (this.session) { try { this.session.close() } catch { /* ignore */ } }
     this.session = null
@@ -287,6 +308,7 @@ class App {
       this.attachSession(transport, cfg)
       this.lobby.advertise({ code, name: cfg.name, rule: getRules(cfg.ruleId).name })
       this.menu.status(`sala ${code} aberta · esperando oponente…`)
+      this.armJoinDiagnostic()
     } catch (e) {
       this.menu.status(`falha no relay (${String(e).slice(0, 60)})`)
     }

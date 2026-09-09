@@ -1,5 +1,41 @@
 export type PeerId = string
 
+/** Relays verificados manualmente: aceitam publicação anônima de eventos efêmeros. */
+export const RELAY_URLS = [
+  'wss://nos.lol',
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://offchain.pub',
+  'wss://nostr.mom',
+  'wss://nostr-pub.wellorder.net',
+  'wss://relay.fountain.fm',
+  'wss://nostr.sathoarder.com',
+]
+
+const RTC_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+  ],
+}
+
+export const ROOM_CONFIG = {
+  appId: 'blobbyremake-v1',
+  relayUrls: RELAY_URLS,
+  rtcConfig: RTC_CONFIG,
+}
+
+export async function relayHealth(): Promise<{ open: number; total: number }> {
+  try {
+    const mod = await import('trystero/nostr')
+    const sockets = Object.values(mod.getRelaySockets()) as (WebSocket | undefined)[]
+    return { open: sockets.filter(w => w?.readyState === 1).length, total: sockets.length }
+  } catch {
+    return { open: 0, total: 0 }
+  }
+}
+
 export interface Transport {
   readonly kind: string
   send(data: Uint8Array): void
@@ -18,7 +54,7 @@ export async function createRoomTransport(roomId: string, strategy: 'nostr' | 't
       ? await import('trystero/mqtt')
       : await import('trystero/torrent')
 
-  const room = mod.joinRoom({ appId: 'blobbyremake-v1' }, roomId)
+  const room = mod.joinRoom(ROOM_CONFIG, roomId)
   const [sendRaw, getRaw] = room.makeAction<Uint8Array>('pkt')
 
   const dataCbs: ((d: Uint8Array, p: PeerId) => void)[] = []
@@ -52,12 +88,7 @@ export interface ManualHandle {
   accept(remote: string): Promise<void>
 }
 
-const ICE = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-  ],
-}
+const ICE = RTC_CONFIG
 
 const encodeSDP = (d: RTCSessionDescriptionInit) =>
   btoa(JSON.stringify(d)).replace(/=+$/, '')

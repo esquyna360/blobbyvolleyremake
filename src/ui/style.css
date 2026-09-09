@@ -134,6 +134,7 @@ h2.sec {
 .grid.two { grid-template-columns: 1fr 1fr; }
 .grid.three { grid-template-columns: repeat(3, 1fr); }
 .grid.four { grid-template-columns: repeat(4, 1fr); }
+.grid.five { grid-template-columns: repeat(5, 1fr); }
 
 button, .btn {
   font-family: inherit; font-size: 14px; font-weight: 700;
@@ -227,6 +228,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 @media (max-width: 620px) {
   .brand h1 { font-size: 34px; }
   .grid.four { grid-template-columns: repeat(2, 1fr); }
+  .grid.five { grid-template-columns: repeat(2, 1fr); }
   .side .pts { font-size: 34px; }
   .side { min-width: 70px; }
 }

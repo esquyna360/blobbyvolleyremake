@@ -1,3 +1,5 @@
+import { ROOM_CONFIG } from './transport.ts'
+
 type Mod = typeof import('trystero/nostr')
 type TRoom = ReturnType<Mod['joinRoom']>
 
@@ -47,7 +49,7 @@ export class Lobby {
     if (this.opening) return this.opening
     this.opening = (async () => {
       const mod = await import('trystero/nostr')
-      const room = mod.joinRoom({ appId: 'blobbyremake-v1' }, LOBBY_ID)
+      const room = mod.joinRoom(ROOM_CONFIG, LOBBY_ID)
       const [send, get] = room.makeAction<RoomAd>('ad')
       get(ad => {
         if (!ad || typeof ad.code !== 'string') return
