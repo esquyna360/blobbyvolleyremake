@@ -39,8 +39,8 @@ export const SQUISH_TOLERANCE = 11
 export const DEFAULT_SCORE_TO_WIN = 15
 
 export const SPECIAL_FULL = 1
-export const SPECIAL_GAIN_TOUCH = 0.11
-export const SPECIAL_GAIN_FRAME = 0.0009
+export const SPECIAL_GAIN_TOUCH = 0.055
+export const SPECIAL_GAIN_FRAME = 0.00045
 export const SPECIAL_REACH = 165
 export const SPECIAL_VELOCITY = BALL_COLLISION_VELOCITY * 2.45
 export const SPECIAL_BALL_FRAMES = 150
@@ -51,9 +51,23 @@ export const KNOCK_DECAY = 0.9
 export const SPECIAL_NET_CLEARANCE = 48
 export const SPECIAL_GRAVITY_MUL = 4.2
 export const SPECIAL_TARGET_DEPTH = 0.72
-export const SPECIAL_TIME_MIN = 10
+export const SPECIAL_TIME_MIN = 18
 export const SPECIAL_TIME_STEP = 1.25
 export const SPECIAL_TIME_STEPS = 30
+
+/** Quem está atrás carrega mais rápido; quem lidera, mais devagar. */
+export const SPECIAL_COMEBACK_STEP = 0.22
+export const SPECIAL_COMEBACK_MIN = 0.6
+export const SPECIAL_COMEBACK_MAX = 2.2
+
+export const SPECIAL_DEPTH_JITTER = 0.36
+export const SPECIAL_ARC_JITTER = 3
+
+export const PARRY_ACTIVE = 8
+export const PARRY_CD = 42
+export const PARRY_REACH = 190
+export const PARRY_BOOST = 0.1
+export const PARRY_CHAIN_MAX = 4
 
 export const PUSH_REACH_X = 152
 export const PUSH_REACH_Y = 130

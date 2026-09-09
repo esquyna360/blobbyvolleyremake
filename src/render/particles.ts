@@ -76,6 +76,7 @@ export interface Particles {
     color: THREE.Color
     drag?: number
     colorJitter?: number
+    dirX?: number
   }): void
 }
 
@@ -138,6 +139,7 @@ export function createParticles(MAX = 60000): Particles {
       const sz = o.size ?? 0.03
       const dg = o.drag ?? 1.4
       const cj = o.colorJitter ?? 0.12
+      const bias = o.dirX ?? 0
 
       for (let k = 0; k < n; k++) {
         const i = (start + k) % MAX
@@ -150,7 +152,7 @@ export function createParticles(MAX = 60000): Particles {
         origin[i * 3 + 1] = o.y + Math.random() * 0.05
         origin[i * 3 + 2] = o.z + (Math.random() - 0.5) * 0.08
 
-        vel[i * 3] = Math.cos(a) * r * sp * spread
+        vel[i * 3] = Math.cos(a) * r * sp * spread + bias * sp
         vel[i * 3 + 1] = sp * up * (0.35 + el * 0.9)
         vel[i * 3 + 2] = Math.sin(a) * r * sp * spread
 

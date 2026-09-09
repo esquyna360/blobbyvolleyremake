@@ -20,10 +20,75 @@ const STUN_ONLY: RTCIceServer[] = [
 
 const RTC_CONFIG: RTCConfiguration = { iceServers: STUN_ONLY }
 
+/** Signaling próprio: relay público bania pubkey anônima e derrubava quem entrava. */
+const SUPABASE_URL = 'https://vzxnnixegwfdtexmqbos.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_6EHgiq7g9D1vE0s2yyoqtA_PdS2EZiG'
+
+export type Strategy = 'supabase' | 'nostr' | 'torrent' | 'mqtt'
+
 export const ROOM_CONFIG = {
   appId: 'blobbyremake-v1',
   relayUrls: RELAY_URLS,
   rtcConfig: RTC_CONFIG,
+}
+
+const SUPABASE_CONFIG = {
+  appId: SUPABASE_URL,
+  supabaseKey: SUPABASE_KEY,
+  rtcConfig: RTC_CONFIG,
+}
+
+let supaUp: Promise<boolean> | null = null
+
+/** Projeto free hiberna depois de uma semana parado; se hibernou, cai pro Nostr. */
+function supabaseAlive(): Promise<boolean> {
+  if (!supaUp) {
+    supaUp = (async () => {
+      try {
+        const ctl = new AbortController()
+        const t = setTimeout(() => ctl.abort(), 5000)
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+          headers: { apikey: SUPABASE_KEY },
+          signal: ctl.signal,
+        })
+        clearTimeout(t)
+        return r.status < 500
+      } catch {
+        return false
+      }
+    })()
+  }
+  return supaUp
+}
+
+export async function pickStrategy(pref: Strategy = 'supabase'): Promise<Strategy> {
+  if (pref !== 'supabase') return pref
+  return (await supabaseAlive()) ? 'supabase' : 'nostr'
+}
+
+type NostrMod = typeof import('trystero/nostr')
+export type TrysteroRoom = ReturnType<NostrMod['joinRoom']>
+
+/** Cada estratégia tem sua própria forma de config; devolve já um join fechado em cima dela. */
+export async function loadStrategy(s: Strategy): Promise<(roomId: string) => TrysteroRoom> {
+  switch (s) {
+    case 'supabase': {
+      const m = await import('trystero/supabase')
+      return id => m.joinRoom(SUPABASE_CONFIG, id) as TrysteroRoom
+    }
+    case 'mqtt': {
+      const m = await import('trystero/mqtt')
+      return id => m.joinRoom(ROOM_CONFIG, id) as TrysteroRoom
+    }
+    case 'torrent': {
+      const m = await import('trystero/torrent')
+      return id => m.joinRoom(ROOM_CONFIG, id) as TrysteroRoom
+    }
+    default: {
+      const m = await import('trystero/nostr')
+      return id => m.joinRoom(ROOM_CONFIG, id)
+    }
+  }
 }
 
 /** Credencial TURN de curta duração; a chave fica no backend, nunca no bundle. */
@@ -58,15 +123,22 @@ export function ensureIce(): Promise<void> {
   return icePending
 }
 
-export async function relayHealth(): Promise<{ open: number; total: number }> {
+export async function relayHealth(): Promise<{ open: number; total: number; kind: string }> {
+  if (lastStrategy === 'supabase') {
+    const up = await supabaseAlive()
+    return { open: up ? 1 : 0, total: 1, kind: 'supabase' }
+  }
   try {
     const mod = await import('trystero/nostr')
     const sockets = Object.values(mod.getRelaySockets()) as (WebSocket | undefined)[]
-    return { open: sockets.filter(w => w?.readyState === 1).length, total: sockets.length }
+    return { open: sockets.filter(w => w?.readyState === 1).length, total: sockets.length, kind: 'nostr' }
   } catch {
-    return { open: 0, total: 0 }
+    return { open: 0, total: 0, kind: 'nostr' }
   }
 }
+
+let lastStrategy: Strategy = 'supabase'
+export const currentStrategy = () => lastStrategy
 
 export interface Transport {
   readonly kind: string
@@ -78,16 +150,14 @@ export interface Transport {
   close(): void
 }
 
-/** Serverless signaling via Trystero (Nostr relays / BitTorrent trackers / MQTT). */
-export async function createRoomTransport(roomId: string, strategy: 'nostr' | 'torrent' | 'mqtt' = 'nostr'): Promise<Transport> {
-  const mod = strategy === 'nostr'
-    ? await import('trystero/nostr')
-    : strategy === 'mqtt'
-      ? await import('trystero/mqtt')
-      : await import('trystero/torrent')
+/** Signaling serverless via Trystero (Supabase Realtime, com Nostr de reserva). */
+export async function createRoomTransport(roomId: string, pref: Strategy = 'supabase'): Promise<Transport> {
+  const strategy = await pickStrategy(pref)
+  lastStrategy = strategy
+  const join = await loadStrategy(strategy)
 
   await ensureIce()
-  const room = mod.joinRoom(ROOM_CONFIG, roomId)
+  const room = join(roomId)
   const [sendRaw, getRaw] = room.makeAction<Uint8Array>('pkt')
 
   const dataCbs: ((d: Uint8Array, p: PeerId) => void)[] = []

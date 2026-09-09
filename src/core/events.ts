@@ -17,6 +17,8 @@ export const enum Ev {
   PUSH = 13,
   PUSH_HIT = 14,
   FATALITY = 15,
+  PARRY = 16,
+  PARRY_TRY = 17,
 }
 
 export interface MatchEvent { event: Ev; side: SideOrNone; intensity: number }

@@ -11,6 +11,7 @@
     "test": "node --test --experimental-transform-types tests/*.test.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "three": "^0.180.0",
     "trystero": "^0.21.5"
   },

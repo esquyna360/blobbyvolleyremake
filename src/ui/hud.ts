@@ -33,13 +33,13 @@ export class Hud {
 
     this.fillL = el('i')
     this.fillR = el('i')
-    this.barL = el('div', { class: 'charge' }, this.fillL)
-    this.barR = el('div', { class: 'charge' }, this.fillR)
+    this.barL = el('div', { class: 'charge l' }, this.fillL)
+    this.barR = el('div', { class: 'charge r' }, this.fillR)
 
     const left = el('div', { class: 'side l' }, this.nameL, this.ptsL,
-      el('div', { class: 'touches' }, ...this.touchesL), this.barL)
+      el('div', { class: 'touches' }, ...this.touchesL))
     const right = el('div', { class: 'side r' }, this.nameR, this.ptsR,
-      el('div', { class: 'touches' }, ...this.touchesR), this.barR)
+      el('div', { class: 'touches' }, ...this.touchesR))
     const mid = el('div', { class: 'mid' },
       el('span', { class: 'sep', textContent: '—' }),
       el('div', { class: 'serve-dots' }, ...this.dots),
@@ -48,7 +48,8 @@ export class Hud {
     this.netbar = el('div', { class: 'netbar mono' })
     this.netbar.style.display = 'none'
 
-    this.root = el('div', { class: 'hud' }, el('div', { class: 'score-card' }, left, mid, right))
+    this.root = el('div', { class: 'hud' },
+      el('div', { class: 'score-card' }, left, mid, right), this.barL, this.barR)
     parent.append(this.root, this.netbar)
   }
 
@@ -101,6 +102,18 @@ export class Hud {
     this.root.parentElement!.append(b)
     setTimeout(() => b.classList.add('out'), ms)
     setTimeout(() => b.remove(), ms + 450)
+  }
+
+  /** Parry certo: PARRY azul celeste estourando no meio da tela. */
+  parry() {
+    const host = this.root.parentElement!
+    host.querySelector('.parry')?.remove()
+    const ov = el('div', { class: 'parry' },
+      el('div', { class: 'parry-flash' }),
+      el('div', { class: 'parry-ring' }),
+      el('div', { class: 'parry-word', textContent: 'PARRY' }))
+    host.append(ov)
+    setTimeout(() => ov.remove(), 1100)
   }
 
   fatality() {

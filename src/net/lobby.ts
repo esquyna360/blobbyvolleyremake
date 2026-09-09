@@ -1,4 +1,4 @@
-import { ROOM_CONFIG, ensureIce } from './transport.ts'
+import { ensureIce, loadStrategy, pickStrategy } from './transport.ts'
 
 type Mod = typeof import('trystero/nostr')
 type TRoom = ReturnType<Mod['joinRoom']>
@@ -65,9 +65,9 @@ export class Lobby {
     if (this.opening) return this.opening
     const gen = ++this.gen
     this.opening = (async () => {
-      const mod = await import('trystero/nostr')
+      const join = await loadStrategy(await pickStrategy())
       await ensureIce()
-      const room = mod.joinRoom(ROOM_CONFIG, LOBBY_ID)
+      const room = join(LOBBY_ID)
       if (gen !== this.gen) { room.leave(); return }
       const [send, get] = room.makeAction<RoomAd>('ad')
       get(ad => {

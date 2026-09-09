@@ -4,16 +4,22 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  trystero: 0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f8bb5
+
 importers:
 
   .:
     dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.116.0
+        version: 2.116.0
       three:
         specifier: ^0.180.0
         version: 0.180.0
       trystero:
         specifier: ^0.21.5
-        version: 0.21.8(@multiformats/multiaddr@12.5.1)
+        version: 0.21.8(patch_hash=0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f8bb5)(@multiformats/multiaddr@12.5.1)
     devDependencies:
       '@types/node':
         specifier: ^26.5.0
@@ -3186,7 +3192,7 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
 
-  trystero@0.21.8(@multiformats/multiaddr@12.5.1):
+  trystero@0.21.8(patch_hash=0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f8bb5)(@multiformats/multiaddr@12.5.1):
     dependencies:
       '@noble/secp256k1': 3.2.0
       '@supabase/supabase-js': 2.116.0

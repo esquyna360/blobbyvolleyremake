@@ -363,11 +363,12 @@ class App {
     this.joinTimer = setTimeout(async () => {
       if (this.phase === 'playing') return
       const h = await relayHealth()
+      const via = h.kind === 'supabase' ? 'signaling' : `relays ${h.open}/${h.total}`
       this.menu.status(h.open === 0
-        ? 'sem conexão com os relays de signaling — rede bloqueando WebSocket?'
+        ? 'sem conexão com o servidor de signaling — rede bloqueando WebSocket?'
         : hasTurn()
-          ? `relays ${h.open}/${h.total} ok e TURN ativo, mas ninguém apareceu. Confere se o código da sala bate dos dois lados.`
-          : `relays ${h.open}/${h.total} ok, mas o TURN não respondeu — sem ele o 4G/5G não conecta. Testem os dois no Wi-Fi ou usem Criar/Colar convite.`)
+          ? `${via} ok e TURN ativo, mas ninguém apareceu. Confere se o código da sala bate dos dois lados.`
+          : `${via} ok, mas o TURN não respondeu — sem ele o 4G/5G não conecta. Testem os dois no Wi-Fi ou usem Criar/Colar convite.`)
     }, 14000) as unknown as number
   }
 
@@ -392,7 +393,7 @@ class App {
     this.roomCode = code
     this.roomPass = pass
     try {
-      const transport = await createRoomTransport(code, 'nostr')
+      const transport = await createRoomTransport(code)
       this.attachSession(transport, cfg, true, pass)
       this.lobby.advertise({ code, name: cfg.name, rule: getRules(cfg.ruleId).name, lock: pass ? 1 : 0 })
     } catch (e) {
@@ -407,7 +408,7 @@ class App {
     this.roomCode = code
     this.roomPass = pass
     try {
-      const transport = await createRoomTransport(code || 'BLOBBY', 'nostr')
+      const transport = await createRoomTransport(code || 'BLOBBY')
       this.attachSession(transport, cfg, false, pass)
       this.menu.status(`procurando a sala ${code}…`)
       this.armJoinDiagnostic()
@@ -512,7 +513,10 @@ class App {
   }
 
   private uiEvents(events: MatchEvent[]) {
-    for (const e of events) if (e.event === Ev.FATALITY) this.hud.fatality()
+    for (const e of events) {
+      if (e.event === Ev.FATALITY) this.hud.fatality()
+      else if (e.event === Ev.PARRY) this.hud.parry()
+    }
   }
 
   private checkWin() {

@@ -187,6 +187,7 @@ export class Stage implements GameRenderer {
   time = 0
   trauma = 0
   hitstop = 0
+  private gib = [0, 0]
   flash = 0
   aberration = 0
   slowmo = 1
@@ -498,17 +499,79 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           })
           break
         }
+        case Ev.PUSH: {
+          const p = e.side as Side
+          this.particles.burst({
+            x: gx(w.blobX[p]), y: gy(w.blobY[p]) + 1.0, z: 0, count: 26, speed: 3.4, spread: 3.14, up: 0.5,
+            life: 0.34, size: 0.03, color: new THREE.Color(0.66, 0.74, 0.88), drag: 3.4, colorJitter: 0.15,
+          })
+          this.blobs[p].squashVel -= 1.0
+          break
+        }
         case Ev.PUSH_HIT: {
           const p = e.side as Side
           const o: Side = p === LEFT ? RIGHT : LEFT
+          const dir = p === LEFT ? 1 : -1
           this.trauma = Math.min(1, this.trauma + 0.34)
           this.particles.burst({
             x: gx(w.blobX[o]), y: gy(w.blobY[o]) + 1.2, z: 0, count: 120, speed: 7, spread: 1.1, up: 0.6,
             life: 0.5, size: 0.045, color: new THREE.Color(0.85, 0.92, 1.0), drag: 2.6, colorJitter: 0.2,
           })
+          // onda de choque saindo de quem empurrou
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 1.0
+          this.particles.burst({
+            x: px + dir * 0.5, y: py, z: 0, count: 150, speed: 11, spread: 0.7, up: 0.25,
+            life: 0.4, size: 0.05, color: new THREE.Color(0.92, 0.97, 1.0), drag: 3.6,
+            dirX: dir, colorJitter: 0.12,
+          })
+          this.particles.burst({
+            x: px, y: py, z: 0, count: 90, speed: 4.5, spread: 3.14, up: 1.2,
+            life: 0.7, size: 0.032, color: new THREE.Color(0.72, 0.86, 1.0), drag: 2.2, colorJitter: 0.25,
+          })
+          this.blobs[p].squashVel -= 1.8
+          this.blobs[p].wobble = 0.9
+          this.blobs[p].flash = 0.5
           const b = this.blobs[o]
           b.wobble = 1.4
           b.squashVel -= 2.4
+          break
+        }
+        case Ev.RESET_BALL: {
+          this.gib[0] = 0; this.gib[1] = 0
+          break
+        }
+        case Ev.PARRY_TRY: {
+          const p = e.side as Side
+          this.particles.burst({
+            x: gx(w.blobX[p]), y: gy(w.blobY[p]) + 1.3, z: 0, count: 22, speed: 2.6, spread: 3.14, up: 0.8,
+            life: 0.3, size: 0.026, color: new THREE.Color(0.42, 0.78, 1.0), drag: 3.6,
+          })
+          break
+        }
+        case Ev.PARRY: {
+          const p = e.side as Side
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 1.3
+          this.trauma = Math.min(1, this.trauma + 0.6)
+          this.hitstop = Math.max(this.hitstop, 0.13)
+          this.aberration = Math.max(this.aberration, 2.6)
+          this.flash = Math.max(this.flash, 0.34)
+          this.particles.burst({
+            x: px, y: py, z: 0, count: 360, speed: 13, spread: 3.14, up: 0.4,
+            life: 0.7, size: 0.05, color: new THREE.Color(0.36, 0.84, 1.0), drag: 2.2, colorJitter: 0.3,
+          })
+          this.particles.burst({
+            x: px, y: py, z: 0, count: 180, speed: 22, spread: 0.5, up: 0.1,
+            life: 0.4, size: 0.062, color: new THREE.Color(0.85, 0.98, 1.0), drag: 3.2,
+          })
+          this.particles.burst({
+            x: px, y: py, z: 0, count: 120, speed: 3.6, spread: 3.14, up: 1.6,
+            life: 1.3, size: 0.03, color: new THREE.Color(0.55, 0.9, 1.0), drag: 1.2, colorJitter: 0.22,
+          })
+          this.ball.flash(3.6)
+          const bp = this.blobs[p]
+          bp.wobble = 1.5
+          bp.flash = 1
+          bp.squashVel -= 3.0
           break
         }
         case Ev.FATALITY: {
@@ -530,11 +593,23 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
             x: bx, y: by + 1.2, z: 0, count: 220, speed: 5, spread: 3.14, up: 2.2,
             life: 2.8, size: 0.05, color: new THREE.Color(0.9, 0.75, 0.75), drag: 1.2, colorJitter: 0.25,
           })
+          const col = (this.blobs[o].visual.uniforms.uColor.value as THREE.Color)
+          for (let i = 0; i < 3; i++) {
+            this.particles.burst({
+              x: bx, y: by + 0.6 + i * 0.6, z: 0, count: 300, speed: 10 + i * 6, spread: 3.14, up: 1.4,
+              life: 2.2, size: 0.11 - i * 0.02, color: col, drag: 0.9, colorJitter: 0.45,
+            })
+          }
+          this.particles.burst({
+            x: bx, y: by + 1.0, z: 0, count: 160, speed: 24, spread: 0.9, up: 0.3,
+            life: 0.5, size: 0.07, color: new THREE.Color(1.0, 0.94, 0.86), drag: 3.0,
+          })
           const b = this.blobs[o]
           b.wobble = 3
           b.mouth = 1
           b.flash = 1
           b.squashVel -= 7
+          this.gib[o] = 1
           break
         }
         case Ev.SPECIAL_HIT: {
@@ -565,6 +640,8 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
 
   private updateBlob(i: Side, alpha: number, dt: number, match: Match) {
     const b = this.blobs[i]
+    if (this.gib[i] > 0) { b.visual.group.visible = false; return }
+    b.visual.group.visible = true
     const u = b.visual.uniforms
     const p = this.prev, c = this.cur
     const gxp = THREE.MathUtils.lerp(p.px[i], c.px[i], alpha)

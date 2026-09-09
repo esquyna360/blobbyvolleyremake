@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 22
-export const STATE_INTS = 24
+export const STATE_INTS = 29
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -58,6 +58,7 @@ export class Match {
       r = { left: rl, right: rr, up: ru, special: ri.special, push: ri.push }
     }
 
+    w.scores[0] = g.scores[0]; w.scores[1] = g.scores[1]
     w.step(l, r, g.isBallValid, g.isGameRunning, this.events)
     g.step()
 
@@ -111,6 +112,9 @@ export class Match {
     i[18] = w.prevSpecial[0]; i[19] = w.prevSpecial[1]
     i[20] = w.prevPush[0]; i[21] = w.prevPush[1]
     i[22] = w.pushCd[0]; i[23] = w.pushCd[1]
+    i[24] = w.parryActive[0]; i[25] = w.parryActive[1]
+    i[26] = w.parryCd[0]; i[27] = w.parryCd[1]
+    i[28] = w.parryChain
   }
 
   restore(s: MatchState) {
@@ -128,6 +132,9 @@ export class Match {
     w.prevSpecial[0] = i[18]; w.prevSpecial[1] = i[19]
     w.prevPush[0] = i[20]; w.prevPush[1] = i[21]
     w.pushCd[0] = i[22]; w.pushCd[1] = i[23]
+    w.parryActive[0] = i[24]; w.parryActive[1] = i[25]
+    w.parryCd[0] = i[26]; w.parryCd[1] = i[27]
+    w.parryChain = i[28]
     g.scores[0] = i[0]; g.scores[1] = i[1]; g.touches[0] = i[2]; g.touches[1] = i[3]
     g.squish[0] = i[4]; g.squish[1] = i[5]; g.squishWall = i[6]; g.squishGround = i[7]
     g.servingPlayer = i[8] as SideOrNone

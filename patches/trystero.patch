@@ -1,0 +1,82 @@
+diff --git a/src/supabase.js b/src/supabase.js
+index d35a8e5fa52e09bf340a112887e03220fee2dfd9..4246ad85ec3fb4aaef60effeafe224bb1008a5c5 100644
+--- a/src/supabase.js
++++ b/src/supabase.js
+@@ -13,27 +13,54 @@ export const joinRoom = strategy({
+ 
+   subscribe: (client, rootTopic, selfTopic, onMessage) => {
+     const allChans = []
++    const ready = {}
++    const waiting = {}
++    let didUnsub = false
++
++    // supabase-js ignora subscribe() num canal já aberto e nunca chama o callback,
++    // então cada tópico é assinado uma vez só e os interessados entram na fila.
+     const subscribe = (topic, cb) => {
+-      const chan = client.channel(topic)
++      if (ready[topic]) {
++        cb(ready[topic])
++        return
++      }
++
++      if (waiting[topic]) {
++        waiting[topic].push(cb)
++        return
++      }
++
++      waiting[topic] = [cb]
++
++      const open = () => {
++        const chan = client.channel(topic)
++
++        chan.subscribe(async status => {
++          if (status === 'SUBSCRIBED') {
++            if (didUnsub) {
++              client.removeChannel(chan)
++              return
++            }
+ 
+-      chan.subscribe(async status => {
+-        if (status === 'SUBSCRIBED') {
+-          if (didUnsub) {
+-            client.removeChannel(chan)
++            allChans.push(chan)
++            ready[topic] = chan
++
++            const queued = waiting[topic] || []
++            delete waiting[topic]
++            queued.forEach(f => f(chan))
+             return
+           }
+ 
+-          allChans.push(chan)
+-          return cb(chan)
+-        }
++          if (status === 'CLOSED') {
++            return
++          }
+ 
+-        if (status === 'CLOSED') {
+-          return
+-        }
++          await client.removeChannel(chan)
++          setTimeout(open, 999)
++        })
++      }
+ 
+-        await client.removeChannel(chan)
+-        setTimeout(() => subscribe(topic, cb), 999)
+-      })
++      open()
+     }
+ 
+     const handleMessage = (peerTopic, signal) =>
+@@ -57,8 +84,6 @@ export const joinRoom = strategy({
+       )
+     )
+ 
+-    let didUnsub = false
+-
+     return () => {
+       allChans.forEach(chan => client.removeChannel(chan))
+       didUnsub = true

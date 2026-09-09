@@ -1,7 +1,7 @@
 import {
   BALL_GRAVITATION, BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
-  NET_SPHERE_POSITION, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, other,
+  NET_SPHERE_POSITION, PARRY_REACH, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -131,11 +131,26 @@ export class Bot {
   private pushHeld = false
 
   private wantSpecial(w: Match['world'], me: Side, onGround: boolean) {
+    if (w.superFrames > 0 && w.superOwner !== me) return this.wantParry(w, me)
     const ready = w.charge[me] >= SPECIAL_FULL && !onGround && w.stun[me] <= 0
     const dx = w.ballX - w.blobX[me]
     const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
     const near = Math.sqrt(dx * dx + dy * dy) < SPECIAL_REACH * 0.8
     const want = ready && near && this.rng() < 0.5 + PARAMS[this.diff].smash * 0.5
+    if (!want) { this.specialHeld = false; return false }
+    if (this.specialHeld) return false
+    this.specialHeld = true
+    return true
+  }
+
+  /** Defender o especial: tenta o parry quando a bola chega perto, e erra às vezes. */
+  private wantParry(w: Match['world'], me: Side) {
+    if (w.stun[me] > 0 || w.parryCd[me] > 0) { this.specialHeld = false; return false }
+    const dx = w.ballX - w.blobX[me]
+    const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
+    const d = Math.sqrt(dx * dx + dy * dy)
+    const p = PARAMS[this.diff]
+    const want = d < PARRY_REACH * (0.5 + p.smash * 0.45) && this.rng() < 0.2 + p.smash * 0.75
     if (!want) { this.specialHeld = false; return false }
     if (this.specialHeld) return false
     this.specialHeld = true

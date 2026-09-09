@@ -4,7 +4,7 @@ import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { PhysicWorld } from '../core/physics.ts'
 
-export const FATALITY_SFX = 'https://www.myinstants.com/media/sounds/fatality.swf.mp3'
+export const FATALITY_SFX = `${import.meta.env.BASE_URL}fatality.mp3`
 
 export const VOLUMES: [string, string, string][] = [
   ['off', 'Mudo', 'silêncio'],
@@ -355,6 +355,20 @@ export class GameAudio {
     this.burst(0.07, 0.07, 'highpass', 2600, 0.9, pan)
   }
 
+  /** Parry: estalo metálico brilhante subindo. */
+  parry(pan = 0) {
+    if (!this.ctx) return
+    this.thump(880, 2.6, 0.22, 0.2, 'square')
+    this.bell(1568, 0, 0.7, 0.2)
+    this.bell(2349, 0.02, 0.55, 0.13)
+    this.burst(0.16, 0.16, 'highpass', 4200, 1.1, pan)
+  }
+
+  parryWhiff(pan = 0) {
+    if (!this.ctx) return
+    this.burst(0.09, 0.05, 'bandpass', 1800, 2.2, pan)
+  }
+
   private voice: HTMLAudioElement | null = null
 
   fatality(pan = 0) {
@@ -423,6 +437,8 @@ export class GameAudio {
         case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break
         case Ev.SPECIAL_GROUND: this.groundBurn(ballPan); break
         case Ev.PUSH_HIT: this.push(panOf(world.blobX[e.side as Side])); break
+        case Ev.PARRY: this.parry(panOf(world.blobX[e.side as Side])); break
+        case Ev.PARRY_TRY: this.parryWhiff(panOf(world.blobX[e.side as Side])); break
         case Ev.FATALITY: this.fatality(panOf(world.blobX[e.side as Side])); break
       }
     }

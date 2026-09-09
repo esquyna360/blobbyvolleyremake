@@ -34,6 +34,7 @@ export class Stage2D implements GameRenderer {
   private cur = snap()
   private dust: Dust[] = []
   private rings: Ring[] = []
+  private gib = [0, 0]
   private trail: { x: number; y: number; life: number; seed: number }[] = []
   private pops: Pop[] = []
   private craters: { x: number; r: number }[] = []
@@ -122,6 +123,9 @@ export class Stage2D implements GameRenderer {
         case Ev.BALL_HIT_WALL:
           this.trauma = Math.min(1, this.trauma + 0.07)
           break
+        case Ev.RESET_BALL:
+          this.gib[0] = 0; this.gib[1] = 0
+          break
         case Ev.SCORE:
           this.flash = Math.max(this.flash, 0.16)
           break
@@ -159,12 +163,40 @@ export class Stage2D implements GameRenderer {
           if (this.scorch.length > 6) this.scorch.shift()
           break
         }
+        case Ev.PUSH: {
+          const p = e.side as Side
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 18, r: 6, max: 70, life: 0, color: '#9fb6d8' })
+          this.burst(w.blobX[p], w.blobY[p] - 18, 8, 110, '#9fb6d8', 0.4, 3)
+          break
+        }
         case Ev.PUSH_HIT: {
           const p = e.side as Side
           const o: Side = p === LEFT ? 1 : 0
+          const dir = p === LEFT ? 1 : -1
           this.trauma = Math.min(1, this.trauma + 0.34)
           this.burst(w.blobX[o], w.blobY[o] - 20, 30, 260, '#dbe7ff', 0.6, 5)
           this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 8, max: 120, life: 0, color: '#ffffff' })
+          // sopro em volta de quem empurrou
+          this.rings.push({ x: w.blobX[p] + dir * 26, y: w.blobY[p] - 18, r: 10, max: 190, life: 0, color: '#cfe4ff' })
+          this.rings.push({ x: w.blobX[p] + dir * 14, y: w.blobY[p] - 18, r: 4, max: 118, life: -0.07, color: '#ffffff' })
+          this.burst(w.blobX[p] + dir * 30, w.blobY[p] - 18, 22, 200, '#eaf3ff', 0.5, 4)
+          this.burst(w.blobX[p], w.blobY[p] + 4, 12, 130, '#b9cde8', 0.15, 3)
+          break
+        }
+        case Ev.PARRY_TRY: {
+          const p = e.side as Side
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 6, max: 64, life: 0, color: '#7fd6ff' })
+          break
+        }
+        case Ev.PARRY: {
+          const p = e.side as Side
+          this.trauma = Math.min(1, this.trauma + 0.45)
+          this.flash = Math.max(this.flash, 0.42)
+          this.burst(w.blobX[p], w.blobY[p] - 24, 46, 330, '#8fe4ff', 0.55, 5)
+          this.burst(w.blobX[p], w.blobY[p] - 24, 22, 190, '#ffffff', 0.5, 4)
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 10, max: 300, life: 0, color: '#7fd6ff' })
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 4, max: 200, life: -0.09, color: '#e6faff' })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 160, life: -0.04, color: '#bff0ff' })
           break
         }
         case Ev.FATALITY: {
@@ -176,8 +208,11 @@ export class Stage2D implements GameRenderer {
             this.burst(w.blobX[o], w.blobY[o] - 20 - i * 8, 90, 520 + i * 90, i % 2 ? '#8e0b0b' : '#d81111', 2.4, 10)
           }
           this.burst(w.blobX[o], w.blobY[o] - 20, 60, 240, '#ffd0d0', 2.0, 7)
+          this.burst(w.blobX[o], w.blobY[o] - 20, 70, 360, BLOB_FILL[o], 1.6, 9)
+          this.burst(w.blobX[o], w.blobY[o] - 4, 40, 280, BLOB_FILL[o], 1.1, 12)
           this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 10, max: 420, life: 0, color: '#ff2d2d' })
           this.scorch.push({ x: w.blobX[o], r: 60, life: 0 })
+          this.gib[o] = 1
           break
         }
       }
@@ -331,6 +366,7 @@ export class Stage2D implements GameRenderer {
   }
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number }, stunned = false) {
+    if (this.gib[p] > 0) return
     const c = this.ctx
     if (stunned) {
       c.save()
@@ -485,7 +521,10 @@ export class Stage2D implements GameRenderer {
     }
 
     this.shadow(bx, by, BALL_RADIUS)
-    for (const s of [0, 1] as Side[]) this.shadow(lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
+    for (const s of [0, 1] as Side[]) {
+      if (this.gib[s] > 0) continue
+      this.shadow(lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
+    }
 
     for (const s of [0, 1] as Side[]) {
       this.blob(s, lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0)

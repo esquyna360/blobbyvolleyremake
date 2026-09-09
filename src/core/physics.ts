@@ -9,6 +9,9 @@ import {
   SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
   SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
   PUSH_REACH_X, PUSH_REACH_Y, PUSH_FORCE, PUSH_POP, PUSH_CD,
+  SPECIAL_COMEBACK_STEP, SPECIAL_COMEBACK_MIN, SPECIAL_COMEBACK_MAX,
+  SPECIAL_DEPTH_JITTER, SPECIAL_ARC_JITTER,
+  PARRY_ACTIVE, PARRY_CD, PARRY_REACH, PARRY_BOOST, PARRY_CHAIN_MAX,
 } from './constants.ts'
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
@@ -40,16 +43,37 @@ export class PhysicWorld {
   pushCd = [0, 0]
   superFrames = 0
   superOwner = -1
+  parryActive = [0, 0]
+  parryCd = [0, 0]
+  parryChain = 0
+  scores = [0, 0]
 
   blobHitGround(p: Side) { return this.blobY[p] >= GROUND_PLANE_HEIGHT }
 
+  /** Quem está perdendo enche mais rápido — é a chance de virar o jogo. */
+  private comeback(p: Side) {
+    const diff = this.scores[p === LEFT ? RIGHT : LEFT] - this.scores[p]
+    const m = 1 + diff * SPECIAL_COMEBACK_STEP
+    return Math.max(SPECIAL_COMEBACK_MIN, Math.min(SPECIAL_COMEBACK_MAX, m))
+  }
+
   private addCharge(p: Side, amount: number, out: MatchEvent[]) {
     if (this.charge[p] >= SPECIAL_FULL) return
-    this.charge[p] += amount
+    this.charge[p] += amount * this.comeback(p)
     if (this.charge[p] >= SPECIAL_FULL) {
       this.charge[p] = SPECIAL_FULL
       out.push({ event: Ev.SPECIAL_READY, side: p, intensity: 1 })
     }
+  }
+
+  /** Ruído determinístico do estado: os dois peers calculam o mesmo valor. */
+  private noise(p: Side, salt: number) {
+    let h = Math.imul(Math.round(this.ballX * 32) ^ 0x9e3779b9, 2246822519)
+    h = Math.imul(h ^ Math.round(this.ballY * 32), 3266489917)
+    h = Math.imul(h ^ Math.round(this.blobX[p] * 32), 668265263)
+    h = Math.imul(h ^ Math.round(this.blobY[p] * 32), 374761393)
+    h = Math.imul(h ^ (p + 1) ^ Math.imul(salt + 1, 2654435761), 2246822519)
+    return ((h ^ (h >>> 15)) >>> 0) / 4294967296
   }
 
   /** A bola do especial pesa mais: é o que a faz cair no campo do outro em vez de planar. */
@@ -74,34 +98,42 @@ export class PhysicWorld {
    * Mira do especial: alvo fundo no campo adversário, e o menor tempo de voo que
    * ainda passa da rede dentro do teto de velocidade. Menor tempo = bola mais rápida.
    */
-  private aimSpecial(p: Side) {
+  private aimSpecial(p: Side, boost = 1) {
     const dir = p === LEFT ? 1 : -1
     const ty = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+    const depth = SPECIAL_TARGET_DEPTH + (this.noise(p, 0) - 0.5) * SPECIAL_DEPTH_JITTER
     const tx = p === LEFT
-      ? NET_POSITION_X + (RIGHT_PLANE - NET_POSITION_X) * SPECIAL_TARGET_DEPTH
-      : NET_POSITION_X - (NET_POSITION_X - LEFT_PLANE) * SPECIAL_TARGET_DEPTH
+      ? NET_POSITION_X + (RIGHT_PLANE - NET_POSITION_X) * depth
+      : NET_POSITION_X - (NET_POSITION_X - LEFT_PLANE) * depth
+    const vmax = SPECIAL_VELOCITY * boost
 
     if (dir * (tx - this.ballX) < 60) {
-      this.ballVX = dir * SPECIAL_VELOCITY * 0.25
-      this.ballVY = SPECIAL_VELOCITY * 0.97
+      this.ballVX = dir * vmax * 0.25
+      this.ballVY = vmax * 0.97
       return
     }
 
-    const max2 = SPECIAL_VELOCITY * SPECIAL_VELOCITY
+    const max2 = vmax * vmax
     const g = BALL_GRAVITATION * SPECIAL_GRAVITY_MUL
+    const skip = Math.floor(this.noise(p, 1) * SPECIAL_ARC_JITTER)
+    let seen = 0
+    let fx = 0, fy = 0, got = false
     for (let i = 0; i < SPECIAL_TIME_STEPS; i++) {
       const t = SPECIAL_TIME_MIN + i * SPECIAL_TIME_STEP
       const vx = (tx - this.ballX) / t
       const vy = (ty - this.ballY) / t - 0.5 * g * t
       if (vx * vx + vy * vy > max2) continue
       if (!this.clearsNet(vx, vy)) continue
+      if (!got) { fx = vx; fy = vy; got = true }
+      if (seen++ < skip) continue
       this.ballVX = vx
       this.ballVY = vy
       return
     }
 
-    this.ballVX = dir * SPECIAL_VELOCITY * 0.5
-    this.ballVY = -SPECIAL_VELOCITY * 0.866
+    if (got) { this.ballVX = fx; this.ballVY = fy; return }
+    this.ballVX = dir * vmax * 0.5
+    this.ballVY = -vmax * 0.866
   }
 
   /** Empurrão: encostou perto do adversário e apertou, ele voa pra trás. */
@@ -124,6 +156,7 @@ export class PhysicWorld {
   /** Barra cheia e bola por perto: pulo de novo no ar, ou a tecla de especial. */
   private trySpecial(p: Side, raw: PlayerInput, isBallValid: boolean, wasGround: boolean, out: MatchEvent[]) {
     if (!isBallValid || this.stun[p] > 0) return
+    if (this.superFrames > 0 && this.superOwner !== p) return
     if (this.charge[p] < SPECIAL_FULL) return
     const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
     if (!pressed) return
@@ -138,6 +171,32 @@ export class PhysicWorld {
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
+  }
+
+  /** Especial vindo em cima: apertar pra cima na hora certa devolve a bola mais forte. */
+  private tryParry(p: Side, raw: PlayerInput, out: MatchEvent[]) {
+    if (this.stun[p] > 0) return
+    if (this.superFrames <= 0 || this.superOwner === p) return
+    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
+    if (pressed && this.parryCd[p] === 0 && this.parryActive[p] === 0) {
+      this.parryActive[p] = PARRY_ACTIVE
+      this.parryCd[p] = PARRY_CD
+      out.push({ event: Ev.PARRY_TRY, side: p, intensity: 0 })
+    }
+    if (this.parryActive[p] <= 0) return
+    const closing = p === LEFT ? this.ballVX < 0 : this.ballVX > 0
+    if (!closing) return
+    const dx = this.ballX - this.blobX[p]
+    const dy = this.ballY - (this.blobY[p] - BLOBBY_UPPER_SPHERE)
+    if (dx * dx + dy * dy > PARRY_REACH * PARRY_REACH) return
+    this.parryActive[p] = 0
+    this.parryCd[p] = 0
+    this.parryChain = Math.min(this.parryChain + 1, PARRY_CHAIN_MAX)
+    this.superOwner = p
+    this.superFrames = SPECIAL_BALL_FRAMES
+    this.aimSpecial(p, 1 + this.parryChain * PARRY_BOOST)
+    this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
+    out.push({ event: Ev.PARRY, side: p, intensity: 1 })
   }
 
   private topBallCollision(p: Side) {
@@ -223,6 +282,7 @@ export class PhysicWorld {
       }
       this.superFrames = 0
       this.superOwner = -1
+      this.parryChain = 0
     }
     return true
   }
@@ -232,6 +292,7 @@ export class PhysicWorld {
       if (this.superFrames > 0) {
         this.superFrames = 0
         this.superOwner = -1
+        this.parryChain = 0
         out.push({ event: Ev.SPECIAL_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 1 })
       }
       this.ballVY = -this.ballVY * 0.95
@@ -281,9 +342,13 @@ export class PhysicWorld {
   step(li: PlayerInput, ri: PlayerInput, isBallValid: boolean, isGameRunning: boolean, out: MatchEvent[]) {
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
-    if (this.superFrames > 0 && --this.superFrames === 0) this.superOwner = -1
+    if (this.superFrames > 0 && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
     if (this.pushCd[LEFT] > 0) this.pushCd[LEFT]--
     if (this.pushCd[RIGHT] > 0) this.pushCd[RIGHT]--
+    if (this.parryActive[LEFT] > 0) this.parryActive[LEFT]--
+    if (this.parryActive[RIGHT] > 0) this.parryActive[RIGHT]--
+    if (this.parryCd[LEFT] > 0) this.parryCd[LEFT]--
+    if (this.parryCd[RIGHT] > 0) this.parryCd[RIGHT]--
 
     const el = this.stun[LEFT] > 0 ? NO_INPUT : li
     const er = this.stun[RIGHT] > 0 ? NO_INPUT : ri
@@ -303,6 +368,8 @@ export class PhysicWorld {
     }
 
     if (isBallValid) {
+      this.tryParry(LEFT, li, out)
+      this.tryParry(RIGHT, ri, out)
       this.handleBlobBallCollision(LEFT, out)
       this.handleBlobBallCollision(RIGHT, out)
     }
@@ -344,6 +411,9 @@ export class PhysicWorld {
     this.ballAngVel = (side === RIGHT ? -1 : 1) * STANDARD_BALL_ANGULAR_VELOCITY
     this.superFrames = 0
     this.superOwner = -1
+    this.parryChain = 0
+    this.parryActive[LEFT] = 0; this.parryActive[RIGHT] = 0
+    this.parryCd[LEFT] = 0; this.parryCd[RIGHT] = 0
     this.stun[LEFT] = 0; this.stun[RIGHT] = 0
   }
 }
