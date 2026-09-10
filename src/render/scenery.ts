@@ -193,6 +193,8 @@ function makeUmbrella(rng: () => number): THREE.Group {
 export interface Scenery {
   group: THREE.Group
   spectators: THREE.InstancedMesh
+  /** tudo que só existe ao ar livre: some no ginásio */
+  outdoor: THREE.Object3D[]
   update(t: number, dt: number): void
 }
 
@@ -210,6 +212,7 @@ export function createScenery(
 ): Scenery {
   const rng = makeRng(seed)
   const group = new THREE.Group()
+  const outdoor: THREE.Object3D[] = []
 
   // --- palms flanking the court (parallax layers) ---
   const palmSpots: [number, number, number][] = [
@@ -226,6 +229,7 @@ export function createScenery(
     p.scale.setScalar(s * (0.9 + rng() * 0.25))
     p.rotation.y = rng() * Math.PI * 2
     group.add(p)
+    outdoor.push(p)
   }
 
   // --- rocks ---
@@ -238,6 +242,7 @@ export function createScenery(
     if (Math.abs(r.position.x) < COURT_HALF_W + 7 && Math.abs(r.position.z) < COURT_DEPTH + 3) continue
     r.rotation.set(rng(), rng() * 6, rng() * 0.4)
     group.add(r)
+    outdoor.push(r)
   }
 
   // --- headland cliffs for the parallax backdrop ---
@@ -257,6 +262,7 @@ export function createScenery(
     rock.scale.set(1.4, 0.75, 1.0)
     rock.castShadow = false
     group.add(rock)
+    outdoor.push(rock)
 
     const cap = makeRock(rng, s * 0.72)
     cap.material = greenMat
@@ -264,6 +270,7 @@ export function createScenery(
     cap.scale.set(1.35, 0.34, 0.95)
     cap.castShadow = false
     group.add(cap)
+    outdoor.push(cap)
   }
 
   // --- umbrellas & towels ---
@@ -271,6 +278,7 @@ export function createScenery(
     const u = makeUmbrella(rng)
     u.position.set(x, 0, z)
     group.add(u)
+    outdoor.push(u)
     const towel = new THREE.Mesh(
       new THREE.PlaneGeometry(1.5, 2.2),
       new THREE.MeshStandardMaterial({
@@ -281,6 +289,7 @@ export function createScenery(
     towel.position.set(x + 1.6, 0.03, z + 0.6)
     towel.receiveShadow = true
     group.add(towel)
+    outdoor.push(towel)
   }
 
   // --- spectator blobs ---
@@ -320,6 +329,7 @@ export function createScenery(
     sp: 0.05 + Math.random() * 0.06, ph: Math.random() * 7, sc: 1.2 + Math.random() * 1.4,
   }))
   if (quality.birds > 0) group.add(birds)
+  outdoor.push(birds)
 
   const m = new THREE.Matrix4()
   const q = new THREE.Quaternion()
@@ -327,7 +337,7 @@ export function createScenery(
   const sc = new THREE.Vector3()
 
   return {
-    group, spectators,
+    group, spectators, outdoor,
     update(t, _dt) {
       windTime.value = t
       for (let i = 0; i < SPEC; i++) {

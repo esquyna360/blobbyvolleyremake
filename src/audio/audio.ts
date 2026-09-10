@@ -6,6 +6,9 @@ import type { PhysicWorld } from '../core/physics.ts'
 
 export const FATALITY_SFX = `${import.meta.env.BASE_URL}fatality.mp3`
 
+/** Quantos segundos de sobreposição entre uma volta da música e a próxima. */
+const LOOP_XFADE = 3.0
+
 export const VOLUMES: [string, string, string][] = [
   ['off', 'Mudo', 'silêncio'],
   ['low', 'Baixo', 'de fundo'],
@@ -16,7 +19,6 @@ export const VOLUMES: [string, string, string][] = [
 export type VolumeId = 'off' | 'low' | 'normal' | 'loud'
 const LEVEL: Record<VolumeId, number> = { off: 0, low: 0.35, normal: 0.7, loud: 1.0 }
 
-const PAD_NOTES = [110.0, 164.81, 246.94, 329.63, 415.3]
 
 export class GameAudio {
   private ctx: AudioContext | null = null
@@ -26,10 +28,22 @@ export class GameAudio {
   private noise!: AudioBuffer
   private wet!: GainNode
   private gullTimer = 0
-  private padGain: GainNode | null = null
   private pulseAt = 0
   private grounded = [true, true]
   private landVel = [0, 0]
+
+  private music!: GainNode
+  private musicLp!: BiquadFilterNode
+  private surf: GainNode[] = []
+  private crowd: GainNode | null = null
+  /** praia e luau têm mar e bicho; ginásio tem plateia. */
+  private outdoor = true
+  private playing = false
+  private trackUrl = ''
+  private buffers = new Map<string, AudioBuffer>()
+  private voices: { src: AudioBufferSourceNode; gain: GainNode }[] = []
+  private loopAt = 0
+  private intensity = 0
 
   volume: VolumeId
 
@@ -69,10 +83,19 @@ export class GameAudio {
     this.wet.connect(conv).connect(this.master)
     this.sfx.connect(this.wet)
 
+    this.music = ctx.createGain()
+    this.music.gain.value = 0
+    this.musicLp = ctx.createBiquadFilter()
+    this.musicLp.type = 'lowpass'
+    this.musicLp.Q.value = 0.4
+    this.musicLp.frequency.value = 900
+    this.musicLp.connect(this.music).connect(this.master)
+
     this.noise = this.noiseBuffer(4)
     this.buildAmbience()
-    this.amb.gain.setTargetAtTime(1, ctx.currentTime, 3.5)
     this.gullTimer = ctx.currentTime + 12
+    if (this.playing) this.amb.gain.setTargetAtTime(1, ctx.currentTime, 2.0)
+    if (this.trackUrl) void this.startTrack(this.trackUrl)
   }
 
   setVolume(v: VolumeId) {
@@ -85,6 +108,129 @@ export class GameAudio {
     const next: VolumeId = this.volume === 'off' ? 'normal' : 'off'
     this.setVolume(next)
     return next
+  }
+
+  // ---------- música e ambiente ----------
+
+  /**
+   * Menu é silêncio. O barulho de fundo só existe enquanto tem bola em jogo —
+   * ouvir mar e música parados na tela de opções cansa em trinta segundos.
+   */
+  setPlaying(on: boolean) {
+    if (this.playing === on) return
+    this.playing = on
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    this.amb.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.6 : 0.35)
+    if (on) { if (this.trackUrl) void this.startTrack(this.trackUrl) }
+    else this.fadeOutMusic()
+  }
+
+  /** Troca a trilha e o ambiente pro cenário escolhido. */
+  setScene(music: string, outdoor: boolean) {
+    this.outdoor = outdoor
+    if (this.ctx) {
+      const t = this.ctx.currentTime
+      for (const b of this.surf) b.gain.setTargetAtTime(outdoor ? 1 : 0, t, 0.5)
+      if (this.crowd) this.crowd.gain.setTargetAtTime(outdoor ? 0 : 0.055, t, 0.5)
+    }
+    if (music === this.trackUrl) return
+    this.trackUrl = music
+    this.fadeOutMusic()
+    if (this.playing) void this.startTrack(music)
+  }
+
+  /**
+   * A música acompanha a troca: rally curto fica abafado e baixo, rally longo
+   * abre o filtro e sobe. É a mesma faixa o tempo todo, o que muda é quanto
+   * dela chega no ouvido.
+   */
+  setIntensity(k: number) {
+    this.intensity = k
+    if (!this.ctx || !this.playing) return
+    const t = this.ctx.currentTime
+    const kk = Math.max(0, Math.min(1, k))
+    this.musicLp.frequency.setTargetAtTime(700 + kk * kk * 15000, t, 0.5)
+    this.music.gain.setTargetAtTime(0.34 + kk * 0.4, t, 0.6)
+  }
+
+  /** Ponto marcado: a música dá um passo atrás por um instante. */
+  duckMusic(seconds = 1.1) {
+    if (!this.ctx || !this.playing) return
+    const t = this.ctx.currentTime
+    const g = this.music.gain
+    g.cancelScheduledValues(t)
+    g.setTargetAtTime(0.12, t, 0.06)
+    g.setTargetAtTime(0.34 + this.intensity * 0.4, t + seconds, 0.5)
+  }
+
+  private async load(url: string) {
+    const hit = this.buffers.get(url)
+    if (hit) return hit
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`bgm ${res.status}`)
+    const buf = await this.ctx!.decodeAudioData(await res.arrayBuffer())
+    this.buffers.set(url, buf)
+    return buf
+  }
+
+  private async startTrack(url: string) {
+    if (!this.ctx) return
+    let buf: AudioBuffer
+    try { buf = await this.load(url) } catch { return }
+    // a aba pode ter voltado pro menu enquanto o mp3 baixava
+    if (!this.playing || this.trackUrl !== url || !this.ctx) return
+    if (this.voices.length) return
+    this.queue(buf, this.ctx.currentTime + 0.05, true)
+    this.setIntensity(this.intensity)
+  }
+
+  /**
+   * Faixa de música não emenda sozinha: o fim não casa com o começo. Em vez de
+   * cortar, a volta seguinte entra por cima com um crossfade — ninguém ouve
+   * onde é a emenda.
+   */
+  private queue(buf: AudioBuffer, at: number, first: boolean) {
+    const ctx = this.ctx!
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    const gain = ctx.createGain()
+    const end = at + buf.duration
+    gain.gain.setValueAtTime(first ? 0.0001 : 0.0001, at)
+    gain.gain.linearRampToValueAtTime(1, at + (first ? 1.2 : LOOP_XFADE))
+    gain.gain.setValueAtTime(1, end - LOOP_XFADE)
+    gain.gain.linearRampToValueAtTime(0.0001, end)
+    src.connect(gain).connect(this.musicLp)
+    src.start(at)
+    src.stop(end + 0.1)
+    const voice = { src, gain }
+    this.voices.push(voice)
+    src.onended = () => {
+      const i = this.voices.indexOf(voice)
+      if (i >= 0) this.voices.splice(i, 1)
+    }
+    this.loopAt = end - LOOP_XFADE
+  }
+
+  /** Chamado todo frame: agenda a próxima volta quando o crossfade se aproxima. */
+  private pumpMusic() {
+    if (!this.ctx || !this.playing || !this.voices.length) return
+    const buf = this.buffers.get(this.trackUrl)
+    if (!buf) return
+    const t = this.ctx.currentTime
+    if (t > this.loopAt - 1.5 && this.voices.length < 2) this.queue(buf, this.loopAt, false)
+  }
+
+  private fadeOutMusic() {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    for (const v of this.voices) {
+      v.gain.gain.cancelScheduledValues(t)
+      v.gain.gain.setTargetAtTime(0.0001, t, 0.25)
+      try { v.src.stop(t + 1.4) } catch { /* já parou */ }
+    }
+    this.voices = []
+    this.loopAt = 0
   }
 
   // ---------- buffers ----------
@@ -157,42 +303,25 @@ export class GameAudio {
       this.lfo(1 / period, level * 0.75, level, g.gain)
       const p = ctx.createStereoPanner()
       p.pan.value = pan
-      src.connect(lp).connect(g).connect(p).connect(this.amb)
+      const bus = ctx.createGain()
+      bus.gain.value = 1
+      this.surf.push(bus)
+      src.connect(lp).connect(g).connect(p).connect(bus).connect(this.amb)
     }
 
-    // constant breeze
-    const wind = this.loopNoise()
-    const bp = ctx.createBiquadFilter()
-    bp.type = 'bandpass'
-    bp.frequency.value = 520
-    bp.Q.value = 0.5
-    const wg = ctx.createGain()
-    this.lfo(0.055, 0.022, 0.042, wg.gain)
-    wind.connect(bp).connect(wg).connect(this.amb)
-
-    // slow chord drone, voices fading in and out on their own clocks
-    const pad = ctx.createGain()
-    pad.gain.value = 0.055
-    this.padGain = pad
-    const padLp = ctx.createBiquadFilter()
-    padLp.type = 'lowpass'
-    padLp.Q.value = 0.9
-    this.lfo(0.021, 380, 860, padLp.frequency)
-    padLp.connect(pad).connect(this.amb)
-    pad.connect(this.wet)
-
-    for (let i = 0; i < PAD_NOTES.length; i++) {
-      const o = ctx.createOscillator()
-      o.type = i < 2 ? 'sine' : 'triangle'
-      o.frequency.value = PAD_NOTES[i]
-      o.detune.value = (Math.random() - 0.5) * 9
-      const g = ctx.createGain()
-      this.lfo(1 / (13 + i * 4.7), 0.5, 0.5, g.gain)
-      const still = ctx.createGain()
-      still.gain.value = 0.18 / (1 + i * 0.55)
-      o.connect(g).connect(still).connect(padLp)
-      o.start()
-    }
+    // plateia do ginásio: ruído grave respirando, entra só em quadra coberta
+    const crowd = ctx.createGain()
+    crowd.gain.value = 0
+    this.crowd = crowd
+    const cn = this.loopNoise()
+    const cbp = ctx.createBiquadFilter()
+    cbp.type = 'bandpass'
+    cbp.frequency.value = 400
+    cbp.Q.value = 0.32
+    const swell = ctx.createGain()
+    this.lfo(0.07, 0.5, 0.85, swell.gain)
+    cn.connect(cbp).connect(swell).connect(crowd).connect(this.amb)
+    crowd.connect(this.wet)
   }
 
   private gull(t: number) {
@@ -280,14 +409,16 @@ export class GameAudio {
   // ---------- game hooks ----------
 
   /**
-   * Rally longo vira batida: um pulso grave que acelera de ~1.6 pra ~4 por
-   * segundo conforme a troca cresce, e o pad sobe junto. Chamado todo frame.
+   * Chamado todo frame com a tensão do rally. É daqui que a música respira: o
+   * filtro abre, o volume sobe, e só em troca muito longa entra o pulso grave
+   * por baixo — antes disso ele só ia brigar com a faixa.
    */
   setTension(t: number) {
     const ctx = this.ctx
     if (!ctx) return
-    if (this.padGain) this.padGain.gain.setTargetAtTime(0.055 + t * 0.05, ctx.currentTime, 0.4)
-    if (t < 0.06) { this.pulseAt = 0; return }
+    this.pumpMusic()
+    this.setIntensity(t)
+    if (t < 0.45) { this.pulseAt = 0; return }
     const period = 0.62 - t * 0.38
     const now = ctx.currentTime
     if (this.pulseAt < now) this.pulseAt = now + 0.03
@@ -538,7 +669,7 @@ export class GameAudio {
       this.grounded[s] = down
     }
 
-    if (ctx.currentTime > this.gullTimer) {
+    if (this.outdoor && ctx.currentTime > this.gullTimer) {
       this.gull(ctx.currentTime + Math.random() * 0.4)
       this.gullTimer = ctx.currentTime + 28 + Math.random() * 45
     }

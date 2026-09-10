@@ -21,6 +21,14 @@ import type { BlobVisual } from './blob.ts'
 import { createParticles } from './particles.ts'
 import type { Particles } from './particles.ts'
 import { createScenery } from './scenery.ts'
+import { createIndoor } from './indoor.ts'
+import type { Indoor } from './indoor.ts'
+import { createForeground3D } from './foreground3d.ts'
+import type { Foreground3D } from './foreground3d.ts'
+import { createCampfire } from './campfire.ts'
+import type { Campfire } from './campfire.ts'
+import { getScene } from './scenes.ts'
+import type { SceneId } from './scenes.ts'
 import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
@@ -29,6 +37,10 @@ import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './fa
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
+  /** Troca o tema visual sem recriar o renderer. */
+  setScene(id: SceneId): void
+  /** Paredes da quadra: existem sempre na física, aqui só some o desenho. */
+  setWalls(on: boolean): void
   capture(match: Match): void
   onEvents(match: Match, events: MatchEvent[]): void
   render(match: Match, alpha: number, dt: number): void
@@ -212,7 +224,18 @@ export class Stage implements GameRenderer {
   ball!: Ball
   particles!: Particles
   scenery!: Scenery
+  indoor!: Indoor
+  campfire!: Campfire
+  fg3!: Foreground3D
   oceanUniforms!: Record<string, THREE.IUniform>
+  oceanMesh!: THREE.Mesh
+  hemi!: THREE.HemisphereLight
+  sceneId: SceneId = 'praia'
+  private sunDir = SUN_DIR.clone()
+  private envCam!: THREE.CubeCamera
+  private envSky!: THREE.Scene
+  private pmrem!: THREE.PMREMGenerator
+  private envRT: THREE.WebGLRenderTarget | null = null
   blobs: BlobAnim[] = []
   walls: THREE.Mesh[] = []
   /** [lado][0 especial, 1 mão] — anel discreto de alcance perto da cabeça. */
@@ -276,10 +299,14 @@ export class Stage implements GameRenderer {
     skyOnly.add(skyClone)
     cubeCam.update(this.renderer, skyOnly)
     this.envCube = cubeRT.texture as unknown as THREE.CubeTexture
+    this.envCam = cubeCam
+    this.envSky = skyOnly
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     pmrem.compileCubemapShader()
+    this.pmrem = pmrem
     const envRT = pmrem.fromCubemap(this.envCube)
+    this.envRT = envRT
     scene.environment = envRT.texture
     scene.environmentIntensity = 0.30
 
@@ -297,8 +324,9 @@ export class Stage implements GameRenderer {
     scene.add(sun, sun.target)
     this.sun = sun
 
-    scene.add(new THREE.HemisphereLight(
-      new THREE.Color(0.48, 0.66, 0.96), new THREE.Color(0.52, 0.40, 0.26), 0.38))
+    this.hemi = new THREE.HemisphereLight(
+      new THREE.Color(0.48, 0.66, 0.96), new THREE.Color(0.52, 0.40, 0.26), 0.38)
+    scene.add(this.hemi)
 
     const bounce = new THREE.DirectionalLight(new THREE.Color(0.9, 0.8, 0.65), 0.18)
     bounce.position.set(4, -3, 8)
@@ -310,10 +338,21 @@ export class Stage implements GameRenderer {
 
     const ocean = createOcean(this.envCube, this.quality.ocean[0], this.quality.ocean[1])
     this.oceanUniforms = ocean.uniforms
+    this.oceanMesh = ocean.mesh
     scene.add(ocean.mesh)
 
     this.scenery = createScenery(7, this.quality.scenery)
     scene.add(this.scenery.group)
+
+    this.indoor = createIndoor()
+    scene.add(this.indoor.group)
+
+    this.campfire = createCampfire()
+    scene.add(this.campfire.group)
+
+    this.fg3 = createForeground3D()
+    this.camera.add(this.fg3.group)
+    scene.add(this.camera)
 
     this.net = createNet()
     scene.add(this.net.group)
@@ -391,6 +430,56 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       this.post = createPost(this.renderer, this.scene, this.camera,
         { bloom: this.quality.bloom, smaa: this.quality.smaa })
     }
+  }
+
+  /** Cenário é pintura: troca céu, luz, chão e o que passa na frente. */
+  setScene(id: SceneId) {
+    this.sceneId = id
+    const sc = getScene(id)
+    const d = sc.d3
+
+    this.sunDir.set(d.sun[0], d.sun[1], d.sun[2]).normalize()
+    ;(this.skyUniforms.uSun.value as THREE.Vector3).copy(this.sunDir)
+    this.skyUniforms.uExposure.value = d.exposure
+
+    const fog = this.scene.fog as THREE.FogExp2
+    fog.color.setRGB(d.fog[0], d.fog[1], d.fog[2])
+    fog.density = d.fogDensity
+    ;(this.oceanUniforms.uFogColor.value as THREE.Color).copy(fog.color)
+
+    this.envCam.update(this.renderer, this.envSky)
+    this.envRT?.dispose()
+    this.envRT = this.pmrem.fromCubemap(this.envCube as THREE.CubeTexture)
+    this.scene.environment = this.envRT.texture
+
+    this.sun.color.setHex(d.key)
+    this.sun.intensity = d.keyIntensity
+    this.hemi.color.setHex(d.ambient)
+    this.hemi.intensity = d.ambientIntensity
+    this.scene.environmentIntensity = 0.30 * Math.max(0.3, d.exposure)
+
+    this.terrain.material.color.setRGB(0.94 * d.sand[0], 0.76 * d.sand[1], 0.50 * d.sand[2])
+
+    this.oceanMesh.visible = d.ocean
+    const [or_, og, ob] = d.oceanTint
+    ;(this.oceanUniforms.uShallow.value as THREE.Color).setRGB(0.05 * or_, 0.50 * og, 0.52 * ob)
+    ;(this.oceanUniforms.uDeep.value as THREE.Color).setRGB(0.010 * or_, 0.13 * og, 0.32 * ob)
+    ;(this.oceanUniforms.uSunColor.value as THREE.Color).setRGB(1.0 * or_, 0.92 * og, 0.78 * ob)
+
+    for (const o of this.scenery.outdoor) o.visible = d.palms
+    this.scenery.spectators.visible = !d.indoor
+    this.indoor.group.visible = d.indoor
+    this.campfire.setPower(d.fire * 90)
+    this.fg3.setMode(sc.fg)
+
+    const wallCol = new THREE.Color(d.indoor ? 0xffc46b : (sc.night ? 0x3f7fb4 : 0x73ccff))
+    for (const w of this.walls) {
+      ;((w.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).copy(wallCol)
+    }
+  }
+
+  setWalls(on: boolean) {
+    for (const w of this.walls) w.visible = on
   }
 
   setSize(w: number, h: number) {
@@ -849,18 +938,20 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const anim = Math.sin((st / 5) * Math.PI) * 0.16
     const airStretch = THREE.MathUtils.clamp(-vy / 34, -0.16, 0.22)
 
-    // mergulho: o corpo estica no eixo dele e o grupo inteiro tomba pro lado,
-    // então o blob vira um projétil deitado em vez de um pulo pra cima
+    // mergulho é bote, não tombo: o corpo estica pra frente, achata em pé e
+    // tomba só o que basta pra ler a direção. Tombar de vez virava salsicha.
     const air = world.diveFrames[i] > 0
     const dive = air ? 1 : Math.min(1, world.diveRecover[i] / (DIVE_RECOVER * 0.55))
 
-    const sy = 1 + b.squashSpring + airStretch - anim * 0.5 - cr * 0.34 + dive * 0.4
-    const sxz = 1 - (b.squashSpring + airStretch) * 0.55 + anim * 0.45 + cr * 0.26 - dive * 0.1
-    ;(u.uSquash.value as THREE.Vector3).set(sxz, sy, sxz)
+    const sy = 1 + b.squashSpring + airStretch - anim * 0.5 - cr * 0.34 - dive * 0.32
+    const sxz = 1 - (b.squashSpring + airStretch) * 0.55 + anim * 0.45 + cr * 0.26
+    ;(u.uSquash.value as THREE.Vector3).set(sxz + dive * 0.46, sy, sxz - dive * 0.1)
 
     // o squash encolhe em volta da origem do grupo: sem baixar, o blob agachado
     // descola do chão em vez de afundar nele
-    b.visual.group.position.set(wx, wy - cr * CROUCH_DUCK * S * (grounded ? 1.05 : 0.4), 0)
+    b.visual.group.position.set(
+      wx + world.diveDir[i] * dive * 0.16,
+      wy - cr * CROUCH_DUCK * S * (grounded ? 1.05 : 0.4) - dive * 0.22, 0)
 
     b.wobble = Math.max(0, b.wobble - dt * 2.4)
     u.uWobbleAmp.value = b.wobble
@@ -868,7 +959,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
 
     // lean into movement
     const lean = dive > 0.01
-      ? -world.diveDir[i] * 0.92 * dive
+      ? -world.diveDir[i] * 0.44 * dive
       : -vx * 0.028 + (grounded ? 0 : vy * 0.004)
     b.visual.group.rotation.z = THREE.MathUtils.lerp(
       b.visual.group.rotation.z, lean, 1 - Math.exp(-dt * (dive > 0.01 ? 26 : 12)))
@@ -982,7 +1073,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.camera.updateProjectionMatrix()
 
     this.sun.target.position.set(this.camTargetX * 0.5, 2, 0)
-    this.sun.position.copy(SUN_DIR).multiplyScalar(60).add(this.sun.target.position)
+    this.sun.position.copy(this.sunDir).multiplyScalar(60).add(this.sun.target.position)
 
     this.ball.setTransform(bx, by, 0, brot, Math.sin(this.time * 0.7) * 0.25)
     this.ball.update(dt, this.ballSpeed)
@@ -1027,6 +1118,9 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.net.update(dt)
     this.terrain.update(dt)
     this.scenery.update(this.time, dt)
+    this.indoor.update(this.time, this.tension)
+    this.campfire.update(this.time)
+    this.fg3.update(dt, this.time)
     this.particles.update(this.time)
     this.skyUniforms.uTime.value = this.time
     this.oceanUniforms.uTime.value = this.time
@@ -1045,7 +1139,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       g.uFlash.value = this.flash
       g.uAberrationBoost.value = this.aberration
 
-      const sunWorld = SUN_DIR.clone().multiplyScalar(500)
+      const sunWorld = this.sunDir.clone().multiplyScalar(500)
       const proj = sunWorld.project(this.camera)
       this.sunScreen.set(proj.x * 0.5 + 0.5, proj.y * 0.5 + 0.5)
       g.uSunScreen.value = this.sunScreen

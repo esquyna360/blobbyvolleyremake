@@ -6,6 +6,8 @@ import type { Difficulty } from '../ai/bot.ts'
 import type { LobbyNet, RoomAd } from '../net/lobby.ts'
 import { ARENAS } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
+import { SCENE_LIST } from '../render/scenes.ts'
+import type { SceneId } from '../render/scenes.ts'
 import { runDiag } from '../net/diag.ts'
 import { leaderboard } from '../net/rank.ts'
 import { localReplays, onlineReplays } from '../net/replays.ts'
@@ -21,12 +23,20 @@ export interface GameConfig {
   name: string
   arena: ArenaId
   showFps: boolean
+  scene: SceneId
+  walls: boolean
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
   scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default', showFps: false,
+  scene: 'praia', walls: true,
 }
+
+const WALL_OPTS: ['on' | 'off', string, string][] = [
+  ['on', 'Mostrar', 'dá pra ver onde a bola quica'],
+  ['off', 'Ocultar', 'quadra aberta, sem moldura'],
+]
 
 const DIFFS: [Difficulty, string, string][] = [
   ['easy', 'Fácil', ''],
@@ -58,6 +68,8 @@ export interface MenuHandlers {
   onStart(cfg: GameConfig): void
   onCreateRoom(code: string, pass: string, cfg: GameConfig): void
   onJoinRoom(code: string, pass: string, cfg: GameConfig): void
+  onScene(id: SceneId): void
+  onWalls(on: boolean): void
   onManual(asHost: boolean, cfg: GameConfig): {
     local: Promise<string>
     accept(remote: string): Promise<void>
@@ -279,6 +291,12 @@ export class Menu {
         'grid two'),
       el('h2', { class: 'sec', textContent: 'Arena' }),
       this.selector(ARENAS, cfg.arena, v => { cfg.arena = v }, 'grid two'),
+      el('h2', { class: 'sec', textContent: 'Cenário' }),
+      this.selector(SCENE_LIST, cfg.scene,
+        v => { cfg.scene = v; this.handlers.onScene(v) }, 'grid three'),
+      el('h2', { class: 'sec', textContent: 'Paredes da quadra' }),
+      this.selector(WALL_OPTS, cfg.walls ? 'on' : 'off',
+        v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }, 'grid two'),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
       this.selector(QUALITIES, cfg.quality, v => { cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
       el('h2', { class: 'sec', textContent: 'FPS' }),
@@ -287,6 +305,7 @@ export class Menu {
       el('h2', { class: 'sec', textContent: 'Som' }),
       this.selector(VOLUMES as [VolumeId, string, string][], this.handlers.getVolume(),
         v => this.handlers.onVolume(v)),
+      el('p', { class: 'credit', textContent: 'Trilha: Kevin MacLeod (incompetech.com), CC BY 4.0' }),
       this.back(() => this.main()),
     )
   }

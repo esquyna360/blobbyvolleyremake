@@ -24,6 +24,8 @@ import { EMOTES } from './core/emote.ts'
 import { Ev } from './core/events.ts'
 import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
+import { SCENES, getScene } from './render/scenes.ts'
+import type { SceneId } from './render/scenes.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
@@ -81,7 +83,13 @@ class App {
   lobby = new Lobby()
   cfg: GameConfig
 
-  phase: Phase = 'menu'
+  private phaseV: Phase = 'menu'
+  /** Trocar de fase liga e desliga o som de fundo: menu é silêncio. */
+  get phase(): Phase { return this.phaseV }
+  set phase(v: Phase) {
+    this.phaseV = v
+    this.audio.setPlaying(v === 'playing' || v === 'over')
+  }
   match: Match | null = null
   bot: Bot | null = null
   session: NetSession | null = null
@@ -113,18 +121,30 @@ class App {
     this.cfg.showFps = localStorage.getItem('bv.fps') === '1'
     const savedArena = localStorage.getItem('bv.arena')
     if (savedArena === 'wide' || savedArena === 'default') this.cfg.arena = savedArena
+    const savedScene = localStorage.getItem('bv.scene')
+    if (savedScene && savedScene in SCENES) this.cfg.scene = savedScene as SceneId
+    this.cfg.walls = localStorage.getItem('bv.walls') !== '0'
     setArena(this.cfg.arena)
     syncArena()
     document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
 
     void ensureIce()
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
+    this.stage.setScene(this.cfg.scene)
+    this.stage.setWalls(this.cfg.walls)
+    this.audio.setScene(getScene(this.cfg.scene).music, !getScene(this.cfg.scene).d3.indoor)
     this.hud = new Hud(this.ui)
     this.hud.root.style.opacity = '0'
     this.hud.setFps(this.cfg.showFps)
 
     this.menu = new Menu(this.ui, this.cfg, {
       onStart: c => this.startLocal(c),
+      onScene: id => this.applyScene(id),
+      onWalls: on => {
+        this.cfg.walls = on
+        localStorage.setItem('bv.walls', on ? '1' : '0')
+        this.stage.setWalls(on)
+      },
       onCreateRoom: (code, pass, c) => void this.openRoom(code, pass, c),
       onJoinRoom: (code, pass, c) => void this.joinRoom(code, pass, c),
       onManual: (host, c) => this.startManual(host, c),
@@ -193,6 +213,8 @@ class App {
     this.stage = built
     prev.dispose()
     old.remove()
+    this.stage.setScene(this.cfg.scene)
+    this.stage.setWalls(this.cfg.walls)
     this.resize()
     if (this.match) { this.stage.capture(this.match); this.stage.capture(this.match) }
     this.fpsAcc = 0
@@ -348,8 +370,18 @@ class App {
     this.applyQuality(this.cfg.quality, false)
   }
 
+  /** Cenário troca na hora, inclusive no meio da partida: é só pintura e trilha. */
+  applyScene(id: SceneId) {
+    this.cfg.scene = id
+    localStorage.setItem('bv.scene', id)
+    const sc = getScene(id)
+    this.stage.setScene(id)
+    this.audio.setScene(sc.music, !sc.d3.indoor)
+  }
+
   startLocal(cfg: GameConfig) {
     this.cfg = cfg
+    this.applyScene(cfg.scene)
     localStorage.setItem('bv.name', cfg.name)
     localStorage.setItem('bv.arena', cfg.arena)
     this.applyArena(cfg.arena)
@@ -840,6 +872,7 @@ class App {
     for (const e of events) {
       if (e.event === Ev.FATALITY) this.hud.fatality()
       else if (e.event === Ev.PARRY) this.hud.parry()
+      else if (e.event === Ev.SCORE) this.audio.duckMusic(1.3)
     }
   }
 

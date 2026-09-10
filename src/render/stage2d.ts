@@ -12,9 +12,10 @@ import type { Match } from '../core/match.ts'
 import type { GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
+import { getScene } from './scenes.ts'
+import type { Scene, SceneId } from './scenes.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
-const HORIZON = 418
 const BLOB_FILL = ['#ec2f3f', '#2f7ff0']
 const BLOB_DARK = ['#8e0f20', '#123f96']
 
@@ -98,6 +99,11 @@ export class Stage2D implements GameRenderer {
   private squash = { k: 0, ang: 0 }
   private wallHits: { x: number; y: number; life: number }[] = []
   private glow: HTMLCanvasElement
+  private scene: Scene = getScene('praia')
+  private wallsOn = true
+  /** estrelas e bichinhos da frente: sorteados uma vez, animados por relógio */
+  private specks: { x: number; y: number; r: number; seed: number }[] = []
+  private fg: { x: number; y: number; vx: number; vy: number; s: number; seed: number }[] = []
 
   constructor(canvas: HTMLCanvasElement, private lite = false) {
     this.canvas = canvas
@@ -124,15 +130,63 @@ export class Stage2D implements GameRenderer {
     this.scale = Math.min(this.cw / (RIGHT_PLANE + 90), this.ch / 640)
     this.ox = (this.cw - RIGHT_PLANE * this.scale) / 2
     this.oy = this.ch * 0.86 - (GROUND + 44) * this.scale
-    const horizon = this.oy + HORIZON * this.scale
-    const seaBottom = this.oy + 470 * this.scale
+    this.buildBands()
+  }
+
+  private buildBands() {
+    const d = this.scene.d2
+    const horizon = this.oy + d.horizon * this.scale
+    const shore = this.oy + d.shore * this.scale
     // faixa fina não custa nada: o gasto é o total de pixels, não o número de retângulos
     const step = 8
     const b: Band[] = []
-    ramp(b, 0, horizon, ['#0d4a9c', '#4d9dd8', '#c6e6f4'], step)
-    ramp(b, horizon, seaBottom, ['#1c7f92', '#41cbbe'], step)
-    ramp(b, seaBottom, this.ch, ['#e6d0a2', '#c9a771'], step)
+    ramp(b, 0, horizon, d.sky, step)
+    ramp(b, horizon, shore, d.mid, step)
+    ramp(b, shore, this.ch, d.ground, step)
     this.bands = b
+
+    this.specks = []
+    for (let i = 0; i < d.stars; i++) {
+      this.specks.push({
+        x: Math.random(), y: Math.random() * 0.72,
+        r: 0.6 + Math.random() * 1.5, seed: Math.random() * 6.28,
+      })
+    }
+    this.fg = []
+    const n = this.lite ? 8 : this.scene.fg === 'confetti' ? 20 : 16
+    for (let i = 0; i < n; i++) this.fg.push(this.spawnFg(Math.random()))
+  }
+
+  setScene(id: SceneId) {
+    this.scene = getScene(id)
+    this.buildBands()
+  }
+
+  setWalls(on: boolean) { this.wallsOn = on }
+
+  /** Bicho ou papel picado passando na frente da câmera. */
+  private spawnFg(startY = 0) {
+    const kind = this.scene.fg
+    if (kind === 'confetti') {
+      return {
+        x: Math.random(), y: startY, s: 0.5 + Math.random() * 1.1,
+        vx: (Math.random() - 0.5) * 0.05, vy: 0.09 + Math.random() * 0.13,
+        seed: Math.random() * 6.28,
+      }
+    }
+    if (kind === 'fireflies') {
+      return {
+        x: Math.random(), y: 0.25 + Math.random() * 0.7, s: 0.5 + Math.random() * 0.9,
+        vx: (Math.random() - 0.5) * 0.03, vy: (Math.random() - 0.5) * 0.02,
+        seed: Math.random() * 6.28,
+      }
+    }
+    return {
+      x: Math.random() < 0.5 ? -0.15 : 1.15, y: 0.06 + Math.random() * 0.34,
+      s: 0.6 + Math.random() * 0.8,
+      vx: (Math.random() < 0.5 ? 1 : -1) * (0.035 + Math.random() * 0.05), vy: 0,
+      seed: Math.random() * 6.28,
+    }
   }
 
   capture(match: Match) {
@@ -444,56 +498,270 @@ export class Stage2D implements GameRenderer {
 
   private background() {
     const c = this.ctx
-    const horizon = this.oy + HORIZON * this.scale
+    const d = this.scene.d2
+    const horizon = this.oy + d.horizon * this.scale
+    const shore = this.oy + d.shore * this.scale
     for (const b of this.bands) { c.fillStyle = b.c; c.fillRect(0, b.y, this.cw, b.h) }
 
-    const sunX = this.cw * 0.78, sunY = horizon - 250 * this.scale
-    c.beginPath(); c.arc(sunX, sunY, 34 * this.scale, 0, Math.PI * 2)
-    c.fillStyle = 'rgba(255,242,205,0.95)'; c.fill()
-
-    c.fillStyle = 'rgba(255,255,255,0.55)'
-    const clouds = this.lite ? 2 : 4
-    for (let i = 0; i < clouds; i++) {
-      const cx = ((i * 0.31 + this.time * 0.004) % 1.25 - 0.12) * this.cw
-      const cy = horizon - (150 + i * 46) * this.scale
-      const r = (26 + i * 7) * this.scale
-      c.beginPath()
-      c.arc(cx, cy, r, 0, Math.PI * 2)
-      c.arc(cx + r * 0.9, cy + r * 0.12, r * 0.75, 0, Math.PI * 2)
-      c.arc(cx - r * 0.85, cy + r * 0.2, r * 0.6, 0, Math.PI * 2)
-      c.fill()
+    if (d.star && d.stars) {
+      for (const sp of this.specks) {
+        const tw = 0.55 + Math.sin(this.time * 1.7 + sp.seed) * 0.45
+        c.globalAlpha = tw
+        c.fillStyle = d.star
+        c.fillRect(sp.x * this.cw, sp.y * horizon, sp.r * this.scale + 0.6, sp.r * this.scale + 0.6)
+      }
+      c.globalAlpha = 1
     }
 
-    c.fillStyle = 'rgba(112,133,156,0.55)'
-    for (const [hx, hw, hh] of [[0.16, 0.20, 52], [0.30, 0.14, 34], [0.66, 0.24, 44]] as [number, number, number][]) {
-      c.beginPath()
-      c.moveTo((hx - hw / 2) * this.cw, horizon)
-      c.quadraticCurveTo(hx * this.cw, horizon - hh * this.scale, (hx + hw / 2) * this.cw, horizon)
-      c.fill()
-    }
-
-    const seaBottom = this.oy + 470 * this.scale
-
-    c.fillStyle = 'rgba(255,255,255,0.30)'
-    const rows = this.lite ? 2 : 4
-    for (let i = 0; i < rows; i++) {
-      const y = horizon + (i + 1) * ((seaBottom - horizon) / 5.5)
-      const w = (70 + i * 40) * this.scale
-      const gap = w * 2.4
-      const off = (Math.sin(this.time * 0.55 + i * 1.9) * 40 * this.scale) % gap
-      for (let x = -gap + off; x < this.cw + gap; x += gap) {
-        c.fillRect(x, y, w, Math.max(1, (0.6 + i * 0.3) * this.scale))
+    if (d.orb) {
+      const ox = this.cw * d.orb.x, oy = horizon - d.orb.y * this.scale
+      const r = d.orb.r * this.scale
+      const halo = c.createRadialGradient(ox, oy, r * 0.8, ox, oy, r * 3.4)
+      halo.addColorStop(0, d.orb.halo)
+      halo.addColorStop(1, 'rgba(0,0,0,0)')
+      c.fillStyle = halo
+      c.beginPath(); c.arc(ox, oy, r * 3.4, 0, Math.PI * 2); c.fill()
+      c.beginPath(); c.arc(ox, oy, r, 0, Math.PI * 2)
+      c.fillStyle = d.orb.color; c.fill()
+      // à noite a lua ganha crateras: sem isso ela vira um sol branco
+      if (this.scene.night) {
+        c.fillStyle = 'rgba(150,152,170,0.5)'
+        for (const [cx, cy, cr] of [[-0.32, -0.2, 0.2], [0.24, 0.1, 0.26], [-0.05, 0.42, 0.15], [0.4, -0.36, 0.12]]) {
+          c.beginPath(); c.arc(ox + cx * r, oy + cy * r, cr * r, 0, Math.PI * 2); c.fill()
+        }
       }
     }
 
-    // espuma: três tiras chapadas no lugar do degradê, mesma leitura
-    const fs = this.scale
-    c.fillStyle = 'rgba(255,255,255,0.28)'
-    c.fillRect(0, seaBottom - 6 * fs, this.cw, 3 * fs)
-    c.fillStyle = 'rgba(255,255,255,0.80)'
-    c.fillRect(0, seaBottom - 3 * fs, this.cw, 3.5 * fs)
-    c.fillStyle = 'rgba(255,255,255,0.30)'
-    c.fillRect(0, seaBottom + 0.5 * fs, this.cw, 2.5 * fs)
+    if (d.cloud && d.clouds) {
+      c.fillStyle = d.cloud
+      const clouds = this.lite ? Math.min(2, d.clouds) : d.clouds
+      for (let i = 0; i < clouds; i++) {
+        const cx = ((i * 0.31 + this.time * 0.004) % 1.25 - 0.12) * this.cw
+        const cy = horizon - (150 + i * 46) * this.scale
+        const r = (26 + i * 7) * this.scale
+        c.beginPath()
+        c.arc(cx, cy, r, 0, Math.PI * 2)
+        c.arc(cx + r * 0.9, cy + r * 0.12, r * 0.75, 0, Math.PI * 2)
+        c.arc(cx - r * 0.85, cy + r * 0.2, r * 0.6, 0, Math.PI * 2)
+        c.fill()
+      }
+    }
+
+    if (d.hills) {
+      c.fillStyle = d.hills
+      for (const [hx, hw, hh] of [[0.16, 0.20, 52], [0.30, 0.14, 34], [0.66, 0.24, 44]] as [number, number, number][]) {
+        c.beginPath()
+        c.moveTo((hx - hw / 2) * this.cw, horizon)
+        c.quadraticCurveTo(hx * this.cw, horizon - hh * this.scale, (hx + hw / 2) * this.cw, horizon)
+        c.fill()
+      }
+    }
+
+    if (this.scene.id === 'ginasio') this.hall(horizon, shore)
+
+    if (d.foam) {
+      c.fillStyle = d.foam
+      const rows = this.lite ? 2 : 4
+      for (let i = 0; i < rows; i++) {
+        const y = horizon + (i + 1) * ((shore - horizon) / 5.5)
+        const w = (70 + i * 40) * this.scale
+        const gap = w * 2.4
+        const off = (Math.sin(this.time * 0.55 + i * 1.9) * 40 * this.scale) % gap
+        for (let x = -gap + off; x < this.cw + gap; x += gap) {
+          c.fillRect(x, y, w, Math.max(1, (0.6 + i * 0.3) * this.scale))
+        }
+      }
+
+      // espuma: três tiras chapadas no lugar do degradê, mesma leitura
+      const fs = this.scale
+      c.fillStyle = 'rgba(255,255,255,0.28)'
+      c.fillRect(0, shore - 6 * fs, this.cw, 3 * fs)
+      c.fillStyle = this.scene.night ? 'rgba(198,216,255,0.55)' : 'rgba(255,255,255,0.80)'
+      c.fillRect(0, shore - 3 * fs, this.cw, 3.5 * fs)
+      c.fillStyle = 'rgba(255,255,255,0.30)'
+      c.fillRect(0, shore + 0.5 * fs, this.cw, 2.5 * fs)
+    }
+
+    // caminho da lua na água: é o que diz que a cena é noturna e não só escura
+    if (this.scene.night && d.orb) {
+      const ox = this.cw * d.orb.x
+      c.globalCompositeOperation = 'lighter'
+      for (let i = 0; i < 9; i++) {
+        const t = i / 8
+        const y = horizon + (shore - horizon) * t
+        const w = (14 + t * 90) * this.scale * (0.7 + Math.sin(this.time * 1.3 + i) * 0.3)
+        c.globalAlpha = 0.1 * (1 - t * 0.5)
+        c.fillStyle = '#cfe0ff'
+        c.fillRect(ox - w, y, w * 2, 2.4 * this.scale)
+      }
+      c.globalCompositeOperation = 'source-over'
+      c.globalAlpha = 1
+    }
+
+    if (this.scene.id === 'luau') this.bonfire(shore)
+
+    if (d.wash) { c.fillStyle = d.wash; c.fillRect(0, 0, this.cw, this.ch) }
+  }
+
+  /** Ginásio: arquibancada em degraus, cabeças e refletores no lugar do céu. */
+  private hall(horizon: number, shore: number) {
+    const c = this.ctx
+    const S = this.scale
+
+    // refletores no teto, com cone de luz descendo até a quadra
+    for (const fx of [0.18, 0.5, 0.82]) {
+      const x = this.cw * fx
+      c.fillStyle = '#12151f'
+      c.fillRect(x - 22 * S, 0, 44 * S, 26 * S)
+      c.fillStyle = 'rgba(255,246,214,0.95)'
+      c.beginPath(); c.ellipse(x, 26 * S, 20 * S, 7 * S, 0, 0, Math.PI * 2); c.fill()
+      const g = c.createLinearGradient(x, 26 * S, x, shore)
+      g.addColorStop(0, 'rgba(255,244,206,0.16)')
+      g.addColorStop(1, 'rgba(255,244,206,0)')
+      c.fillStyle = g
+      c.beginPath()
+      c.moveTo(x - 20 * S, 26 * S); c.lineTo(x + 20 * S, 26 * S)
+      c.lineTo(x + 210 * S, shore); c.lineTo(x - 210 * S, shore)
+      c.closePath(); c.fill()
+    }
+
+    // faixa de patrocínio na parede do fundo
+    c.fillStyle = 'rgba(220,60,72,0.85)'
+    c.fillRect(0, horizon - 40 * S, this.cw, 26 * S)
+    c.fillStyle = 'rgba(255,255,255,0.9)'
+    c.font = `700 ${Math.max(9, 15 * S)}px system-ui, sans-serif`
+    c.textAlign = 'center'
+    c.textBaseline = 'middle'
+    for (let i = -1; i < 6; i++) {
+      const x = ((i * 0.2 + this.time * 0.01) % 1.2 - 0.1) * this.cw
+      c.fillText('BLOBBY LEAGUE', x, horizon - 27 * S)
+    }
+    c.textAlign = 'left'
+    c.textBaseline = 'alphabetic'
+
+    // arquibancada: cada degrau é espelho (torcida) + piso + frente escura
+    const rows = this.lite ? 4 : 6
+    const top = horizon - 6 * S
+    const bot = shore - 3 * S
+    const h = (bot - top) / rows
+    for (let r = 0; r < rows; r++) {
+      const y = top + h * r
+      c.fillStyle = `hsl(226,20%,${13 + r * 2.4}%)`
+      c.fillRect(0, y, this.cw, h + 1)
+
+      const step = (17 + r * 1.6) * S
+      const headR = (5.2 + r * 0.7) * S
+      const base = y + h - headR * 1.15
+      for (let i = -1, x = -step; x < this.cw + step; i++, x += step) {
+        const seed = Math.sin(x * 0.083 + r * 4.7) * 0.5 + 0.5
+        if (seed < 0.16) continue
+        const bob = Math.sin(this.time * (1.6 + seed * 1.6) + i * 0.9 + r) * 2.4 * S
+        const cx = x + step * 0.5 + (seed - 0.5) * step * 0.3
+        const cy = base + bob
+        const light = 30 + r * 3.5
+        c.fillStyle = `hsl(${Math.floor(seed * 359)},42%,${light - 8}%)`
+        c.beginPath()
+        c.ellipse(cx, cy + headR * 1.25, headR * 1.35, headR * 1.1, 0, Math.PI, 0)
+        c.fill()
+        c.fillStyle = `hsl(${Math.floor(seed * 359)},44%,${light}%)`
+        c.beginPath(); c.arc(cx, cy, headR, 0, Math.PI * 2); c.fill()
+      }
+
+      c.fillStyle = 'rgba(8,10,18,0.55)'
+      c.fillRect(0, y + h - 2.2 * S, this.cw, 2.2 * S)
+    }
+
+    // guarda-corpo na frente da arquibancada
+    c.strokeStyle = 'rgba(190,204,230,0.5)'
+    c.lineWidth = 2 * S
+    c.beginPath(); c.moveTo(0, shore - 6 * S); c.lineTo(this.cw, shore - 6 * S); c.stroke()
+  }
+
+  /** Fogueira do luau: pisca e joga cor quente na areia perto dela. */
+  private bonfire(shore: number) {
+    const c = this.ctx
+    const S = this.scale
+    const x = this.cw * 0.14
+    const y = shore + 26 * S
+    const flick = 0.75 + Math.sin(this.time * 9.3) * 0.15 + Math.sin(this.time * 21.7) * 0.1
+
+    c.globalCompositeOperation = 'lighter'
+    const gr = 120 * S * flick
+    c.globalAlpha = 0.5
+    c.drawImage(this.glow, x - gr, y - gr * 0.75, gr * 2, gr * 1.5)
+    c.globalAlpha = 1
+    c.globalCompositeOperation = 'source-over'
+
+    c.fillStyle = '#3a2a1c'
+    for (const a of [-0.5, 0.1, 0.7]) {
+      c.save(); c.translate(x, y); c.rotate(a)
+      c.fillRect(-17 * S, -2.5 * S, 34 * S, 5 * S)
+      c.restore()
+    }
+    for (const [h, w, col] of [[34, 13, '#ff8a2b'], [22, 8, '#ffd05a'], [12, 4, '#fff2c4']] as [number, number, string][]) {
+      c.fillStyle = col
+      c.beginPath()
+      c.moveTo(x - w * S * flick, y)
+      c.quadraticCurveTo(x - w * 0.4 * S, y - h * S * flick, x, y - h * S * flick * 1.25)
+      c.quadraticCurveTo(x + w * 0.4 * S, y - h * S * flick, x + w * S * flick, y)
+      c.closePath(); c.fill()
+    }
+  }
+
+  /**
+   * Camada da frente: passa por cima de tudo, inclusive dos blobs. É o que dá
+   * profundidade — sem nada na frente a quadra parece um adesivo.
+   */
+  private foreground(dt: number) {
+    const c = this.ctx
+    const kind = this.scene.fg
+    for (let i = 0; i < this.fg.length; i++) {
+      const f = this.fg[i]
+      f.x += f.vx * dt
+      f.y += f.vy * dt
+      if (kind === 'confetti') {
+        if (f.y > 1.2) { this.fg[i] = this.spawnFg(-0.2); continue }
+      } else if (kind === 'gulls') {
+        if (f.x < -0.3 || f.x > 1.3) { this.fg[i] = this.spawnFg(); continue }
+      } else {
+        f.x += Math.sin(this.time * 0.7 + f.seed) * 0.0016
+        f.y += Math.cos(this.time * 0.9 + f.seed * 1.7) * 0.0012
+        if (f.x < -0.1 || f.x > 1.1 || f.y < 0.1 || f.y > 1.1) { this.fg[i] = this.spawnFg(); continue }
+      }
+      const x = f.x * this.cw, y = f.y * this.ch
+      const s = f.s * this.scale
+
+      if (kind === 'confetti') {
+        const spin = this.time * 6 + f.seed
+        c.save()
+        c.translate(x, y)
+        c.rotate(spin)
+        c.scale(1, Math.max(0.15, Math.abs(Math.sin(spin * 0.8))))
+        c.fillStyle = `hsl(${Math.floor((f.seed * 57) % 360)},85%,62%)`
+        c.fillRect(-5.5 * s, -3 * s, 11 * s, 6 * s)
+        c.restore()
+      } else if (kind === 'fireflies') {
+        const pulse = 0.35 + Math.sin(this.time * 3.1 + f.seed) * 0.35 + 0.3
+        const r = 13 * s * pulse
+        c.globalCompositeOperation = 'lighter'
+        c.globalAlpha = pulse * 0.75
+        c.drawImage(this.glow, x - r, y - r, r * 2, r * 2)
+        c.globalAlpha = 1
+        c.globalCompositeOperation = 'source-over'
+        c.fillStyle = '#d8ff9a'
+        c.beginPath(); c.arc(x, y, 1.7 * s, 0, Math.PI * 2); c.fill()
+      } else {
+        const flap = Math.sin(this.time * 7 + f.seed) * 0.55
+        const dir = f.vx > 0 ? 1 : -1
+        c.strokeStyle = 'rgba(28,32,44,0.5)'
+        c.lineWidth = 3.4 * s
+        c.lineCap = 'round'
+        c.beginPath()
+        c.moveTo(x - 15 * s * dir, y + flap * 9 * s)
+        c.quadraticCurveTo(x, y - 5 * s, x + 15 * s * dir, y + flap * 9 * s)
+        c.stroke()
+      }
+    }
   }
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
@@ -506,15 +774,6 @@ export class Stage2D implements GameRenderer {
       c.rotate(Math.sin(this.time * 9.5) * 0.16)
       c.translate(-x, -y)
     }
-    // corpo deitado no ar: gira em volta do pé e estica no eixo cabeça-corpo,
-    // que depois do giro é exatamente a direção do salto
-    if (dive > 0.01) {
-      c.save()
-      c.translate(x, y)
-      c.rotate(dvDir * 1.0 * dive)
-      c.scale(1 - 0.1 * dive, 1 + 0.3 * dive)
-      c.translate(-x, -y)
-    }
     // mesma geometria do hitbox: agachado a cabeça afunda e o corpo espalha
     const squash = (1 + Math.sin(state * 1.6) * 0.045) * (1 - cr * 0.12)
     const ru = (BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
@@ -522,27 +781,67 @@ export class Stage2D implements GameRenderer {
     const uy = y - (BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
     const ly = y + BLOBBY_LOWER_SPHERE
 
+    // Mergulho não é o blob tombado: é um bote. O corpo fica pra trás e baixo,
+    // a cabeça vai pra frente, e os braços saem na frente dela como a prancha
+    // do vôlei. A cara quase não gira — girar a cara foi o que ficou horrível.
+    const d = dvDir
+    const dk = dive
+    const bkx = x - d * 20 * dk
+    const bky = ly + 13 * dk
+    const brx = rl * (1 + 0.42 * dk)
+    const bry = rl * (1 - 0.3 * dk)
+    const hdx = d * 30 * dk
+    const hdy = 22 * dk
+    const tilt = d * 0.3 * dk
+
     if (hold >= SPIKE_MIN_HOLD) this.chargeAura(x, ly, rl, hold)
 
-    // braços esticados na frente da cabeça: no espaço já girado eles apontam
-    // pro lado do mergulho, e é o que o olho lê como "foi buscar"
-    if (dive > 0.01) {
+    if (dk > 0.01) this.diveGhosts(p, x + hdx, uy + hdy, ru, bkx, bky, brx, bry, d, dk)
+
+    // corpo
+    c.beginPath()
+    c.ellipse(bkx, bky, brx, bry, d * 0.22 * dk, 0, Math.PI * 2)
+    c.fillStyle = BLOB_FILL[p]
+    c.fill()
+
+    // tronco ligando corpo e cabeça: sem isso viram duas bolas soltas no ar
+    if (dk > 0.01) {
       c.beginPath()
-      c.ellipse(x, uy - ru * (0.5 + 0.62 * dive), ru * 0.42, ru * (0.55 + 0.7 * dive), 0, 0, Math.PI * 2)
+      c.moveTo(bkx, bky - bry * 0.85)
+      c.lineTo(x + hdx, uy + hdy - ru * 0.8)
+      c.lineTo(x + hdx, uy + hdy + ru * 0.8)
+      c.lineTo(bkx, bky + bry * 0.7)
+      c.closePath()
+      c.fill()
+    }
+
+    c.save()
+    c.translate(hdx, hdy)
+    c.translate(x, uy); c.rotate(tilt); c.translate(-x, -uy)
+
+    // braços na frente da cabeça: um bloco só, igual antebraço colado no vôlei
+    if (dk > 0.01) {
+      const ax = x + d * ru * 0.55
+      const ay = uy + ru * 0.5
+      const len = ru * (0.5 + 1.5 * dk)
+      c.save()
+      c.translate(ax, ay)
+      c.rotate(d * 0.34)
+      c.beginPath()
+      c.ellipse(d * len * 0.5, 0, len * 0.62, ru * 0.34, 0, 0, Math.PI * 2)
       c.fillStyle = BLOB_FILL[p]
       c.fill()
       c.beginPath()
-      c.ellipse(x, uy - ru * (1.0 + 1.16 * dive), ru * 0.31, ru * 0.31, 0, 0, Math.PI * 2)
+      c.ellipse(d * len, 0, ru * 0.3, ru * 0.3, 0, 0, Math.PI * 2)
       c.fillStyle = BLOB_DARK[p]
-      c.globalAlpha = 0.9
+      c.globalAlpha = 0.85
       c.fill()
       c.globalAlpha = 1
+      c.restore()
     }
 
     c.beginPath()
     c.arc(x, uy, ru, 0, Math.PI * 2)
-    c.moveTo(x + rl, ly)
-    c.arc(x, ly, rl, 0, Math.PI * 2)
     c.fillStyle = BLOB_FILL[p]
     c.fill()
 
@@ -550,13 +849,6 @@ export class Stage2D implements GameRenderer {
     c.arc(x - ru * 0.34, uy - ru * 0.3, ru * 0.42, 0, Math.PI * 2)
     c.fillStyle = 'rgba(255,255,255,0.30)'
     c.fill()
-
-    c.beginPath()
-    c.arc(x, ly + rl * 0.42, rl * 0.72, 0.15 * Math.PI, 0.85 * Math.PI)
-    c.fillStyle = BLOB_DARK[p]
-    c.globalAlpha = 0.35
-    c.fill()
-    c.globalAlpha = 1
 
     const rig = this.faces[p]
     const f = rig.cur
@@ -570,8 +862,8 @@ export class Stage2D implements GameRenderer {
     ax = (ax / alen) * amp
     ay = (ay / alen) * amp
 
-    const k = Math.min(1, Math.max(0, (lid - 0.30) / 0.28))
-    const kk = k * k * (3 - 2 * k)
+    const lk = Math.min(1, Math.max(0, (lid - 0.30) / 0.28))
+    const kk = lk * lk * (3 - 2 * lk)
     const ch = (a: number, b: number) => Math.round(a + (b - a) * kk)
     const eyeCol = `rgb(${ch(15, 248)},${ch(15, 248)},${ch(20, 255)})`
 
@@ -650,8 +942,29 @@ export class Stage2D implements GameRenderer {
       c.globalAlpha = 1
     }
 
-    if (dive > 0.01) c.restore()
+    c.restore()
     if (stunned) c.restore()
+  }
+
+  /**
+   * Fantasmas do mergulho: duas cópias esmaecidas atrás do corpo. Custa duas
+   * elipses e é o que transforma o salto em movimento em vez de teleporte.
+   */
+  private diveGhosts(p: Side, hx: number, hy: number, ru: number,
+                     bx: number, by: number, brx: number, bry: number, d: number, k: number) {
+    const c = this.ctx
+    c.fillStyle = BLOB_FILL[p]
+    for (let i = 1; i <= 2; i++) {
+      const back = i * 26 * k
+      c.globalAlpha = 0.2 / i
+      c.beginPath()
+      c.ellipse(bx - d * back, by, brx * (1 - i * 0.09), bry * (1 - i * 0.09), 0, 0, Math.PI * 2)
+      c.fill()
+      c.beginPath()
+      c.ellipse(hx - d * back, hy, ru * (1 - i * 0.12), ru * (1 - i * 0.12), 0, 0, Math.PI * 2)
+      c.fill()
+    }
+    c.globalAlpha = 1
   }
 
   /**
@@ -659,6 +972,7 @@ export class Stage2D implements GameRenderer {
    * invisíveis. O brilho no ponto da batida diz onde a bola bateu.
    */
   private walls() {
+    if (!this.wallsOn) return
     const c = this.ctx
     const top = 108
     const bot = GROUND + 44
@@ -739,12 +1053,12 @@ export class Stage2D implements GameRenderer {
     for (const k of this.skids) {
       const fade = Math.max(0, 1 - k.life / 5)
       c.globalAlpha = 0.34 * fade
-      c.fillStyle = '#9c7c4c'
+      c.fillStyle = this.scene.d2.sandDark
       c.beginPath()
       c.ellipse(k.x, GROUND + 9, 62, 7, 0, 0, Math.PI * 2)
       c.fill()
       c.globalAlpha = 0.22 * fade
-      c.fillStyle = '#5e4526'
+      c.fillStyle = this.scene.d2.sandDark
       c.beginPath()
       c.ellipse(k.x - k.dir * 16, GROUND + 8, 34, 4, 0, 0, Math.PI * 2)
       c.fill()
@@ -907,7 +1221,7 @@ export class Stage2D implements GameRenderer {
     const sy = (Math.random() - 0.5) * 16 * t * this.scale
     c.setTransform(this.scale, 0, 0, this.scale, this.ox + sx, this.oy + sy)
 
-    c.strokeStyle = 'rgba(255,255,255,0.55)'
+    c.strokeStyle = this.scene.d2.line
     c.lineWidth = 3
     c.beginPath()
     c.moveTo(20, GROUND + 44); c.lineTo(RIGHT_PLANE - 20, GROUND + 44)
@@ -1041,8 +1355,10 @@ export class Stage2D implements GameRenderer {
     }
     c.globalAlpha = 1
 
+    c.setTransform(1, 0, 0, 1, 0, 0)
+    this.foreground(dt)
+
     if (this.flash > 0.001) {
-      c.setTransform(1, 0, 0, 1, 0, 0)
       c.fillStyle = `rgba(255,255,255,${this.flash})`
       c.fillRect(0, 0, this.cw, this.ch)
     }
