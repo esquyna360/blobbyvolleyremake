@@ -66,6 +66,7 @@ export class Match {
       const e = this.events[k]
       switch (e.event) {
         case Ev.BALL_HIT_BLOB:
+        case Ev.PARRY:
         case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
           g.onBallHitsGround(e.side as Side)

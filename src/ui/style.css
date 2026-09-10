@@ -500,6 +500,38 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 
 .rooms { max-height: 172px; overflow-y: auto; padding-right: 2px; }
 
+/* ---------- replays ---------- */
+.rep-list { max-height: 44vh; overflow-y: auto; padding-right: 2px; gap: 6px; }
+button.room.replay {
+  display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'who sc' 'meta sc';
+  gap: 2px 12px; text-align: left; align-items: center; padding: 9px 13px;
+}
+button.room.replay .who { grid-area: who; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.room.replay .sc { grid-area: sc; font-size: 17px; color: var(--accent); letter-spacing: 0.02em; }
+button.room.replay .meta { grid-area: meta; color: var(--muted); font-size: 10.5px; letter-spacing: 0.04em; }
+button.room.replay.mine { border-color: rgba(255,210,87,0.30); }
+button.room.replay.mine .sc { color: #ffd257; }
+
+.rep-bar {
+  position: absolute; z-index: 6;
+  left: 50%; transform: translateX(-50%);
+  /* acima das barras de especial (20px + 20px de altura) */
+  bottom: calc(52px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(10,14,22,0.66); border: 1px solid var(--line);
+  border-radius: 13px; padding: 6px 8px;
+  backdrop-filter: blur(6px);
+}
+.rep-bar button {
+  all: unset; cursor: pointer;
+  min-width: 42px; text-align: center;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+  color: #dfe8f5; padding: 7px 10px; border-radius: 9px;
+  background: rgba(255,255,255,0.06);
+}
+.rep-bar button:hover { background: rgba(255,255,255,0.14); }
+.rep-bar .clock { color: var(--muted); font-size: 11px; padding: 0 8px; min-width: 92px; text-align: center; white-space: nowrap; }
+
 
 .fatality {
   position: fixed; inset: 0; z-index: 60;
@@ -700,4 +732,10 @@ button.room.live { border-color: rgba(255,59,71,0.35); }
     top: calc(var(--safe-top, 0px) + 46px);
     font-size: 10px; padding: 2px 9px; letter-spacing: 0.10em;
   }
+}
+
+@media (max-width: 560px), (max-height: 520px) {
+  .rep-bar { gap: 4px; padding: 5px 6px; }
+  .rep-bar button { min-width: 34px; padding: 6px 7px; font-size: 11px; }
+  .rep-bar .clock { min-width: 78px; font-size: 10px; padding: 0 4px; }
 }

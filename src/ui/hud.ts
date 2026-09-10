@@ -236,10 +236,10 @@ export class Hud {
   nameOf(side: Side) { return (side === LEFT ? this.nameL : this.nameR).textContent ?? '' }
 
   /** Selo de transmissão pra quem está assistindo. */
-  setLive(on: boolean) {
+  setLive(on: boolean, label = 'AO VIVO') {
     this.root.classList.toggle('watching', on)
     if (on && !this.liveTag) {
-      this.liveTag = el('div', { class: 'livetag' }, el('span', { class: 'livedot' }), 'AO VIVO')
+      this.liveTag = el('div', { class: 'livetag' }, el('span', { class: 'livedot' }), label)
       this.root.parentElement?.append(this.liveTag)
     } else if (!on && this.liveTag) {
       this.liveTag.remove()

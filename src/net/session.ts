@@ -6,7 +6,7 @@ import { setArena, arenaId } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 8
+const PROTO = 9
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8, REMATCH = 9,
@@ -75,7 +75,10 @@ export class NetSession {
   rtt = 0
   private checksums = new Map<number, number>()
   desynced = false
-  private began: { ruleId: string; stw: number; arena: ArenaId } | null = null
+  private began: { ruleId: string; stw: number; arena: ArenaId; serving: Side } | null = null
+
+  /** Regra, placar-alvo, arena e quem saca: o replay precisa disso pra reproduzir. */
+  get setup() { return this.began }
   private wantMine = false
   private wantTheirs = false
 
@@ -192,7 +195,7 @@ export class NetSession {
 
   private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId) {
     if (arenaId() !== arena) { setArena(arena); this.opts.onArena?.(arena) }
-    this.began = { ruleId, stw, arena }
+    this.began = { ruleId, stw, arena, serving }
     this.wantMine = false
     this.wantTheirs = false
     this.checksums.clear()

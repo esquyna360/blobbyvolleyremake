@@ -15,7 +15,7 @@ export function playerId(): string {
   return id
 }
 
-async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T | null> {
+export async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T | null> {
   try {
     const r = await fetch(`${API}/${fn}`, {
       method: 'POST',

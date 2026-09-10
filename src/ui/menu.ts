@@ -8,6 +8,8 @@ import { ARENAS } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
 import { runDiag } from '../net/diag.ts'
 import { leaderboard } from '../net/rank.ts'
+import { localReplays, onlineReplays } from '../net/replays.ts'
+import type { ReplayCard } from '../net/replays.ts'
 import type { RankRow } from '../net/rank.ts'
 
 export interface GameConfig {
@@ -33,7 +35,7 @@ const DIFFS: [Difficulty, string, string][] = [
 ]
 
 const QUALITIES: [GameConfig['quality'], string, string][] = [
-  ['cpu', '2D', ''],
+  ['cpu', '2D (CPU)', 'sem GPU · roda em qualquer máquina'],
   ['low', 'Baixa', ''],
   ['medium', 'Média', ''],
   ['high', 'Alta', ''],
@@ -62,6 +64,7 @@ export interface MenuHandlers {
   onLeaveOnline(): void
   onRematch?(): void
   onWatch(ad: RoomAd): void
+  onWatchReplay(card: ReplayCard): void
   onStopWatch(): void
   onLobbyNet(cb: (n: LobbyNet, info: string) => void): () => void
 }
@@ -162,6 +165,8 @@ export class Menu {
           '2 jogadores no mesmo teclado')),
       el('div', { class: 'grid two', style: 'margin-top:10px' },
         el('button', { class: 'ghost center', onclick: () => this.ranking() }, 'Ranking'),
+        el('button', { class: 'ghost center', onclick: () => this.replays() }, 'Replays')),
+      el('div', { class: 'grid', style: 'margin-top:8px' },
         el('button', { class: 'ghost center', onclick: () => this.settings() }, 'Ajustes')),
       el('div', { class: 'hint foot' },
         el('div', {}, el('kbd', { textContent: 'A' }), el('kbd', { textContent: 'D' }), el('kbd', { textContent: 'W' }),
@@ -170,6 +175,52 @@ export class Menu {
         el('div', {}, el('kbd', { textContent: '1' }), '…', el('kbd', { textContent: '5' }),
           ' emotes  ·  ', el('kbd', { textContent: 'ESC' }), ' pausa')),
     )
+  }
+
+  /** Partida inteira cabe em ~3 KB de input: dá pra guardar tudo e reproduzir exato. */
+  replays() {
+    this.currentScreen = () => this.replays()
+    const list = el('div', { class: 'grid rep-list' },
+      el('p', { class: 'hint center', textContent: 'carregando…' }))
+    const status = el('div', { class: 'status' })
+    this.panel(
+      this.title('REPLAYS', 'a partida inteira, lance a lance'),
+      list,
+      status,
+      el('div', { class: 'hint foot' }, 'Suas partidas ficam neste aparelho. As online ficam pra todo mundo.'),
+      this.back(() => this.main()),
+    )
+
+    const render = (cards: ReplayCard[]) => {
+      clear(list)
+      if (!cards.length) {
+        list.append(el('p', { class: 'hint center', textContent: 'nenhum replay ainda. joga uma partida.' }))
+        return
+      }
+      for (const c of cards) list.append(this.replayRow(c))
+    }
+
+    const mine = localReplays()
+    render(mine)
+    void onlineReplays(20).then(rows => {
+      const seen = new Set(mine.map(c => c.id))
+      render([...mine, ...rows.filter(r => !seen.has(r.id))])
+    })
+    return status
+  }
+
+  private replayRow(c: ReplayCard) {
+    const m = c.meta
+    const mins = Math.max(1, Math.round((m.frames || 0) / 60 / 60))
+    const when = c.at ? new Date(c.at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
+    const tag = c.local ? (m.mode === 'bot' ? 'vs CPU' : 'local') : 'online'
+    return el('button', {
+      class: `center room replay${c.local ? ' mine' : ''}`,
+      onclick: () => this.handlers.onWatchReplay(c),
+    },
+      el('span', { class: 'who', textContent: `${m.nl || 'P1'} × ${m.nr || 'P2'}` }),
+      el('b', { class: 'sc mono', textContent: `${m.sl}—${m.sr}` }),
+      el('small', { class: 'meta', textContent: `${tag} · ${mins} min · rally ${m.rally || 0}${when ? ` · ${when}` : ''}` }))
   }
 
   ranking() {

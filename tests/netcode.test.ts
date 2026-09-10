@@ -4,7 +4,7 @@ import { Match, allocState } from '../src/core/match.ts'
 import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
 import { LEFT, NO_PLAYER, RIGHT, SPECIAL_FULL } from '../src/core/constants.ts'
-import { packInput, unpackInput } from '../src/core/input.ts'
+import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
 
 function rng(seed: number) {
   let s = seed >>> 0
@@ -162,4 +162,34 @@ test('special only fires on a second jump press in the air', () => {
   m.step(UP, NONE)
   assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false)
   assert.equal(m.world.charge[LEFT], SPECIAL_FULL)
+})
+
+/**
+ * A previsão repete o último input do outro, então botão que ele acabou de
+ * apertar nunca é previsto: o evento só nasce na re-simulação depois que o
+ * pacote chega. Antes, esse frame era descartado junto com a timeline errada
+ * e o parry do adversário nunca aparecia na tela.
+ */
+test('ação de borda do remoto chega na apresentação mesmo nascendo no rollback', () => {
+  const m = new Match('default', 15, LEFT)
+  const rb = new Rollback(m, LEFT)
+  const seen: number[] = []
+  const drain = () => {
+    for (const e of rb.pending) seen.push(e.event)
+    rb.pending.length = 0
+  }
+
+  for (let f = 0; f < 10; f++) {
+    assert.ok(rb.advance(0), `travou no frame ${f}`)
+    for (const e of m.events) seen.push(e.event)
+    drain()
+  }
+  assert.equal(seen.includes(Ev.PUSH), false, 'push previsto sem input real do remoto')
+
+  const bits = new Uint8Array(10)
+  bits[4] = packInput({ ...NO_INPUT, push: true })
+  rb.onRemotePacket(0, bits, 10)
+  drain()
+
+  assert.ok(seen.includes(Ev.PUSH), 'evento nascido na re-simulação não chegou em pending')
 })

@@ -1,10 +1,13 @@
 import { Match, allocState, checksumState } from '../core/match.ts'
 import type { MatchState } from '../core/match.ts'
+import type { MatchEvent } from '../core/events.ts'
 import { unpackInput } from '../core/input.ts'
 import type { Side } from '../core/constants.ts'
 
 export const MAX_ROLLBACK = 12
 const RING = 256
+/** Janela pra não repetir o mesmo evento que o rollback só empurrou uns frames. */
+const ECHO = 3
 
 export interface RollbackStats {
   frame: number
@@ -30,6 +33,17 @@ export class Rollback {
   private usedRemote = new Uint8Array(RING)
   private states: MatchState[] = []
   private stateFrame = new Int32Array(RING).fill(-1)
+  private shown = new Int32Array(RING)
+  private shownAt = new Int32Array(RING).fill(-1)
+  private resim = false
+
+  /**
+   * Eventos que só nasceram na re-simulação. Ação de borda do outro jogador
+   * (parry, especial, empurrão) é impossível de prever — a previsão repete o
+   * último input, então o botão nunca "sobe" — e sem isto o frame que a cria é
+   * descartado junto com a timeline errada. Quem lê presenta e esvazia.
+   */
+  readonly pending: MatchEvent[] = []
 
   lastRemoteFrame = -1
   remoteReportedFrame = -1
@@ -98,6 +112,30 @@ export class Rollback {
     const ri = unpackInput(this.local === 0 ? rb : lb)
     this.match.step(li, ri)
     this.frame = f + 1
+
+    let mask = 0
+    for (const e of this.match.events) mask |= 1 << e.event
+    if (!this.resim) {
+      this.shown[i] = mask
+      this.shownAt[i] = f
+      return
+    }
+    let near = 0
+    for (let k = f - ECHO; k <= f + ECHO; k++) {
+      const j = this.idx(k)
+      if (this.shownAt[j] === k) near |= this.shown[j]
+    }
+    const fresh = mask & ~near
+    if (fresh) {
+      for (const e of this.match.events) {
+        // aba em segundo plano não drena: sem teto isto cresce sem parar
+        if ((fresh & (1 << e.event)) && this.pending.length < 64) {
+          this.pending.push({ event: e.event, side: e.side, intensity: e.intensity })
+        }
+      }
+    }
+    this.shown[i] = (this.shownAt[i] === f ? this.shown[i] : 0) | mask
+    this.shownAt[i] = f
   }
 
   /** Roll back to `toFrame` and resimulate up to the current frame. */
@@ -110,7 +148,9 @@ export class Rollback {
     this.stats.rollbacks++
     const depth = target - toFrame
     if (depth > this.stats.maxRollback) this.stats.maxRollback = depth
+    this.resim = true
     while (this.frame < target) this.stepOnce()
+    this.resim = false
     return true
   }
 

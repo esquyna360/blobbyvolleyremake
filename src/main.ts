@@ -27,10 +27,15 @@ import { GameAudio } from './audio/audio.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
+import { REPLAY_SPEEDS, Recorder, ReplayPlayer } from './core/replay.ts'
+import type { ReplayMeta, ReplayMode } from './core/replay.ts'
+import { loadReplay, saveLocalReplay, saveOnlineReplay } from './net/replays.ts'
+import type { ReplayCard } from './net/replays.ts'
 
 type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
 const isTouch = matchMedia('(pointer: coarse)').matches
+const NO_EVENTS: readonly MatchEvent[] = []
 
 const QUALITY_ORDER: GameConfig['quality'][] = ['cpu', 'low', 'medium', 'high', 'ultra']
 
@@ -45,7 +50,11 @@ function gpuName(): string {
 }
 
 function makeRenderer(canvas: HTMLCanvasElement, q: GameConfig['quality']): GameRenderer {
-  return q === 'cpu' ? new Stage2D(canvas) : new Stage(canvas, QUALITY_PRESETS[q])
+  if (q !== 'cpu') {
+    // máquina sem WebGL utilizável não pode ficar na tela preta: cai pro 2D
+    try { return new Stage(canvas, QUALITY_PRESETS[q]) } catch (e) { console.warn('sem WebGL, indo pro 2D', e) }
+  }
+  return new Stage2D(canvas)
 }
 
 /** Nunca escolhe acima de medium sozinho: high custa ~24ms/frame até em Apple M. */
@@ -76,6 +85,7 @@ class App {
   bot: Bot | null = null
   session: NetSession | null = null
   spectator: Spectator | null = null
+  replay: ReplayPlayer | null = null
   live: LiveHost | null = null
   localSide: Side = LEFT
 
@@ -86,6 +96,11 @@ class App {
   private touchMenu: HTMLElement | null = null
   private touchEmotes: HTMLElement | null = null
   private emoteAt = [0, 0]
+  private rec = new Recorder()
+  private recMode: ReplayMode = 'bot'
+  private recUpTo = -1
+  private recBroken = false
+  private recSaved = false
 
   constructor() {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
@@ -116,6 +131,7 @@ class App {
       onQuality: q => this.applyQuality(q, true),
       onWatchRooms: cb => this.lobby.watch(cb),
       onWatch: ad => this.watchRoom(ad),
+      onWatchReplay: card => void this.watchReplay(card),
       onStopWatch: () => { this.phase = 'menu'; this.leaveWatch(true) },
       onLobbyNet: cb => this.lobby.onNet(cb),
       onLeaveOnline: () => this.closeSession(),
@@ -186,11 +202,13 @@ class App {
     this.fpsFrames = 0
     if (fps >= 52) return
     const i = QUALITY_ORDER.indexOf(this.cfg.quality)
-    if (i <= 1) return
+    if (i <= 0) return
+    // cair pro 2D é troca de renderer inteira: só quando nem o low segura
+    if (i === 1 && fps >= 38) return
     const q = QUALITY_ORDER[i - 1]
     this.autoDrops++
     this.applyQuality(q, false)
-    this.hud.banner(`GRÁFICOS → ${q.toUpperCase()}`, 1600, '#8fd8ff')
+    this.hud.banner(q === 'cpu' ? 'GRÁFICOS → 2D (CPU)' : `GRÁFICOS → ${q.toUpperCase()}`, 1600, '#8fd8ff')
   }
 
   private bindAudio() {
@@ -223,7 +241,7 @@ class App {
   }
 
   sendEmote(side: Side, id: number) {
-    if (this.spectator) return
+    if (this.viewing) return
     if (this.phase !== 'playing' && this.phase !== 'over') return
     const now = performance.now()
     if (now - this.emoteAt[side] < 700) return
@@ -282,7 +300,7 @@ class App {
   }
 
   private setTouchVisible(v: boolean) {
-    const play = v && isTouch && !this.spectator
+    const play = v && isTouch && !this.viewing
     this.touchEls?.classList.toggle('on', play)
     this.touchMenu?.classList.toggle('on', v && isTouch)
     this.touchEmotes?.classList.toggle('on', play)
@@ -290,8 +308,15 @@ class App {
 
   // ---------- lifecycle ----------
 
+  /** Assistindo ao vivo ou vendo replay: sem input, sem bot, sem gravar. */
+  private get viewing() { return !!this.spectator || !!this.replay }
+
   private newMatch(cfg: GameConfig, serving: Side = LEFT) {
     const m = new Match(cfg.ruleId, cfg.scoreToWin, serving)
+    this.rec.reset()
+    this.recUpTo = -1
+    this.recBroken = false
+    this.recSaved = false
     const r = getRules(cfg.ruleId)
     this.hud.setRule(r.name, m.logic.scoreToWin)
     this.stage.capture(m)
@@ -325,6 +350,7 @@ class App {
     this.match = this.newMatch(cfg, LEFT)
     this.localSide = LEFT
     this.bot = cfg.mode === 'bot' ? new Bot(RIGHT, cfg.difficulty, (Math.random() * 1e9) | 0) : null
+    this.recMode = cfg.mode === 'bot' ? 'bot' : 'local'
     this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
     this.hud.showNet(null)
     this.begin()
@@ -348,6 +374,7 @@ class App {
 
   pause() {
     if (this.session) return
+    if (this.replay) { this.replay.paused = !this.replay.paused; return }
     if (this.spectator) { this.phase = 'paused'; this.menu.watchPause(); return }
     this.phase = 'paused'
     this.hud.clearFx()
@@ -365,6 +392,7 @@ class App {
 
   quitToMenu() {
     this.leaveWatch(false)
+    this.leaveReplay(false)
     this.closeSession()
     this.hud.clearFx()
     this.hud.root.style.opacity = '0'
@@ -564,6 +592,11 @@ class App {
       },
       onReady: s => {
         this.match = s.match!
+        this.rec.reset()
+        this.recUpTo = -1
+        this.recBroken = false
+        this.recSaved = false
+        this.recMode = 'online'
         const r = getRules(this.cfg.ruleId)
         this.hud.setRule(r.name, this.match.logic.scoreToWin)
         this.localSide = s.localSide
@@ -595,8 +628,16 @@ class App {
     const m = this.match
     if (!m) return
 
-    if (this.spectator) {
-      if (!this.spectator.advance()) return
+    const view = this.spectator ?? this.replay
+    if (view) {
+      if (!view.advance()) {
+        // gravação cortada antes do ponto final: encerra em vez de congelar
+        if (this.replay?.done && this.phase === 'playing') {
+          this.phase = 'menu'
+          this.leaveReplay(true)
+        }
+        return
+      }
       this.stage.capture(m)
       this.stage.onEvents(m, m.events)
       this.audio.onEvents(m.events, m.world, NO_PLAYER)
@@ -611,11 +652,13 @@ class App {
       const now = performance.now()
       if (now - this.lastSend > 12) { this.session.sendInputs(); this.lastSend = now }
       this.session.maybeSendChecksum()
-      if (stepped) {
-        this.stage.capture(m)
-        this.stage.onEvents(m, m.events)
-        this.audio.onEvents(m.events, m.world, this.localSide)
-        this.uiEvents(m.events)
+      if (m.frame - this.recUpTo > 60) this.pumpRecord()
+      const ev = this.mergePending(rb.pending, stepped ? m.events : NO_EVENTS)
+      if (stepped) this.stage.capture(m)
+      if (ev.length) {
+        this.stage.onEvents(m, ev)
+        this.audio.onEvents(ev, m.world, this.localSide)
+        this.uiEvents(ev)
       }
       return
     }
@@ -623,11 +666,166 @@ class App {
     let [li, ri] = this.readLocalInputs()
     if (this.demoBot) li = this.demoBot.think(m)
     if (this.bot) ri = this.bot.think(m)
+    const f = m.frame
     m.step(li, ri)
+    if (!this.demoBot) this.rec.put(f, packInput(li), packInput(ri))
     this.stage.capture(m)
     this.stage.onEvents(m, m.events)
     this.audio.onEvents(m.events, m.world, this.demoBot ? NO_PLAYER : this.localSide)
     this.uiEvents(m.events)
+  }
+
+  /**
+   * Online o replay tem que sair do stream confirmado, nunca do previsto: o
+   * frame que roda na tela pode ser desfeito pelo rollback no instante seguinte.
+   */
+  private pumpRecord() {
+    const rb = this.session?.rollback
+    if (!rb || this.recBroken) return
+    const w = rb.confirmedWindow(this.recUpTo + 1)
+    if (!w || !w.l.length) return
+    if (w.start > this.recUpTo + 1) { this.recBroken = true; return }
+    this.rec.putRange(w.start, w.l, w.r)
+    this.recUpTo = w.start + w.l.length - 1
+  }
+
+  private saveReplay() {
+    const m = this.match
+    if (!m || this.recSaved || this.viewing || this.demoBot) return
+    this.recSaved = true
+    if (this.session) { this.pumpRecord(); this.pumpRecord() }
+    if (this.recBroken || this.rec.frames < 120) return
+    const s = this.session
+    const nameL = s ? (s.localSide === LEFT ? this.cfg.name : s.peerName) : (this.bot ? this.cfg.name : 'P1')
+    const nameR = s ? (s.localSide === LEFT ? s.peerName : this.cfg.name) : (this.bot ? 'CPU' : 'P2')
+    const { l, r } = this.rec.take()
+    const setup = s?.setup
+    const meta: ReplayMeta = {
+      rule: setup?.ruleId ?? this.cfg.ruleId,
+      stw: m.logic.scoreToWin,
+      arena: setup?.arena ?? this.cfg.arena,
+      serve: setup?.serving ?? LEFT,
+      nl: nameL.slice(0, 16),
+      nr: nameR.slice(0, 16),
+      sl: m.logic.scores[LEFT],
+      sr: m.logic.scores[RIGHT],
+      rally: m.logic.rallyBest,
+      frames: l.length,
+      mode: this.recMode,
+      at: Date.now(),
+    }
+    if (s) {
+      const key = matchKey(this.roomCode || 'direct', nameL, nameR, meta.sl, meta.sr, m.frame)
+      void saveOnlineReplay(key, meta, l, r)
+    } else {
+      void saveLocalReplay(meta, l, r)
+    }
+  }
+
+  // ---------- replays ----------
+
+  async watchReplay(card: ReplayCard) {
+    this.menu.status('carregando replay…')
+    const data = await loadReplay(card)
+    if (!data) { this.menu.status('replay indisponível'); return }
+    this.closeSession()
+    this.leaveWatch(false)
+    this.bot = null
+    this.demoBot = null
+    this.applyArena(data.meta.arena)
+    const rp = new ReplayPlayer(data.meta, data.l, data.r)
+    this.replay = rp
+    this.match = rp.match
+    this.hud.setRule(getRules(data.meta.rule).name, rp.match.logic.scoreToWin)
+    this.hud.setNames(data.meta.nl.toUpperCase(), data.meta.nr.toUpperCase())
+    this.stage.capture(rp.match)
+    this.stage.capture(rp.match)
+    this.phase = 'playing'
+    this.menu.release()
+    this.menu.hide()
+    this.hud.clearFx()
+    this.hud.root.style.opacity = '1'
+    this.hud.showNet(null)
+    this.hud.setLive(true, 'REPLAY')
+    this.setTouchVisible(false)
+    this.buildRepBar(rp)
+    this.acc = 0
+  }
+
+  private repBar: HTMLElement | null = null
+  private repClock: HTMLElement | null = null
+  private repPlay: HTMLElement | null = null
+
+  private buildRepBar(rp: ReplayPlayer) {
+    this.repBar?.remove()
+    const clock = el('span', { class: 'clock mono', textContent: '0:00' })
+    const play = el('button', { textContent: '❚❚' })
+    const spd = el('button', { textContent: '1×' })
+    const jump = (d: number) => {
+      rp.seek(rp.match.frame + d)
+      this.stage.capture(rp.match)
+      this.stage.capture(rp.match)
+      this.acc = 0
+    }
+    play.onclick = () => { rp.paused = !rp.paused }
+    spd.onclick = () => {
+      const i = (REPLAY_SPEEDS.indexOf(rp.speed) + 1) % REPLAY_SPEEDS.length
+      rp.speed = REPLAY_SPEEDS[i]
+      spd.textContent = `${rp.speed}×`
+    }
+    this.repBar = el('div', { class: 'rep-bar' },
+      el('button', { textContent: '«5s', onclick: () => jump(-300) }),
+      play,
+      el('button', { textContent: '5s»', onclick: () => jump(300) }),
+      spd,
+      clock,
+      el('button', { textContent: 'SAIR', onclick: () => { this.phase = 'menu'; this.leaveReplay(true) } }))
+    this.ui.append(this.repBar)
+    this.repClock = clock
+    this.repPlay = play
+  }
+
+  private tickRepBar() {
+    const rp = this.replay
+    if (!rp || !this.repClock) return
+    const t = (f: number) => `${Math.floor(f / 3600)}:${String(Math.floor(f / 60) % 60).padStart(2, '0')}`
+    const txt = `${t(rp.match.frame)} / ${t(rp.frames)}`
+    if (this.repClock.textContent !== txt) this.repClock.textContent = txt
+    const glyph = rp.paused ? '▶' : '❚❚'
+    if (this.repPlay && this.repPlay.textContent !== glyph) this.repPlay.textContent = glyph
+  }
+
+  private leaveReplay(toMenu: boolean) {
+    if (!this.replay) return
+    this.replay = null
+    this.repBar?.remove()
+    this.repBar = null
+    this.repClock = null
+    this.repPlay = null
+    this.hud.setLive(false)
+    this.hud.clearFx()
+    this.hud.root.style.opacity = '0'
+    this.setTouchVisible(false)
+    if (toMenu) {
+      this.startDemo()
+      this.menu.show()
+      this.menu.replays()
+    }
+  }
+
+  private evBuf: MatchEvent[] = []
+
+  /**
+   * Ação de borda do outro jogador só existe depois que o input real chega e o
+   * rollback re-simula. Sem juntar o que nasceu lá, o parry dele nunca aparece.
+   */
+  private mergePending(pending: MatchEvent[], live: readonly MatchEvent[]) {
+    const out = this.evBuf
+    out.length = 0
+    for (const e of pending) out.push(e)
+    pending.length = 0
+    for (const e of live) out.push(e)
+    return out
   }
 
   private uiEvents(events: MatchEvent[]) {
@@ -657,13 +855,18 @@ class App {
     const w = m.logic.winner as Side
     this.phase = 'over'
     this.stage.celebrate(w)
-    if (this.spectator) {
+    if (this.viewing) {
       const nm = w === LEFT ? this.hud.nameOf(LEFT) : this.hud.nameOf(RIGHT)
       this.hud.banner(`${nm} VENCE`, 2200, w === LEFT ? '#ff3b47' : '#3a8cff')
       this.audio.finish(true)
-      setTimeout(() => { this.phase = 'menu'; this.leaveWatch(true) }, 2600)
+      setTimeout(() => {
+        this.phase = 'menu'
+        if (this.replay) this.leaveReplay(true)
+        else this.leaveWatch(true)
+      }, 2600)
       return
     }
+    this.saveReplay()
     const iWon = this.session ? w === this.localSide : (this.bot ? w === LEFT : true)
     this.audio.finish(iWon)
     const title = this.session || this.bot ? (iWon ? 'VITÓRIA' : 'DERROTA') : (w === LEFT ? 'P1 VENCE' : 'P2 VENCE')
@@ -701,14 +904,16 @@ class App {
     const dt = Math.min((now - this.last) / 1000, 0.25)
     this.last = now
 
-    this.acc += dt * 1000
+    const rate = this.replay ? this.replay.speed : 1
+    this.acc += dt * 1000 * rate
     let steps = 0
-    while (this.acc >= TICK_MS && steps < 8) {
+    const cap = rate > 2 ? 20 : 8
+    while (this.acc >= TICK_MS && steps < cap) {
       this.acc -= TICK_MS
       this.stepSim()
       steps++
     }
-    if (steps === 8) this.acc = 0
+    if (steps === cap) this.acc = 0
     if (this.spectator?.needsCatchUp()) { this.stepSim(); this.stepSim() }
 
     const m = this.match
@@ -726,8 +931,9 @@ class App {
       }
       this.checkWin()
     }
+    this.tickRepBar()
     if (this.session && this.phase === 'playing') this.hud.showNet(this.session.stats())
-    if (this.phase === 'playing' && !this.spectator) this.autoScale(dt)
+    if (this.phase === 'playing' && !this.viewing) this.autoScale(dt)
   }
 }
 
