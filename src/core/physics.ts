@@ -24,6 +24,12 @@ import {
   DIG_TIME_MIN, DIG_TIME_STEP, DIG_TIME_STEPS, DIG_GAIN,
 } from './constants.ts'
 import type { Side } from './constants.ts'
+import {
+  BEAT_HIT_BOOST, BLOB_SLIDE, CLOUD_COUNT, CLOUD_HALF_W, CLOUD_RESPAWN, CLOUD_RESTITUTION,
+  CLOUD_THICK, GB_GLITCH_TOUCHES, GB_TELEPORT, cloudHits, cloudTop, cloudX,
+  newSceneField, quantizeVelocity, sceneField,
+} from './scene-rules.ts'
+import type { SceneRuleId } from './scene-rules.ts'
 import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
 import { NO_INPUT } from './input.ts'
@@ -78,6 +84,24 @@ export class PhysicWorld {
   walls = true
   /** Trava pra não pontuar duas vezes na mesma bola fora. */
   ballOut = 0
+
+  /**
+   * O cenário também é regra. `sceneFrame` é o relógio dele — anda com a
+   * partida, entra no save e volta no rollback, senão a onda do navio bate
+   * em tempos diferentes nas duas máquinas.
+   */
+  sceneRule: SceneRuleId = 'none'
+  sceneFrame = 0
+  matchPoint = false
+  field = newSceneField()
+  /** nuvens vivas em bits e o tempo que falta pra cada uma voltar */
+  cloudUp = 7
+  cloudRe = [0, 0, 0]
+  /** toques desde o último glitch do Game Boy */
+  sceneTouch = 0
+
+  /** Paredes de verdade: o cenário pode derrubar a escolha do jogador. */
+  get wallsOn() { return this.field.walls === 0 ? false : this.walls }
 
   blobHitGround(p: Side) { return this.blobY[p] >= GROUND_PLANE_HEIGHT }
 
@@ -411,7 +435,7 @@ export class PhysicWorld {
     const ground = this.blobHitGround(p)
     const T = this.tempo
     const T2 = T * T
-    let g = GRAVITATION
+    let g = GRAVITATION * this.field.grav
     if (input.up && !input.down) {
       if (ground) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
       g -= BLOBBY_JUMP_BUFFER
@@ -445,11 +469,14 @@ export class PhysicWorld {
     const slow = (1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)) * T
     if (stuck) {
       // escorrega até parar: quem se joga não freia no ar seco
-      this.blobVX[p] *= DIVE_SLIDE_DRAG
+      this.blobVX[p] *= this.field.slide || DIVE_SLIDE_DRAG
       if (Math.abs(this.blobVX[p]) < DIVE_SLIDE_STOP) this.blobVX[p] = 0
     } else {
       this.blobVX[p] = ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
     }
+
+    // convés inclinado: quem está de pé escorrega pro lado baixo
+    if (this.field.tilt !== 0 && ground) this.blobVX[p] += this.field.tilt * BLOB_SLIDE
 
     this.blobX[p] += this.blobVX[p] + this.knock[p]
     if (this.knock[p] !== 0) {
@@ -535,6 +562,82 @@ export class PhysicWorld {
     return true
   }
 
+  /**
+   * Relógio do cenário. Anda um frame, resolve o campo do frame e devolve as
+   * nuvens que já cumpriram o castigo. Chamado antes de qualquer movimento
+   * pra que bola e blob leiam o mesmo estado.
+   */
+  private stepScene(isGameRunning: boolean, out: MatchEvent[]) {
+    if (isGameRunning) this.sceneFrame++
+    sceneField(this.sceneRule, this.sceneFrame, this.rally, this.matchPoint, this.ballX, this.field)
+
+    if (!this.field.clouds) { this.cloudUp = 7; this.cloudRe[0] = 0; this.cloudRe[1] = 0; this.cloudRe[2] = 0; return }
+    for (let i = 0; i < CLOUD_COUNT; i++) {
+      if (this.cloudRe[i] > 0 && --this.cloudRe[i] === 0) this.cloudUp |= 1 << i
+    }
+    void out
+  }
+
+  cloudAlive(i: number) { return (this.cloudUp & (1 << i)) !== 0 }
+
+  /**
+   * Nuvem é chão de mentira: segura a bola com metade da energia e some quando
+   * um blob encosta. Quem pula pra alcançar derruba a própria plataforma.
+   */
+  private handleClouds(out: MatchEvent[]) {
+    if (!this.field.clouds) return
+    for (let i = 0; i < CLOUD_COUNT; i++) {
+      if (!this.cloudAlive(i)) continue
+      const top = cloudTop(i)
+
+      for (const p of [LEFT, RIGHT] as Side[]) {
+        const by = this.blobY[p] - BLOBBY_UPPER_SPHERE
+        if (Math.abs(this.blobX[p] - cloudX(i)) > CLOUD_HALF_W + BLOBBY_UPPER_RADIUS) continue
+        if (by - BLOBBY_UPPER_RADIUS > top + CLOUD_THICK || by + BLOBBY_UPPER_RADIUS < top) continue
+        this.cloudUp &= ~(1 << i)
+        this.cloudRe[i] = CLOUD_RESPAWN
+        out.push({ event: Ev.CLOUD_POP, side: p, intensity: i })
+        break
+      }
+      if (!this.cloudAlive(i)) continue
+
+      if (this.ballVY <= 0 || !cloudHits(i, this.ballX)) continue
+      const bot = this.ballY + BALL_RADIUS
+      if (bot < top || bot > top + CLOUD_THICK + this.ballVY) continue
+      this.ballY = top - BALL_RADIUS
+      this.ballVY = -this.ballVY * CLOUD_RESTITUTION
+      this.ballSpin = 0
+      out.push({ event: Ev.BALL_HIT_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: -1 })
+    }
+  }
+
+  /**
+   * Depois de qualquer toque o cenário tem direito de reescrever o saque. No
+   * Game Boy a bola só conhece dezesseis direções e três velocidades; no rave,
+   * bater no tempo da batida paga 15% e enche a barra em dobro.
+   */
+  private afterTouch(p: Side, out: MatchEvent[]) {
+    const fl = this.field
+    if (fl.quantize) {
+      const [vx, vy] = quantizeVelocity(this.ballVX, this.ballVY)
+      this.ballVX = vx
+      this.ballVY = vy
+      this.ballSpin = 0
+      this.sceneTouch++
+      if (this.sceneTouch % GB_GLITCH_TOUCHES === 0) {
+        // o cartucho falha: a bola pula dois pixels e a tela pisca
+        this.ballX += this.ballVX > 0 ? GB_TELEPORT : -GB_TELEPORT
+        out.push({ event: Ev.SCENE_MOMENT, side: p, intensity: 1 })
+      }
+    }
+    if (fl.beat > 0 && fl.onBeat) {
+      this.ballVX *= BEAT_HIT_BOOST
+      this.ballVY *= BEAT_HIT_BOOST
+      this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
+      out.push({ event: Ev.BEAT_HIT, side: p, intensity: 1 })
+    }
+  }
+
   private handleBallWorldCollisions(out: MatchEvent[]) {
     if (this.ballY + BALL_RADIUS > GROUND_PLANE_HEIGHT_MAX) {
       if (this.superFrames > 0) {
@@ -555,17 +658,18 @@ export class PhysicWorld {
 
     // quadra aberta: a bola não volta, ela sai — e sair é ponto de quem não
     // encostou por último. Um evento só por saída, o resto do voo é enfeite.
-    if (!this.walls && (onLeft || onRight)) {
+    const walls = this.wallsOn
+    if (!walls && (onLeft || onRight)) {
       if (!this.ballOut) {
         this.ballOut = 1
         out.push({ event: Ev.BALL_OUT, side: onLeft ? LEFT : RIGHT, intensity: 0 })
       }
-    } else if (this.walls && onLeft) {
+    } else if (walls && onLeft) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = LEFT_PLANE + BALL_RADIUS
       out.push({ event: Ev.BALL_HIT_WALL, side: LEFT, intensity: 0 })
-    } else if (this.walls && onRight) {
+    } else if (walls && onRight) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = RIGHT_PLANE - BALL_RADIUS
@@ -602,6 +706,7 @@ export class PhysicWorld {
   }
 
   step(li: PlayerInput, ri: PlayerInput, isBallValid: boolean, isGameRunning: boolean, out: MatchEvent[]) {
+    this.stepScene(isGameRunning, out)
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
     if (this.superFrames > 0 && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
@@ -629,7 +734,8 @@ export class PhysicWorld {
     this.handleBlob(RIGHT, er)
 
     if (isGameRunning) {
-      const g = this.ballG()
+      const fl = this.field
+      const g = this.ballG() * fl.grav
       // Magnus: a rotação empurra a bola perpendicular ao próprio voo, então
       // ela curva sem ganhar velocidade. Escala com o tempo igual à gravidade.
       if (this.ballSpin !== 0) {
@@ -640,6 +746,11 @@ export class PhysicWorld {
         this.ballSpin *= SPIN_DECAY
         if (this.ballSpin < 0.006 && this.ballSpin > -0.006) this.ballSpin = 0
       }
+      // o cenário empurra antes da integração: assim a bola escorre ladeira
+      // abaixo em vez de teletransportar no fim do frame
+      if (fl.tilt !== 0 || fl.wind !== 0) this.ballVX += (fl.tilt + fl.wind) * this.tempo
+      if (fl.lift !== 0) this.ballVY -= fl.lift * this.tempo * this.tempo
+      if (fl.drag !== 1) { this.ballVX *= fl.drag; this.ballVY *= fl.drag }
       this.ballX += this.ballVX
       this.ballY += 0.5 * g + this.ballVY
       this.ballVY += g
@@ -656,8 +767,8 @@ export class PhysicWorld {
     if (isBallValid) {
       this.tryParry(LEFT, li, out)
       this.tryParry(RIGHT, ri, out)
-      if (!this.tryDig(LEFT, out)) this.handleBlobBallCollision(LEFT, out)
-      if (!this.tryDig(RIGHT, out)) this.handleBlobBallCollision(RIGHT, out)
+      if (this.tryDig(LEFT, out) || this.handleBlobBallCollision(LEFT, out)) this.afterTouch(LEFT, out)
+      if (this.tryDig(RIGHT, out) || this.handleBlobBallCollision(RIGHT, out)) this.afterTouch(RIGHT, out)
     }
 
     this.trySpecial(LEFT, li, isBallValid, groundL, out)
@@ -669,6 +780,7 @@ export class PhysicWorld {
     this.prevDown[LEFT] = li.down ? 1 : 0
     this.prevDown[RIGHT] = ri.down ? 1 : 0
 
+    this.handleClouds(out)
     this.handleBallWorldCollisions(out)
 
     if (this.blobX[LEFT] + BLOBBY_LOWER_RADIUS > NET_POSITION_X - NET_RADIUS)

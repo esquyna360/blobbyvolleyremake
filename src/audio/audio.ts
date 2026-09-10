@@ -29,17 +29,22 @@ export const tempoForRally = (rally: number) =>
 export const tierForRally = (rally: number, matchPoint: boolean) =>
   rally >= 20 || matchPoint ? 3 : rally >= 10 ? 2 : rally >= 5 ? 1 : 0
 
-export const VOLUMES: [string, string, string][] = [
-  ['off', 'Mudo', 'silêncio'],
-  ['low', 'Baixo', 'de fundo'],
-  ['normal', 'Normal', 'equilibrado'],
-  ['loud', 'Alto', 'no talo'],
-]
-
-export type VolumeId = 'off' | 'low' | 'normal' | 'loud'
-const LEVEL: Record<VolumeId, number> = { off: 0, low: 0.35, normal: 0.7, loud: 1.0 }
-
 export type VolumeBus = 'music' | 'sfx'
+
+/** Nomes antigos do seletor de quatro degraus, pra não perder quem já tinha ajustado. */
+const OLD_LEVEL: Record<string, number> = { off: 0, low: 0.35, normal: 0.7, loud: 1 }
+const DEFAULT_VOL = 0.35
+
+const readVol = (key: string, fallback: number) => {
+  const raw = localStorage.getItem(key)
+  if (raw === null) return fallback
+  if (raw in OLD_LEVEL) return OLD_LEVEL[raw]
+  const n = Number(raw)
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback
+}
+
+/** Ouvido não é linear: o meio do curso tem que soar como metade. */
+const curve = (v: number) => v * v
 
 
 export class GameAudio {
@@ -67,23 +72,18 @@ export class GameAudio {
   private songId = ''
   private intensity = 0
 
-  /** Trilha e efeitos têm botão separado: dá pra jogar ouvindo só a música. */
-  musicVol: VolumeId
-  sfxVol: VolumeId
+  /** Trilha e efeitos têm controle separado, cada um em 0..1. */
+  musicVol: number
+  sfxVol: number
 
   constructor() {
-    const old = localStorage.getItem('bv.volume') as VolumeId | null
-    const fallback: VolumeId = old && old in LEVEL ? old : 'low'
-    const m = localStorage.getItem('bv.vol.music') as VolumeId | null
-    const s = localStorage.getItem('bv.vol.sfx') as VolumeId | null
-    this.musicVol = m && m in LEVEL ? m : fallback
-    this.sfxVol = s && s in LEVEL ? s : fallback
+    const fallback = readVol('bv.volume', DEFAULT_VOL)
+    this.musicVol = readVol('bv.vol.music', fallback)
+    this.sfxVol = readVol('bv.vol.sfx', fallback)
   }
 
-  /** O menu ainda tem um controle só em alguns lugares: mostra o maior dos dois. */
-  get volume(): VolumeId {
-    return LEVEL[this.musicVol] >= LEVEL[this.sfxVol] ? this.musicVol : this.sfxVol
-  }
+  /** A tecla de mudo olha o conjunto: se sobrou som, ainda dá pra calar. */
+  get volume() { return Math.max(this.musicVol, this.sfxVol) }
 
   get beatPhase() { return this.seq?.beatPhase() ?? 0 }
   get barPhase() { return this.seq?.barPhase() ?? 0 }
@@ -103,11 +103,11 @@ export class GameAudio {
     limiter.connect(ctx.destination)
 
     this.sfxBus = ctx.createGain()
-    this.sfxBus.gain.value = LEVEL[this.sfxVol]
+    this.sfxBus.gain.value = curve(this.sfxVol)
     this.sfxBus.connect(limiter)
 
     this.musicBus = ctx.createGain()
-    this.musicBus.gain.value = LEVEL[this.musicVol]
+    this.musicBus.gain.value = curve(this.musicVol)
     this.musicBus.connect(limiter)
 
     this.sfx = ctx.createGain()
@@ -152,26 +152,36 @@ export class GameAudio {
     if (this.songId) void this.startSong(this.songId)
   }
 
-  setVolume(v: VolumeId, bus: VolumeBus | 'both' = 'both') {
+  setVolume(v: number, bus: VolumeBus | 'both' = 'both') {
+    const k = Math.max(0, Math.min(1, v))
     if (bus !== 'sfx') {
-      this.musicVol = v
-      localStorage.setItem('bv.vol.music', v)
-      if (this.ctx) this.musicBus.gain.setTargetAtTime(LEVEL[v], this.ctx.currentTime, 0.08)
+      this.musicVol = k
+      localStorage.setItem('bv.vol.music', String(k))
+      if (this.ctx) this.musicBus.gain.setTargetAtTime(curve(k), this.ctx.currentTime, 0.08)
     }
     if (bus !== 'music') {
-      this.sfxVol = v
-      localStorage.setItem('bv.vol.sfx', v)
-      if (this.ctx) this.sfxBus.gain.setTargetAtTime(LEVEL[v], this.ctx.currentTime, 0.08)
+      this.sfxVol = k
+      localStorage.setItem('bv.vol.sfx', String(k))
+      if (this.ctx) this.sfxBus.gain.setTargetAtTime(curve(k), this.ctx.currentTime, 0.08)
     }
   }
 
   getVolume(bus: VolumeBus) { return bus === 'music' ? this.musicVol : this.sfxVol }
 
-  toggle(): VolumeId {
-    const next: VolumeId = this.volume === 'off' ? 'normal' : 'off'
-    this.setVolume(next)
-    return next
+  /** Tecla M: guarda os dois níveis pra devolver exatamente como estavam. */
+  toggle() {
+    if (this.volume > 0) {
+      this.mutedPair = [this.musicVol, this.sfxVol]
+      this.setVolume(0)
+      return false
+    }
+    const [m, s] = this.mutedPair
+    this.setVolume(m || DEFAULT_VOL, 'music')
+    this.setVolume(s || DEFAULT_VOL, 'sfx')
+    return true
   }
+
+  private mutedPair: [number, number] = [DEFAULT_VOL, DEFAULT_VOL]
 
   // ---------- música e ambiente ----------
 

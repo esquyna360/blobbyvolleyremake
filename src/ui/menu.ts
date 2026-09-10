@@ -1,7 +1,6 @@
 import { el, clear } from './dom.ts'
 import { RULES } from '../core/logic.ts'
-import { VOLUMES } from '../audio/audio.ts'
-import type { VolumeBus, VolumeId } from '../audio/audio.ts'
+import type { VolumeBus } from '../audio/audio.ts'
 import type { Difficulty } from '../ai/bot.ts'
 import type { LobbyNet, RoomAd } from '../net/lobby.ts'
 import { ARENAS } from '../core/constants.ts'
@@ -76,8 +75,8 @@ export interface MenuHandlers {
   }
   onResume?(): void
   onQuit?(): void
-  getVolume(bus: VolumeBus): VolumeId
-  onVolume(v: VolumeId, bus: VolumeBus): void
+  getVolume(bus: VolumeBus): number
+  onVolume(v: number, bus: VolumeBus): void
   onQuality(q: GameConfig['quality']): void
   onFps(on: boolean): void
   onWatchRooms(cb: (rooms: RoomAd[]) => void): () => void
@@ -98,6 +97,8 @@ export class Menu {
   private netOff: (() => void) | null = null
   private pendingNet: (() => void) | null = null
   private currentScreen: () => void = () => this.main()
+  private tipEl: HTMLElement | null = null
+  private tipIdle = ''
 
   constructor(parent: HTMLElement, cfg: GameConfig, handlers: MenuHandlers) {
     this.cfg = cfg
@@ -133,6 +134,8 @@ export class Menu {
     this.netOff?.()
     this.netOff = this.pendingNet
     this.pendingNet = null
+    this.tipEl = null
+    this.tipIdle = ''
     clear(this.container)
     this.container.append(el('div', { class: 'panel' }, ...children))
   }
@@ -150,28 +153,81 @@ export class Menu {
   }
 
   private back(to: () => void) {
-    return el('div', { class: 'grid' },
-      el('button', { class: 'ghost center back', onclick: to }, '← Voltar'))
+    return el('div', { class: 'backrow' },
+      el('button', { class: 'item back', onclick: to }, '← Voltar'))
   }
 
-  /** Rótulo à esquerda, opções à direita: cabe o dobro de ajuste na mesma altura. */
-  private field<T extends string>(
-    label: string, items: [T, string, string][], current: T, onPick: (v: T) => void, cols = 0,
+  /**
+   * A dica vive numa linha só no rodapé e troca conforme o foco. Descrição
+   * fixa em cada opção enchia a tela de texto que ninguém lia.
+   */
+  private tip(node: HTMLElement, text: string) {
+    if (!text) return node
+    const show = () => { if (this.tipEl) this.tipEl.textContent = text }
+    const hide = () => { if (this.tipEl) this.tipEl.textContent = this.tipIdle }
+    node.addEventListener('pointerenter', show)
+    node.addEventListener('focus', show)
+    node.addEventListener('pointerleave', hide)
+    node.addEventListener('blur', hide)
+    return node
+  }
+
+  /** Linha do menu: texto e nada mais. A moldura era enfeite. */
+  private item(text: string, tipText: string, onclick: () => void, cls = '') {
+    return this.tip(el('button', { class: `item${cls ? ' ' + cls : ''}`, onclick }, text), tipText)
+  }
+
+  /**
+   * Opção de valor: rótulo à esquerda, valor no meio entre duas setas. Uma
+   * linha por ajuste, com ou sem mouse, funciona igual em celular deitado.
+   */
+  private opt<T extends string>(
+    label: string, items: [T, string, string][], current: T, onPick: (v: T) => void,
   ) {
-    const n = cols || Math.min(items.length, 4)
-    const chips = el('div', { class: 'chips', style: `grid-template-columns:repeat(${n},1fr)` })
-    for (const [id, text, desc] of items) {
-      chips.append(el('button', {
-        class: `chip${id === current ? ' sel' : ''}`,
-        title: desc,
-        onclick: () => { onPick(id); this.refresh() },
-      }, text))
-    }
-    return el('div', { class: 'field' }, el('h3', { textContent: label }), chips)
+    const at = Math.max(0, items.findIndex(x => x[0] === current))
+    const go = (d: number) => { onPick(items[(at + d + items.length) % items.length][0]); this.refresh() }
+    const val = el('button', { class: 'val', onclick: () => go(1) }, items[at][1])
+    val.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(1) }
+    })
+    this.tip(val, items[at][2])
+    return el('div', { class: 'opt' },
+      el('span', { class: 'lab', textContent: label }),
+      el('div', { class: 'step' },
+        el('button', { class: 'arw', onclick: () => go(-1), tabIndex: -1 }, '❮'),
+        val,
+        el('button', { class: 'arw', onclick: () => go(1), tabIndex: -1 }, '❯')))
   }
 
-  private wrapField(label: string, control: Node) {
-    return el('div', { class: 'field' }, el('h3', { textContent: label }), control)
+  /** Volume é contínuo: quatro botões nunca acertavam o ponto certo. */
+  private slider(label: string, value: number, onSet: (v: number) => void) {
+    const inp = el('input', { type: 'range', min: '0', max: '100', step: '1', class: 'sld' })
+    inp.value = String(Math.round(value * 100))
+    const num = el('span', { class: 'num mono', textContent: inp.value })
+    const paint = () => inp.style.setProperty('--k', `${inp.value}%`)
+    paint()
+    inp.addEventListener('input', () => {
+      paint()
+      num.textContent = inp.value
+      onSet(Number(inp.value) / 100)
+    })
+    return el('div', { class: 'opt vol' },
+      el('span', { class: 'lab', textContent: label }), inp, num)
+  }
+
+  private volumeRows() {
+    return [
+      this.slider('Música', this.handlers.getVolume('music'), v => this.handlers.onVolume(v, 'music')),
+      this.slider('Efeitos', this.handlers.getVolume('sfx'), v => this.handlers.onVolume(v, 'sfx')),
+    ]
+  }
+
+  /** Rodapé: a dica do que está sob o cursor, com um texto de descanso. */
+  private tipLine(idle = '') {
+    this.tipIdle = idle
+    this.tipEl = el('div', { class: 'tipline', textContent: idle })
+    return this.tipEl
   }
 
   private refresh() { this.currentScreen() }
@@ -183,29 +239,23 @@ export class Menu {
     const cfg = this.cfg
     this.panel(
       this.brand(),
-      el('div', { class: 'grid' },
-        el('button', { class: 'primary', onclick: () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) } },
-          '1 JOGADOR'),
-        el('button', { class: 'primary alt', onclick: () => this.online() }, 'ONLINE'),
-        el('button', { class: 'center', onclick: () => { cfg.mode = 'local'; this.handlers.onStart(cfg) } },
-          '2 jogadores no mesmo teclado')),
-      el('div', { class: 'grid two', style: 'margin-top:10px' },
-        el('button', { class: 'ghost center', onclick: () => this.ranking() }, 'Ranking'),
-        el('button', { class: 'ghost center', onclick: () => this.replays() }, 'Replays')),
-      el('div', { class: 'grid', style: 'margin-top:8px' },
-        el('button', { class: 'ghost center', onclick: () => this.settings() }, 'Ajustes')),
-      el('div', { class: 'hint foot' },
-        el('div', {}, el('kbd', { textContent: 'A' }), el('kbd', { textContent: 'D' }),
-          el('kbd', { textContent: 'W' }), el('kbd', { textContent: 'S' }),
-          ' P1  ·  ',
-          el('kbd', { textContent: '←' }), el('kbd', { textContent: '→' }),
-          el('kbd', { textContent: '↑' }), el('kbd', { textContent: '↓' }), ' P2'),
-        el('div', {}, el('kbd', { textContent: 'S' }), ' toque = manchete  ·  segurar = agachar'),
-        el('div', {}, el('kbd', { textContent: '↓' }), ' + ', el('kbd', { textContent: '←' }),
-          '/', el('kbd', { textContent: '→' }), ' no chão: mergulho, último recurso pra bola longe'),
-        el('div', {}, 'a direção da bola vem do efeito: bate correndo pro lado e ela curva pra lá'),
-        el('div', {}, el('kbd', { textContent: '1' }), '…', el('kbd', { textContent: '5' }),
-          ' emotes  ·  ', el('kbd', { textContent: 'ESC' }), ' pausa')),
+      el('div', { class: 'list' },
+        this.item('1 JOGADOR', 'contra o computador, na dificuldade dos ajustes',
+          () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'lead'),
+        this.item('ONLINE', 'sala direta entre vocês, sem servidor no meio',
+          () => this.online(), 'lead'),
+        this.item('2 JOGADORES', 'os dois no mesmo teclado',
+          () => { cfg.mode = 'local'; this.handlers.onStart(cfg) }),
+        this.item('RANKING', 'só partida online pontua', () => this.ranking()),
+        this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays()),
+        this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings())),
+      this.tipLine('A D W S · P1      ← → ↑ ↓ · P2      ESC pausa'),
+      el('div', { class: 'keys' },
+        el('div', {}, el('kbd', { textContent: 'S' }), ' toque = manchete, segurar = agachar'),
+        el('div', {}, el('kbd', { textContent: '↓' }), '+', el('kbd', { textContent: '←' }),
+          '/', el('kbd', { textContent: '→' }), ' no chão = mergulho'),
+        el('div', {}, 'bate correndo pro lado e a bola curva pra lá'),
+        el('div', {}, el('kbd', { textContent: '1' }), '–', el('kbd', { textContent: '5' }), ' emotes')),
     )
   }
 
@@ -281,40 +331,31 @@ export class Menu {
   settings() {
     this.currentScreen = () => this.settings()
     const cfg = this.cfg
-    const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16 })
+    const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16, class: 'nome' })
     nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby' })
     this.panel(
       this.title('AJUSTES'),
-      el('div', { class: 'fields' },
-        this.wrapField('Nome', nameIn),
-        this.field('Bot', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
-        this.field(
+      el('div', { class: 'opts' },
+        el('div', { class: 'opt' }, el('span', { class: 'lab', textContent: 'Nome' }), nameIn),
+        this.opt('Bot', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
+        this.opt(
           'Regras',
           RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
           cfg.ruleId,
           v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin }),
-        this.field('Arena', ARENAS, cfg.arena, v => { cfg.arena = v }, 2),
-        this.field('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
-          v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }, 2),
-        this.field('Cenário', SCENE_LIST, cfg.scene,
-          v => { cfg.scene = v; this.handlers.onScene(v) }, 3),
-        this.field('Gráficos', QUALITIES, cfg.quality,
-          v => { cfg.quality = v; this.handlers.onQuality(v) }, 3),
-        this.field('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
-          v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) }, 2),
-        this.volumeFields(),
-      ),
-      el('p', { class: 'credit', textContent: 'Trilha e efeitos: sintetizados pelo próprio jogo' }),
+        this.opt('Arena', ARENAS, cfg.arena, v => { cfg.arena = v }),
+        this.opt('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
+          v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }),
+        this.opt('Cenário', SCENE_LIST, cfg.scene,
+          v => { cfg.scene = v; this.handlers.onScene(v) }),
+        this.opt('Gráficos', QUALITIES, cfg.quality,
+          v => { cfg.quality = v; this.handlers.onQuality(v) }),
+        this.opt('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
+          v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) }),
+        ...this.volumeRows()),
+      this.tipLine('trilha e efeitos são sintetizados pelo próprio jogo'),
       this.back(() => this.main()),
     )
-  }
-
-  /** Música e efeito em barramentos separados: dá pra jogar ouvindo só a bola. */
-  private volumeFields() {
-    const vols = VOLUMES as [VolumeId, string, string][]
-    return el('div', { class: 'fields' },
-      this.field('Música', vols, this.handlers.getVolume('music'), v => this.handlers.onVolume(v, 'music')),
-      this.field('Efeitos', vols, this.handlers.getVolume('sfx'), v => this.handlers.onVolume(v, 'sfx')))
   }
 
   online() {
@@ -522,14 +563,13 @@ export class Menu {
     this.show()
     this.panel(
       this.title('ASSISTINDO'),
-      el('div', { class: 'grid' },
-        el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'VOLTAR PRO JOGO'),
-        el('button', { class: 'center', onclick: () => this.handlers.onStopWatch() }, 'Parar de assistir')),
-      el('div', { class: 'fields' },
-        this.field('Gráficos', QUALITIES, this.cfg.quality,
-          v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 3),
-        this.volumeFields(),
-      ),
+      el('div', { class: 'list' },
+        this.item('VOLTAR PRO JOGO', '', () => this.handlers.onResume?.(), 'lead'),
+        this.item('PARAR DE ASSISTIR', '', () => this.handlers.onStopWatch())),
+      el('div', { class: 'opts' },
+        this.opt('Gráficos', QUALITIES, this.cfg.quality,
+          v => { this.cfg.quality = v; this.handlers.onQuality(v) }),
+        ...this.volumeRows()),
     )
   }
 
@@ -575,18 +615,18 @@ export class Menu {
     this.show()
     this.panel(
       this.title('PAUSA'),
-      el('div', { class: 'grid two' },
-        el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'CONTINUAR'),
-        el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair')),
-      el('div', { class: 'fields' },
-        this.field('Cenário', SCENE_LIST, this.cfg.scene,
-          v => { this.cfg.scene = v; this.handlers.onScene(v) }, 3),
-        this.field('Paredes', WALL_OPTS, this.cfg.walls ? 'on' : 'off',
-          v => this.handlers.onWalls(v === 'on'), 2),
-        this.field('Gráficos', QUALITIES, this.cfg.quality,
-          v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 3),
-        this.volumeFields(),
-      ),
+      el('div', { class: 'list' },
+        this.item('CONTINUAR', '', () => this.handlers.onResume?.(), 'lead'),
+        this.item('SAIR PRO MENU', 'a partida em andamento se perde', () => this.handlers.onQuit?.())),
+      el('div', { class: 'opts' },
+        this.opt('Cenário', SCENE_LIST, this.cfg.scene,
+          v => { this.cfg.scene = v; this.handlers.onScene(v) }),
+        this.opt('Paredes', WALL_OPTS, this.cfg.walls ? 'on' : 'off',
+          v => this.handlers.onWalls(v === 'on')),
+        this.opt('Gráficos', QUALITIES, this.cfg.quality,
+          v => { this.cfg.quality = v; this.handlers.onQuality(v) }),
+        ...this.volumeRows()),
+      this.tipLine('ESC volta pro jogo'),
     )
   }
 

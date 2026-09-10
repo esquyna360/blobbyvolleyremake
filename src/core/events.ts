@@ -23,6 +23,12 @@ export const enum Ev {
   SPECIAL_WASTED = 19,
   APEX_HIT = 20,
   BALL_OUT = 21,
+  /** momento roteirizado do cenário: raio, drop, glitch, lua */
+  SCENE_MOMENT = 22,
+  /** rave: bateu no tempo da batida */
+  BEAT_HIT = 23,
+  /** nuvens: blob encostou e a plataforma foi embora */
+  CLOUD_POP = 24,
 }
 
 /** O rollback marca eventos vistos com `1 << ev` num Int32Array: nada acima de 30. */

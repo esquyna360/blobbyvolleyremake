@@ -253,8 +253,8 @@ class App {
     })
     addEventListener('keydown', e => {
       if (e.code === 'KeyM' && !(e.target instanceof HTMLInputElement)) {
-        const v = this.audio.toggle()
-        this.hud.banner(v === 'off' ? 'SOM OFF' : 'SOM ON', 900, '#8fd8ff')
+        const on = this.audio.toggle()
+        this.hud.banner(on ? 'SOM ON' : 'SOM OFF', 900, '#8fd8ff')
       }
     })
   }
