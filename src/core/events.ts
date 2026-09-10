@@ -14,14 +14,15 @@ export const enum Ev {
   SPECIAL_FIRED = 10,
   SPECIAL_HIT = 11,
   SPECIAL_GROUND = 12,
-  PUSH = 13,
-  PUSH_HIT = 14,
+  HAND_MISS = 13,
+  HAND_HIT = 14,
   FATALITY = 15,
   PARRY = 16,
   PARRY_TRY = 17,
   DIG = 18,
   SPIKE_LEAP = 19,
   SPIKE_HIT = 20,
+  SPECIAL_WASTED = 21,
 }
 
 export interface MatchEvent { event: Ev; side: SideOrNone; intensity: number }

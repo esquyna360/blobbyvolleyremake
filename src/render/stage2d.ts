@@ -1,8 +1,9 @@
 import {
   BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
-  BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, NET_POSITION_X, NET_RADIUS,
+  BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD,
+  HAND_REACH, SPECIAL_FULL, SPECIAL_REACH,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -10,7 +11,7 @@ import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
 import type { GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
-import { FaceRig, crouchMoods, faceEvents, rallyTension } from './face.ts'
+import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const HORIZON = 418
@@ -91,6 +92,9 @@ export class Stage2D implements GameRenderer {
   private trauma = 0
   private flash = 0
   private bands: Band[] = []
+  /** Achatada na direção da batida: dura ~0.25s e some. */
+  private squash = { k: 0, ang: 0 }
+  private wallHits: { x: number; y: number; life: number }[] = []
   private glow: HTMLCanvasElement
 
   constructor(canvas: HTMLCanvasElement, private lite = false) {
@@ -141,6 +145,12 @@ export class Stage2D implements GameRenderer {
     c.st[0] = w.blobState[0]; c.st[1] = w.blobState[1]
   }
 
+  private squashBall(w: Match['world'], k: number) {
+    const v = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY)
+    this.squash.ang = v > 0.001 ? Math.atan2(w.ballVY, w.ballVX) : 0
+    this.squash.k = Math.max(this.squash.k, k)
+  }
+
   private burst(x: number, y: number, n: number, speed: number, color: string, up = 0.5, size = 4) {
     const room = this.dustCap - this.dust.length
     const count = Math.min(n, Math.max(0, room))
@@ -163,12 +173,14 @@ export class Stage2D implements GameRenderer {
           const inten = 0.35 + e.intensity * 0.65
           this.trauma = Math.min(1, this.trauma + 0.16 * inten)
           this.burst(w.ballX, w.ballY, Math.floor(14 + 22 * inten), 190 * inten, BLOB_FILL[e.side as Side], 0.4, 5)
+          this.squashBall(w, 0.10 + 0.07 * inten)
           break
         }
         case Ev.BALL_HIT_GROUND: {
           const power = Math.min(1, Math.abs(w.ballVY) / 16)
           this.trauma = Math.min(1, this.trauma + 0.26 * power + 0.06)
           this.burst(w.ballX, GROUND + 6, Math.floor(26 + 40 * power), 150 + 190 * power, '#d8bd8c', 1.1, 5)
+          this.squashBall(w, 0.10 + 0.08 * power)
           this.craters.push({ x: w.ballX, r: 22 + power * 26 })
           if (this.craters.length > 14) this.craters.shift()
           break
@@ -177,10 +189,15 @@ export class Stage2D implements GameRenderer {
         case Ev.BALL_HIT_NET_TOP:
           this.trauma = Math.min(1, this.trauma + 0.09)
           this.burst(w.ballX, w.ballY, 10, 110, '#c8d2e2', 0.5, 4)
+          this.squashBall(w, 0.09)
           break
-        case Ev.BALL_HIT_WALL:
+        case Ev.BALL_HIT_WALL: {
           this.trauma = Math.min(1, this.trauma + 0.07)
+          this.squashBall(w, 0.12)
+          this.wallHits.push({ x: e.side === LEFT ? LEFT_PLANE : RIGHT_PLANE, y: w.ballY, life: 0 })
+          if (this.wallHits.length > 5) this.wallHits.shift()
           break
+        }
         case Ev.RESET_BALL:
           this.gib[0] = 0; this.gib[1] = 0
           break
@@ -221,30 +238,30 @@ export class Stage2D implements GameRenderer {
           if (this.scorch.length > 6) this.scorch.shift()
           break
         }
-        case Ev.PUSH: {
+        case Ev.HAND_HIT: {
           const p = e.side as Side
-          const bx = w.blobX[p], by = w.blobY[p] - 16
-          this.rings.push({ x: bx, y: by, r: 10, max: 132, life: 0, color: '#1f7fd6', w: 10 })
-          this.rings.push({ x: bx, y: by, r: 6, max: 92, life: -0.05, color: '#ffffff', w: 6 })
-          this.rings.push({ x: bx, y: GROUND + 4, r: 12, max: 168, life: 0, color: '#eaf4ff', w: 6, flat: true })
-          this.burst(bx, by, 16, 150, '#2f8fe0', 0.4, 4)
+          const hx = w.blobX[p], hy = w.blobY[p] - BLOBBY_UPPER_SPHERE
+          this.trauma = Math.min(1, this.trauma + 0.12)
+          this.rings.push({ x: hx, y: hy, r: HAND_REACH * 0.5, max: HAND_REACH * 1.15, life: 0, color: '#7fe0ff', w: 6 })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 110, life: -0.04, color: '#ffffff', w: 5 })
+          this.burst(w.ballX, w.ballY, 16, 190, '#bff0ff', 0.35, 4)
+          this.squashBall(w, 0.14)
           break
         }
-        case Ev.PUSH_HIT: {
+        case Ev.HAND_MISS: {
           const p = e.side as Side
-          const o: Side = p === LEFT ? 1 : 0
-          const dir = p === LEFT ? 1 : -1
-          this.trauma = Math.min(1, this.trauma + 0.34)
-          this.burst(w.blobX[o], w.blobY[o] - 20, 30, 260, '#dbe7ff', 0.6, 5)
-          this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 8, max: 120, life: 0, color: '#ffffff' })
-          // sopro em volta de quem empurrou
-          const hx = w.blobX[p], hy = w.blobY[p] - 16
-          this.rings.push({ x: hx, y: hy, r: 12, max: 240, life: 0, color: '#1f7fd6', w: 13 })
-          this.rings.push({ x: hx, y: hy, r: 6, max: 150, life: -0.06, color: '#ffffff', w: 8 })
-          this.rings.push({ x: hx + dir * 22, y: hy, r: 8, max: 190, life: -0.11, color: '#7fc4ff', w: 8 })
-          this.rings.push({ x: hx, y: GROUND + 4, r: 14, max: 280, life: 0, color: '#eaf4ff', w: 8, flat: true })
-          this.burst(hx + dir * 30, hy, 26, 230, '#2f8fe0', 0.5, 5)
-          this.burst(hx, w.blobY[p] + 4, 14, 150, '#8fbfe8', 0.15, 4)
+          const hx = w.blobX[p], hy = w.blobY[p] - BLOBBY_UPPER_SPHERE
+          this.rings.push({ x: hx, y: hy, r: 8, max: HAND_REACH * 0.8, life: 0, color: '#7e8aa0', w: 5 })
+          this.burst(hx, hy, 8, 90, '#9aa6bb', 0.2, 3)
+          break
+        }
+        case Ev.SPECIAL_WASTED: {
+          const p = e.side as Side
+          const hx = w.blobX[p], hy = w.blobY[p] - BLOBBY_UPPER_SPHERE
+          this.trauma = Math.min(1, this.trauma + 0.16)
+          this.rings.push({ x: hx, y: hy, r: 10, max: SPECIAL_REACH * 1.1, life: 0, color: '#ffb04d', w: 9 })
+          this.rings.push({ x: hx, y: hy, r: 6, max: 120, life: -0.07, color: '#6b7080', w: 6 })
+          this.burst(hx, hy, 30, 240, '#c9a24a', 1.1, 5)
           break
         }
         case Ev.PARRY_TRY: {
@@ -367,6 +384,12 @@ export class Stage2D implements GameRenderer {
       this.pops = alive
     }
     this.trauma = Math.max(0, this.trauma - dt * 2.2)
+    this.squash.k = Math.max(0, this.squash.k - dt * 0.85)
+    if (this.wallHits.length) {
+      const live: typeof this.wallHits = []
+      for (const h of this.wallHits) { h.life += dt; if (h.life < 0.5) live.push(h) }
+      this.wallHits = live
+    }
     if (this.scorch.length) {
       const live: { x: number; r: number; life: number }[] = []
       for (const sc of this.scorch) { sc.life += dt; if (sc.life < 14) live.push(sc) }
@@ -589,10 +612,80 @@ export class Stage2D implements GameRenderer {
     if (stunned) c.restore()
   }
 
+  /**
+   * As paredes existem na física desde sempre; aqui elas só param de ser
+   * invisíveis. O brilho no ponto da batida diz onde a bola bateu.
+   */
+  private walls() {
+    const c = this.ctx
+    const top = 150
+    const bot = GROUND + 44
+    for (const x of [LEFT_PLANE, RIGHT_PLANE]) {
+      const inner = x === LEFT_PLANE ? 1 : -1
+      const g = c.createLinearGradient(x, top, x + inner * 26, top)
+      g.addColorStop(0, 'rgba(214,232,255,0.16)')
+      g.addColorStop(1, 'rgba(214,232,255,0)')
+      c.fillStyle = g
+      c.fillRect(Math.min(x, x + inner * 26), top, 26, bot - top)
+      c.strokeStyle = 'rgba(226,238,255,0.30)'
+      c.lineWidth = 2
+      c.beginPath(); c.moveTo(x + inner, top); c.lineTo(x + inner, bot); c.stroke()
+    }
+
+    for (const h of this.wallHits) {
+      const k = Math.max(0, 1 - h.life / 0.5)
+      if (k <= 0) continue
+      const inner = h.x === LEFT_PLANE ? 1 : -1
+      const half = 34 + (1 - k) * 46
+      c.globalAlpha = k * 0.55
+      const g = c.createLinearGradient(h.x, h.y, h.x + inner * 46, h.y)
+      g.addColorStop(0, 'rgba(255,240,200,0.95)')
+      g.addColorStop(1, 'rgba(255,240,200,0)')
+      c.fillStyle = g
+      c.fillRect(Math.min(h.x, h.x + inner * 46), h.y - half, 46, half * 2)
+      c.strokeStyle = '#fff3c8'
+      c.lineWidth = 3 * k + 1
+      c.beginPath(); c.moveTo(h.x + inner, h.y - half); c.lineTo(h.x + inner, h.y + half); c.stroke()
+      c.globalAlpha = 1
+    }
+  }
+
+  /** Anel grande = especial pronto, anel pequeno = mão pronta. Ambos discretos. */
+  private reach(x: number, y: number, special: boolean, hand: boolean) {
+    if (!special && !hand) return
+    const c = this.ctx
+    const cy = y - BLOBBY_UPPER_SPHERE
+    c.save()
+    if (special) {
+      c.setLineDash([11, 13])
+      c.lineDashOffset = -this.time * 26
+      c.globalAlpha = 0.30 + Math.sin(this.time * 4) * 0.05
+      c.strokeStyle = '#ffd257'
+      c.lineWidth = 3.6
+      c.beginPath(); c.arc(x, cy, SPECIAL_REACH, 0, Math.PI * 2); c.stroke()
+    }
+    if (hand) {
+      c.setLineDash([6, 8])
+      c.lineDashOffset = this.time * 18
+      c.globalAlpha = 0.30
+      c.strokeStyle = '#7fe0ff'
+      c.lineWidth = 3
+      c.beginPath(); c.arc(x, cy, HAND_REACH, 0, Math.PI * 2); c.stroke()
+    }
+    c.restore()
+    c.globalAlpha = 1
+  }
+
   private drawBall(x: number, y: number, rot: number) {
     const c = this.ctx
     c.save()
     c.translate(x, y)
+    const k = this.squash.k
+    if (k > 0.001) {
+      c.rotate(this.squash.ang)
+      c.scale(1 - k * 0.55, 1 + k * 0.55)
+      c.rotate(-this.squash.ang)
+    }
     c.rotate(rot)
     c.beginPath(); c.arc(0, 0, BALL_RADIUS, 0, Math.PI * 2)
     c.fillStyle = '#f4f6fa'; c.fill()
@@ -696,6 +789,7 @@ export class Stage2D implements GameRenderer {
 
   render(match: Match, alpha: number, dt: number) {
     crouchMoods(this.faces, match.world.crouch, match.world.spikeHold)
+    reachMoods(this.faces, match.world, match.logic.isBallValid)
     this.step(dt)
     this.tension += (rallyTension(match.logic.rally) - this.tension) * Math.min(1, dt * 2.2)
     const c = this.ctx
@@ -722,6 +816,8 @@ export class Stage2D implements GameRenderer {
     c.beginPath()
     c.moveTo(20, GROUND + 44); c.lineTo(RIGHT_PLANE - 20, GROUND + 44)
     c.stroke()
+
+    this.walls()
 
     c.fillStyle = 'rgba(150,116,64,0.30)'
     for (const cr of this.craters) {
@@ -755,6 +851,7 @@ export class Stage2D implements GameRenderer {
 
     for (const s of [0, 1] as Side[]) {
       const sx = lerp(p.px[s], q.px[s]), sy = lerp(p.py[s], q.py[s])
+      if (this.gib[s] === 0 && w.stun[s] === 0) this.reach(sx, sy, w.charge[s] >= SPECIAL_FULL, w.handCd[s] === 0)
       if (w.digActive[s] > 0) this.digSwipe(s, sx, sy, w.digActive[s] / DIG_WINDOW)
       this.blob(s, sx, sy, lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0, w.crouch[s], w.spikeHold[s])
     }
@@ -854,6 +951,7 @@ export class Stage2D implements GameRenderer {
     this.scorch.length = 0
     this.craters.length = 0
     this.rings.length = 0
+    this.wallHits.length = 0
     this.trail.length = 0
     this.pops.length = 0
   }

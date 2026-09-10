@@ -1,4 +1,7 @@
-import { LEFT, RIGHT, SPIKE_MIN_HOLD, other } from '../core/constants.ts'
+import {
+  BLOBBY_UPPER_SPHERE, HAND_REACH, LEFT, RIGHT, SPECIAL_FULL, SPECIAL_REACH,
+  SPIKE_MIN_HOLD, other,
+} from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
@@ -6,6 +9,7 @@ import type { MatchEvent } from '../core/events.ts'
 export type Mood =
   | 'calm' | 'focus' | 'worry' | 'panic' | 'shock'
   | 'laugh' | 'sad' | 'angry' | 'smug' | 'hurt'
+  | 'aim' | 'slick' | 'whiff' | 'dumb'
 
 export interface FacePose {
   /** 0 fechada .. 1 escancarada */
@@ -30,6 +34,14 @@ const POSES: Record<Mood, FacePose> = {
   angry: { open: 0.48, curve: -0.72, brow: -1.00, lid: 0.70, tear: 0 },
   smug: { open: 0.04, curve: 0.78, brow: -0.40, lid: 0.52, tear: 0 },
   hurt: { open: 0.88, curve: -0.95, brow: -0.50, lid: 0.26, tear: 0.5 },
+  // bola no raio: olho apertado, boca fechada, sobrancelha baixa
+  aim: { open: 0.05, curve: -0.05, brow: -0.62, lid: 0.36, tear: 0 },
+  // mão certeira: sorriso torto de quem sabia o que ia fazer
+  slick: { open: 0.30, curve: 0.95, brow: -0.22, lid: 0.32, tear: 0 },
+  // mão no vazio: olho fechado de vergonha e boca engolida
+  whiff: { open: 0.26, curve: -0.58, brow: 0.28, lid: 0.08, tear: 0.25 },
+  // barra queimada à toa: queixo caído, cara de bobo
+  dumb: { open: 1.00, curve: -0.28, brow: 1.00, lid: 0.30, tear: 0.85 },
 }
 
 const mix = (a: FacePose, b: FacePose, k: number): FacePose => ({
@@ -147,9 +159,17 @@ export function faceEvents(rigs: FaceRig[], events: MatchEvent[], scores: number
         rigs[s].set('smug', 0.9, 3)
         rigs[other(s)].set('shock', 0.7, 3)
         break
-      case Ev.PUSH_HIT:
-        rigs[s].set('smug', 0.8, 2)
-        rigs[other(s)].set('shock', 0.8, 3)
+      case Ev.HAND_HIT:
+        rigs[s].set('slick', 1.1, 3)
+        rigs[other(s)].set('worry', 0.8, 2)
+        break
+      case Ev.HAND_MISS:
+        rigs[s].set('whiff', 1.2, 3)
+        rigs[other(s)].set('laugh', 0.8, 2)
+        break
+      case Ev.SPECIAL_WASTED:
+        rigs[s].set('dumb', 1.7, 4)
+        rigs[other(s)].set('laugh', 1.3, 3)
         break
       case Ev.FATALITY:
         rigs[s].set('laugh', 2.6, 5)
@@ -177,6 +197,27 @@ export function crouchMoods(rigs: FaceRig[], crouch: number[], charge: number[])
   for (const s of SIDES) {
     if (crouch[s] < 0.45) continue
     rigs[s].set(charge[s] >= SPIKE_MIN_HOLD ? 'angry' : 'focus', 0.06, 1)
+  }
+}
+
+/**
+ * Bola dentro do alcance da mão ou do especial pronto: a cara mira antes do
+ * botão. Prioridade 1, então qualquer reação de evento passa por cima.
+ */
+export function reachMoods(
+  rigs: FaceRig[],
+  w: { blobX: number[]; blobY: number[]; ballX: number; ballY: number; handCd: number[]; charge: number[] },
+  valid: boolean,
+) {
+  if (!valid) return
+  for (const s of SIDES) {
+    const dx = w.ballX - w.blobX[s]
+    const dy = w.ballY - (w.blobY[s] - BLOBBY_UPPER_SPHERE)
+    const d2 = dx * dx + dy * dy
+    const ready = w.handCd[s] === 0 ? HAND_REACH : 0
+    const sp = w.charge[s] >= SPECIAL_FULL ? SPECIAL_REACH : 0
+    const r = Math.max(ready, sp)
+    if (r > 0 && d2 < r * r) rigs[s].set('aim', 0.06, 1)
   }
 }
 

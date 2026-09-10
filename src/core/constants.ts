@@ -5,7 +5,7 @@ export type Side = 0 | 1
 export type SideOrNone = -1 | 0 | 1
 
 export const LEFT_PLANE = 0
-export let RIGHT_PLANE = 800
+export let RIGHT_PLANE = 880
 
 export const BLOBBY_HEIGHT = 89
 export const BLOBBY_UPPER_SPHERE = 19
@@ -116,20 +116,71 @@ export const SPIKE_TIME_STEP = 1.5
 export const SPIKE_TIME_STEPS = 26
 export const SPIKE_GAIN = 0.075
 
-export const PUSH_REACH_X = 152
-export const PUSH_REACH_Y = 130
-export const PUSH_FORCE = 10
-export const PUSH_POP = -5.5
-export const PUSH_CD = 48
+/**
+ * Mão dirigida. Ela não empurra o adversário nem dá força à bola: pega a bola
+ * de raspão — perto mas sem encostar, porque encostar é o toque normal — e vira
+ * a velocidade dela pra direção escolhida. Errar custa recarga e alguns frames
+ * parado, senão dá pra martelar o botão de graça.
+ */
+export const HAND_REACH = 108
+export const HAND_CD = 60
+export const HAND_FREEZE = 22
+export const HAND_MIN_SPEED = 6
+
+/** Direção: 32 passos de 11.25°, 0 = direita, 8 = cima. Tabela literal porque
+ * a simulação é determinística e não pode chamar cos/sin. */
+export const AIM_STEPS = 32
+export const AIM_DIRS: readonly number[] = [
+  1.000000000, -0.000000000,
+  0.980785280, -0.195090322,
+  0.923879533, -0.382683432,
+  0.831469612, -0.555570233,
+  0.707106781, -0.707106781,
+  0.555570233, -0.831469612,
+  0.382683432, -0.923879533,
+  0.195090322, -0.980785280,
+  0.000000000, -1.000000000,
+  -0.195090322, -0.980785280,
+  -0.382683432, -0.923879533,
+  -0.555570233, -0.831469612,
+  -0.707106781, -0.707106781,
+  -0.831469612, -0.555570233,
+  -0.923879533, -0.382683432,
+  -0.980785280, -0.195090322,
+  -1.000000000, -0.000000000,
+  -0.980785280, 0.195090322,
+  -0.923879533, 0.382683432,
+  -0.831469612, 0.555570233,
+  -0.707106781, 0.707106781,
+  -0.555570233, 0.831469612,
+  -0.382683432, 0.923879533,
+  -0.195090322, 0.980785280,
+  -0.000000000, 1.000000000,
+  0.195090322, 0.980785280,
+  0.382683432, 0.923879533,
+  0.555570233, 0.831469612,
+  0.707106781, 0.707106781,
+  0.831469612, 0.555570233,
+  0.923879533, 0.382683432,
+  0.980785280, 0.195090322,
+]
+
+/**
+ * Ritmo do rally: cada toque acelera o jogo inteiro um degrau até o teto. É
+ * escala de tempo de verdade — velocidade vezes T, aceleração vezes T² — então
+ * a trajetória é a mesma, só percorrida mais rápido.
+ */
+export const TEMPO_MAX = 1.1
+export const TEMPO_STEP = 0.0125
 
 export type ArenaId = 'default' | 'wide'
 
 export const ARENAS: [ArenaId, string, string][] = [
-  ['default', 'Padrão', '800'],
-  ['wide', 'Estendida', '1100'],
+  ['default', 'Padrão', '880'],
+  ['wide', 'Estendida', '1210'],
 ]
 
-export const ARENA_WIDTH: Record<ArenaId, number> = { default: 800, wide: 1100 }
+export const ARENA_WIDTH: Record<ArenaId, number> = { default: 880, wide: 1210 }
 
 /**
  * Largura da quadra é global e viva: física, bot e render leem os bindings.

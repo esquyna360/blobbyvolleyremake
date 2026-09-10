@@ -6,7 +6,7 @@ import { setArena, arenaId } from '../core/constants.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 10
+const PROTO = 11
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8, REMATCH = 9,

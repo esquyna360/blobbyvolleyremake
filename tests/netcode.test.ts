@@ -17,7 +17,7 @@ function rng(seed: number) {
 }
 
 function randomBits(r: () => number) {
-  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, push: r() < 0.05, down: r() < 0.12 })
+  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, hand: r() < 0.05, down: r() < 0.12, fine: (r() * 4) | 0 })
 }
 
 test('simulation is deterministic for the same input stream', () => {
@@ -120,8 +120,8 @@ test('rollback never exceeds the configured window', () => {
 
 test('special state survives save/restore', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, push: false, down: false }
-  const UP = { left: false, right: false, up: true, special: false, push: false, down: false }
+  const NONE = { left: false, right: false, up: false, special: false, hand: false, down: false, fine: 0 }
+  const UP = { left: false, right: false, up: true, special: false, hand: false, down: false, fine: 0 }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_FULL
@@ -151,8 +151,8 @@ test('special state survives save/restore', () => {
 
 test('special only fires on a second jump press in the air', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, push: false, down: false }
-  const UP = { left: false, right: false, up: true, special: false, push: false, down: false }
+  const NONE = { left: false, right: false, up: false, special: false, hand: false, down: false, fine: 0 }
+  const UP = { left: false, right: false, up: true, special: false, hand: false, down: false, fine: 0 }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_FULL
@@ -186,14 +186,14 @@ test('ação de borda do remoto chega na apresentação mesmo nascendo no rollba
     for (const e of m.events) seen.push(e.event)
     drain()
   }
-  assert.equal(seen.includes(Ev.PUSH), false, 'push previsto sem input real do remoto')
+  assert.equal(seen.includes(Ev.HAND_MISS), false, 'mão prevista sem input real do remoto')
 
   const bits = new Uint8Array(10)
-  bits[4] = packInput({ ...NO_INPUT, push: true })
+  bits[4] = packInput({ ...NO_INPUT, hand: true })
   rb.onRemotePacket(0, bits, 10)
   drain()
 
-  assert.ok(seen.includes(Ev.PUSH), 'evento nascido na re-simulação não chegou em pending')
+  assert.ok(seen.includes(Ev.HAND_MISS), 'evento nascido na re-simulação não chegou em pending')
 })
 
 /**

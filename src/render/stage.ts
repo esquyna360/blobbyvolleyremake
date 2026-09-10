@@ -1,10 +1,13 @@
 import * as THREE from 'three'
-import { LEFT, RIGHT, GROUND_PLANE_HEIGHT, BLOBBY_LOWER_SPHERE, CROUCH_DUCK, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD } from '../core/constants.ts'
+import {
+  LEFT, RIGHT, GROUND_PLANE_HEIGHT, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_SPHERE, CROUCH_DUCK,
+  HAND_REACH, SPECIAL_FULL, SPECIAL_REACH, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD,
+} from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
-import { COURT_DEPTH, COURT_HALF_W, S, gx, gy } from './mapping.ts'
+import { COURT_DEPTH, COURT_HALF_W, S, gx, gy, gr } from './mapping.ts'
 import { createSky, SUN_DIR } from './sky.ts'
 import { createTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
@@ -22,7 +25,7 @@ import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
 import { emoteAt } from '../core/emote.ts'
-import { FaceRig, crouchMoods, faceEvents, rallyTension } from './face.ts'
+import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
@@ -212,6 +215,9 @@ export class Stage implements GameRenderer {
   oceanUniforms!: Record<string, THREE.IUniform>
   blobs: BlobAnim[] = []
   walls: THREE.Mesh[] = []
+  /** [lado][0 especial, 1 mão] — anel discreto de alcance perto da cabeça. */
+  private reachRings: THREE.Mesh[][] = []
+  private ballSquash = { k: 0, ang: 0 }
   envCube: THREE.CubeTexture | null = null
 
   time = 0
@@ -314,6 +320,21 @@ export class Stage implements GameRenderer {
 
     this.ball = createBall()
     scene.add(this.ball.group)
+
+    for (let i = 0; i < 2; i++) {
+      const pair: THREE.Mesh[] = []
+      for (const [rad, col] of [[gr(SPECIAL_REACH), 0xffd257], [gr(HAND_REACH), 0x9fe4ff]] as [number, number][]) {
+        const g = new THREE.RingGeometry(rad * 0.985, rad, 96)
+        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+          color: col, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+        }))
+        m.renderOrder = 6
+        m.visible = false
+        scene.add(m)
+        pair.push(m)
+      }
+      this.reachRings.push(pair)
+    }
 
     this.particles = createParticles(this.quality.particles)
     scene.add(this.particles.points)
@@ -428,6 +449,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           b.flash = 0.5 * inten
           b.squashVel -= 1.6 * inten
           this.ball.flash(1.4 * inten)
+          this.squashBall(w, 0.10 + 0.07 * inten)
           break
         }
         case Ev.BALL_HIT_GROUND: {
@@ -459,6 +481,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           break
         }
         case Ev.BALL_HIT_WALL: {
+          this.squashBall(w, 0.12)
           const wall = this.walls[e.side === LEFT ? 0 : 1]
           const mat = wall.material as THREE.ShaderMaterial
           mat.uniforms.uHit.value = 1
@@ -533,47 +556,44 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           })
           break
         }
-        case Ev.PUSH: {
+        case Ev.HAND_HIT: {
           const p = e.side as Side
-          const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 0.9
-          this.addShock(px, py, { from: 0.5, to: 4.0, life: 0.32, color: new THREE.Color(0.16, 0.6, 1.5) })
-          this.addShock(px, py, { from: 0.4, to: 5.2, life: 0.34, color: new THREE.Color(0.55, 0.85, 1.5), flat: true, opacity: 0.85 })
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p] - BLOBBY_UPPER_SPHERE)
+          this.trauma = Math.min(1, this.trauma + 0.12)
+          this.hitstop = Math.max(this.hitstop, 0.03)
+          this.addShock(px, py, { from: gr(HAND_REACH) * 0.5, to: gr(HAND_REACH) * 1.2, life: 0.3, color: new THREE.Color(0.5, 0.9, 1.5) })
           this.particles.burst({
-            x: px, y: py, z: 0, count: 34, speed: 4.6, spread: 3.14, up: 0.5,
-            life: 0.34, size: 0.034, color: new THREE.Color(0.55, 0.8, 1.3), drag: 3.4, colorJitter: 0.15,
+            x: gx(w.ballX), y: gy(w.ballY), z: 0, count: 60, speed: 6.5, spread: 2.2, up: 0.4,
+            life: 0.36, size: 0.034, color: new THREE.Color(0.72, 0.95, 1.3), drag: 3.2, colorJitter: 0.15,
           })
-          this.blobs[p].squashVel -= 1.0
+          this.ball.flash(1.6)
+          this.squashBall(w, 0.14)
+          this.blobs[p].wobble = 0.7
+          this.blobs[p].flash = 0.35
           break
         }
-        case Ev.PUSH_HIT: {
+        case Ev.HAND_MISS: {
           const p = e.side as Side
-          const o: Side = p === LEFT ? RIGHT : LEFT
-          const dir = p === LEFT ? 1 : -1
-          this.trauma = Math.min(1, this.trauma + 0.34)
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p] - BLOBBY_UPPER_SPHERE)
+          this.addShock(px, py, { from: 0.1, to: gr(HAND_REACH) * 0.85, life: 0.28, color: new THREE.Color(0.35, 0.38, 0.45), opacity: 0.5 })
           this.particles.burst({
-            x: gx(w.blobX[o]), y: gy(w.blobY[o]) + 1.2, z: 0, count: 120, speed: 7, spread: 1.1, up: 0.6,
-            life: 0.5, size: 0.045, color: new THREE.Color(0.85, 0.92, 1.0), drag: 2.6, colorJitter: 0.2,
+            x: px, y: py, z: 0, count: 18, speed: 2.2, spread: 3.14, up: 0.3,
+            life: 0.4, size: 0.025, color: new THREE.Color(0.5, 0.54, 0.62), drag: 3.4,
           })
-          // onda de choque saindo de quem empurrou
-          const px = gx(w.blobX[p]), py = gy(w.blobY[p]) + 1.0
-          this.addShock(px, py, { from: 0.6, to: 7.2, life: 0.46, color: new THREE.Color(0.12, 0.55, 1.7) })
-          this.addShock(px, py, { from: 0.4, to: 4.6, life: 0.26, color: new THREE.Color(1.1, 1.25, 1.6) })
-          this.addShock(px, py, { from: 0.5, to: 8.5, life: 0.5, color: new THREE.Color(0.5, 0.82, 1.6), flat: true, opacity: 0.9 })
+          this.blobs[p].squashVel -= 0.7
+          break
+        }
+        case Ev.SPECIAL_WASTED: {
+          const p = e.side as Side
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p] - BLOBBY_UPPER_SPHERE)
+          this.trauma = Math.min(1, this.trauma + 0.14)
+          this.addShock(px, py, { from: 0.2, to: gr(SPECIAL_REACH) * 1.1, life: 0.42, color: new THREE.Color(1.2, 0.65, 0.2) })
           this.particles.burst({
-            x: px + dir * 0.5, y: py, z: 0, count: 110, speed: 11, spread: 0.7, up: 0.25,
-            life: 0.4, size: 0.05, color: new THREE.Color(0.7, 0.9, 1.4), drag: 3.6,
-            dirX: dir, colorJitter: 0.12,
+            x: px, y: py, z: 0, count: 90, speed: 3.4, spread: 3.14, up: 1.6,
+            life: 0.9, size: 0.03, color: new THREE.Color(0.85, 0.66, 0.28), drag: 2.0, colorJitter: 0.3,
           })
-          this.particles.burst({
-            x: px, y: py, z: 0, count: 70, speed: 4.5, spread: 3.14, up: 1.2,
-            life: 0.7, size: 0.032, color: new THREE.Color(0.55, 0.8, 1.3), drag: 2.2, colorJitter: 0.25,
-          })
-          this.blobs[p].squashVel -= 1.8
-          this.blobs[p].wobble = 0.9
-          this.blobs[p].flash = 0.5
-          const b = this.blobs[o]
-          b.wobble = 1.4
-          b.squashVel -= 2.4
+          this.blobs[p].wobble = 1.1
+          this.blobs[p].squashVel -= 1.4
           break
         }
         case Ev.RESET_BALL: {
@@ -739,6 +759,29 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           b.squashVel -= 5.0
           break
         }
+      }
+    }
+  }
+
+  /** Anel grande = especial pronto, anel pequeno = mão pronta. Some quando não dá pra usar. */
+  private updateReach(match: Match, alpha: number, dt: number) {
+    const w = match.world
+    for (const i of [LEFT, RIGHT] as Side[]) {
+      const gxp = THREE.MathUtils.lerp(this.prev.px[i], this.cur.px[i], alpha)
+      const gyp = THREE.MathUtils.lerp(this.prev.py[i], this.cur.py[i], alpha)
+      const x = gx(gxp), y = gy(gyp - BLOBBY_UPPER_SPHERE)
+      const hidden = this.gib[i] > 0 || w.stun[i] > 0
+      const on = [
+        !hidden && w.charge[i] >= SPECIAL_FULL,
+        !hidden && w.handCd[i] === 0,
+      ]
+      for (let k = 0; k < 2; k++) {
+        const m = this.reachRings[i][k]
+        const mat = m.material as THREE.MeshBasicMaterial
+        const want = on[k] ? (k === 0 ? 0.26 + Math.sin(this.time * 4) * 0.06 : 0.18) : 0
+        mat.opacity += (want - mat.opacity) * Math.min(1, dt * 9)
+        m.visible = mat.opacity > 0.004
+        m.position.set(x, y, 0)
       }
     }
   }
@@ -940,7 +983,12 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       })
     }
 
+    this.ballSquash.k = Math.max(0, this.ballSquash.k - dt * 0.85)
+    this.ball.squash(this.ballSquash.k, this.ballSquash.ang)
+    this.updateReach(match, alpha, dt)
+
     crouchMoods([this.blobs[0].face, this.blobs[1].face], match.world.crouch, match.world.spikeHold)
+    reachMoods([this.blobs[0].face, this.blobs[1].face], match.world, match.logic.isBallValid)
     this.updateBlob(LEFT, alpha, dt, match)
     this.updateBlob(RIGHT, alpha, dt, match)
 
@@ -1042,6 +1090,13 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       })
     }
     this.trauma = Math.min(1, this.trauma + 0.4)
+  }
+
+  /** Achata na direção da batida; o mundo 3D tem y pra cima, daí o sinal. */
+  private squashBall(w: Match['world'], k: number) {
+    const v = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY)
+    this.ballSquash.ang = v > 0.001 ? Math.atan2(-w.ballVY, w.ballVX) : 0
+    this.ballSquash.k = Math.max(this.ballSquash.k, k)
   }
 
   private addShock(x: number, y: number, o: {

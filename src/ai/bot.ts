@@ -3,10 +3,11 @@ import {
   BLOBBY_JUMP_BUFFER, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_SPEED,
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
-  PARRY_REACH, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_GRAVITY_MUL,
-  SPECIAL_REACH, SPIKE_MAX_HOLD, SPIKE_MIN_HOLD, other,
+  AIM_DIRS, AIM_STEPS, HAND_MIN_SPEED, HAND_REACH, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
+  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, SPIKE_MAX_HOLD, SPIKE_MIN_HOLD, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
+import { aimBits } from '../core/input.ts'
 import type { PlayerInput } from '../core/input.ts'
 import type { Match } from '../core/match.ts'
 
@@ -195,7 +196,8 @@ export class Bot {
   private plan: Plan = { standX: NET_POSITION_X, hitT: 999, jumpAt: -99, dig: false, score: 0 }
   private upHeld = false
   private spHeld = false
-  private pushHeld = false
+  private handHeld = false
+  private handAim = -1
   private digLock = 0
   private spikeHold = 0
 
@@ -225,8 +227,8 @@ export class Bot {
     if (this.digLock > 0) this.digLock--
 
     if (w.stun[me] > 0) {
-      this.upHeld = false; this.spHeld = false; this.pushHeld = false; this.spikeHold = 0
-      return { left: false, right: false, up: false, special: false, push: false, down: false }
+      this.upHeld = false; this.spHeld = false; this.handHeld = false; this.spikeHold = 0
+      return { left: false, right: false, up: false, special: false, hand: false, down: false, fine: 0 }
     }
 
     if (--this.cool <= 0) {
@@ -252,12 +254,17 @@ export class Bot {
     if (!onGround && w.blobVY[me] < 0 && (this.upHeld || w.charge[me] < SPECIAL_FULL)) up = true
     this.upHeld = up
 
-    return {
-      left, right, up,
-      special: this.wantSpecial(w, me, onGround, p),
-      push: this.wantPush(w, me, p),
-      down,
+    const hand = this.wantHand(w, me, p)
+    const special = !hand && this.wantSpecial(w, me, onGround, p)
+    const out: PlayerInput = { left, right, up, special, hand, down, fine: 0 }
+    // sem direção o especial usa o solver da física, que já mira melhor que o bot
+    if (special) { out.left = false; out.right = false; out.up = false; out.down = false }
+    // com a mão, os bits de direção viram mira: o pulo fica bloqueado mesmo
+    if (hand && this.handAim >= 0) {
+      const b = aimBits((-this.handAim / AIM_STEPS) * Math.PI * 2)
+      out.left = b.left; out.right = b.right; out.up = b.up; out.down = b.down; out.fine = b.fine
     }
+    return out
   }
 
   /** Quando apertar pra que a cabeça esteja na altura `want` no frame `t`. */
@@ -439,7 +446,7 @@ export class Bot {
     if (!(w.charge[me] >= SPECIAL_FULL && !onGround && mine)) { this.spHeld = false; return false }
     const dx = w.ballX - w.blobX[me]
     const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
-    const near = dx * dx + dy * dy < SPECIAL_REACH * SPECIAL_REACH * 0.62
+    const near = dx * dx + dy * dy < SPECIAL_REACH * SPECIAL_REACH * 0.5
     if (!(near && this.rng() < 0.3 + p.attack * 0.7)) { this.spHeld = false; return false }
     if (this.spHeld) return false
     this.spHeld = true
@@ -461,16 +468,40 @@ export class Bot {
     return true
   }
 
-  private wantPush(w: Match['world'], me: Side, p: Params) {
+  /**
+   * A mão só compensa na faixa em que a bola passa perto sem encostar: dentro
+   * do alcance do toque normal ela é desperdício, fora do alcance é recarga
+   * queimada e pé preso.
+   */
+  private wantHand(w: Match['world'], me: Side, p: Params) {
+    const off = () => { this.handHeld = false; this.handAim = -1; return false }
+    if (w.handCd[me] > 0 || w.stun[me] > 0) return off()
+    if (w.superFrames > 0 && w.superOwner !== me) return off()
+    if (!this.plan.dig && this.plan.hitT >= 0 && this.plan.hitT < 6) return off()
+    const dx = w.ballX - w.blobX[me]
+    const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
+    const d = Math.sqrt(dx * dx + dy * dy)
+    if (d > HAND_REACH - 10 || d < BALL_RADIUS + BLOBBY_UPPER_RADIUS + 6) return off()
+    if (this.rng() > p.attack * 0.55) { this.handHeld = false; return false }
+    if (this.handHeld) return false
+
     const foe = other(me)
-    const want = w.pushCd[me] === 0 &&
-      Math.abs(w.blobX[foe] - w.blobX[me]) < PUSH_REACH_X &&
-      Math.abs(w.blobY[foe] - w.blobY[me]) < PUSH_REACH_Y &&
-      this.dir * (w.ballX - NET_POSITION_X) > 0 &&
-      this.rng() < p.attack * 0.05
-    if (!want) { this.pushHeld = false; return false }
-    if (this.pushHeld) return false
-    this.pushHeld = true
+    CTX.dir = this.dir
+    CTX.clear = p.clear
+    CTX.foeX = w.blobX[foe] + w.blobVX[foe] * p.foeLead
+    const cur = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY) / w.tempo
+    const sp = Math.max(HAND_MIN_SPEED, cur)
+    let best = -1e9
+    let bi = -1
+    for (let i = 0; i < AIM_STEPS; i++) {
+      const vx = AIM_DIRS[i * 2] * sp
+      const vy = AIM_DIRS[i * 2 + 1] * sp
+      const sc = shotScore(w.ballX + vx, w.ballY + vy, vx, vy)
+      if (sc > best) { best = sc; bi = i }
+    }
+    if (bi < 0 || best < 0) return off()
+    this.handAim = bi
+    this.handHeld = true
     return true
   }
 }

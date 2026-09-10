@@ -263,9 +263,52 @@ class App {
     this.audio.emote(id)
   }
 
+  /** Arrasta pra mirar, solta pra bater: a diagonal vem do dedo, não de outro botão. */
+  private mkHand() {
+    const b = el('div', { class: 'tbtn hand', textContent: '✋' })
+    let id = -1
+    let x0 = 0
+    let y0 = 0
+    let ang: number | null = null
+    const grab = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) if (t.identifier === id) return t
+      return null
+    }
+    b.addEventListener('touchstart', e => {
+      e.preventDefault()
+      const t = e.changedTouches[0]
+      if (!t) return
+      id = t.identifier; x0 = t.clientX; y0 = t.clientY; ang = null
+      b.classList.add('press')
+      b.classList.remove('aim')
+    }, { passive: false })
+    b.addEventListener('touchmove', e => {
+      const t = grab(e)
+      if (!t) return
+      e.preventDefault()
+      const dx = t.clientX - x0
+      const dy = t.clientY - y0
+      if (dx * dx + dy * dy < 196) { ang = null; b.classList.remove('aim'); return }
+      ang = Math.atan2(dy, dx)
+      b.classList.add('aim')
+      b.style.setProperty('--aim', `${(ang * 180) / Math.PI}deg`)
+    }, { passive: false })
+    const done = (fire: boolean) => (e: TouchEvent) => {
+      const t = grab(e)
+      if (!t) return
+      e.preventDefault()
+      id = -1
+      b.classList.remove('press', 'aim')
+      if (fire) this.input.handFlick(ang)
+    }
+    b.addEventListener('touchend', done(true), { passive: false })
+    b.addEventListener('touchcancel', done(false), { passive: false })
+    return b
+  }
+
   private buildTouch() {
     if (!isTouch) return
-    const mk = (label: string, key: 'left' | 'right' | 'up' | 'push' | 'down', big = false) => {
+    const mk = (label: string, key: 'left' | 'right' | 'up' | 'down', big = false) => {
       const b = el('div', { class: `tbtn${big ? ' big' : ''}`, textContent: label })
       const on = (v: boolean) => (e: Event) => {
         e.preventDefault()
@@ -280,7 +323,7 @@ class App {
     this.touchEls = el('div', { class: 'touch' },
       el('div', { class: 'tpad' }, mk('◀', 'left'), mk('▶', 'right')),
       el('div', { class: 'tpad' },
-        el('div', { class: 'tcol' }, mk('✋', 'push'), mk('▼', 'down')),
+        el('div', { class: 'tcol' }, this.mkHand(), mk('▼', 'down')),
         mk('▲', 'up', true)))
 
     const menu = el('div', { class: 'tmenu', textContent: 'MENU' })

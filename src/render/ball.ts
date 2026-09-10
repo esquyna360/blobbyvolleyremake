@@ -83,6 +83,7 @@ export interface Ball {
   setTransform(x: number, y: number, z: number, rot: number, axisTilt: number): void
   update(dt: number, speed: number): void
   flash(amount: number): void
+  squash(k: number, ang: number): void
 }
 
 const trailVert = /* glsl */`
@@ -178,15 +179,22 @@ export function createBall(): Ball {
   }))
   trail.frustumCulled = false
 
+  // a deformação mora num par de grupos: o de fora gira pro eixo da batida e
+  // achata, o de dentro desgira, então o giro da bola não sente a deformação
+  const inner = new THREE.Group()
+  inner.add(mesh)
+  const squashG = new THREE.Group()
+  squashG.add(inner)
+
   const group = new THREE.Group()
-  group.add(mesh, trail)
+  group.add(squashG, trail)
 
   let seeded = false
 
   return {
     group, mesh, trail,
     setTransform(x, y, z, rot, axisTilt) {
-      mesh.position.set(x, y, z)
+      squashG.position.set(x, y, z)
       mesh.rotation.set(0, 0, 0)
       mesh.rotateZ(-rot)
       mesh.rotateX(axisTilt)
@@ -199,6 +207,11 @@ export function createBall(): Ball {
       trailUniforms.uWidth.value = R * (0.75 + Math.min(speed / 30, 1) * 0.55)
     },
     flash(amount) { mat.emissiveIntensity = amount },
+    squash(k, ang) {
+      squashG.rotation.z = ang
+      inner.rotation.z = -ang
+      squashG.scale.set(1 - k * 0.55, 1 + k * 0.4, 1 + k * 0.4)
+    },
   }
 }
 

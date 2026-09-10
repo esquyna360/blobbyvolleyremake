@@ -385,10 +385,25 @@ export class GameAudio {
     this.burst(0.30, 0.16, 'bandpass', 2400, 1.4, pan)
   }
 
-  push(pan = 0) {
+  /** Mão certeira: tapa seco e curto, sem peso — ela não dá força à bola. */
+  handHit(pan = 0) {
     if (!this.ctx) return
-    this.thump(150, 0.35, 0.12, 0.16, 'triangle')
-    this.burst(0.07, 0.07, 'highpass', 2600, 0.9, pan)
+    this.thump(320, 1.1, 0.09, 0.14, 'triangle')
+    this.burst(0.06, 0.06, 'highpass', 3400, 1.0, pan)
+    this.bell(1760, 0.01, 0.28, 0.09)
+  }
+
+  /** Mão no vazio: só o sopro do braço passando. */
+  handMiss(pan = 0) {
+    if (!this.ctx) return
+    this.burst(0.16, 0.13, 'bandpass', 1100, 2.2, pan)
+  }
+
+  /** Barra queimada à toa: nota que despenca. */
+  specialWasted(pan = 0) {
+    if (!this.ctx) return
+    this.thump(300, 0.1, 0.45, 0.22, 'sawtooth')
+    this.burst(0.20, 0.16, 'lowpass', 900, 0.8, pan)
   }
 
   /** Parry: estalo metálico brilhante subindo. */
@@ -494,7 +509,9 @@ export class GameAudio {
         case Ev.SPECIAL_FIRED: this.special('fired', ballPan); break
         case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break
         case Ev.SPECIAL_GROUND: this.groundBurn(ballPan); break
-        case Ev.PUSH_HIT: this.push(panOf(world.blobX[e.side as Side])); break
+        case Ev.HAND_HIT: this.handHit(panOf(world.blobX[e.side as Side])); break
+        case Ev.HAND_MISS: this.handMiss(panOf(world.blobX[e.side as Side])); break
+        case Ev.SPECIAL_WASTED: this.specialWasted(panOf(world.blobX[e.side as Side])); break
         case Ev.PARRY: this.parry(panOf(world.blobX[e.side as Side])); break
         case Ev.PARRY_TRY: this.parryWhiff(panOf(world.blobX[e.side as Side])); break
         case Ev.DIG: this.dig(panOf(world.blobX[e.side as Side])); break

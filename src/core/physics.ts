@@ -8,7 +8,7 @@ import {
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
   SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
   SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
-  PUSH_REACH_X, PUSH_REACH_Y, PUSH_FORCE, PUSH_POP, PUSH_CD,
+  HAND_REACH, HAND_CD, HAND_FREEZE, HAND_MIN_SPEED, AIM_DIRS, TEMPO_MAX, TEMPO_STEP,
   SPECIAL_COMEBACK_STEP, SPECIAL_COMEBACK_MIN, SPECIAL_COMEBACK_MAX,
   SPECIAL_DEPTH_JITTER, SPECIAL_ARC_JITTER,
   PARRY_ACTIVE, PARRY_CD, PARRY_REACH, PARRY_BOOST, PARRY_CHAIN_MAX,
@@ -23,7 +23,7 @@ import {
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
-import { NO_INPUT } from './input.ts'
+import { NO_INPUT, aimIndex } from './input.ts'
 import type { PlayerInput } from './input.ts'
 
 export class PhysicWorld {
@@ -46,8 +46,11 @@ export class PhysicWorld {
   knock = [0, 0]
   prevUp = [0, 0]
   prevSpecial = [0, 0]
-  prevPush = [0, 0]
-  pushCd = [0, 0]
+  prevHand = [0, 0]
+  handCd = [0, 0]
+  handFreeze = [0, 0]
+  /** Escala de tempo do rally: 1 no saque, sobe a cada toque até TEMPO_MAX. */
+  tempo = 1
   superFrames = 0
   superOwner = -1
   parryActive = [0, 0]
@@ -101,7 +104,39 @@ export class PhysicWorld {
 
   /** A bola do especial pesa mais: é o que a faz cair no campo do outro em vez de planar. */
   private ballG() {
-    return this.superFrames > 0 ? BALL_GRAVITATION * SPECIAL_GRAVITY_MUL : BALL_GRAVITATION
+    const base = this.superFrames > 0 ? BALL_GRAVITATION * SPECIAL_GRAVITY_MUL : BALL_GRAVITATION
+    return base * this.tempo * this.tempo
+  }
+
+  /**
+   * Um toque, um degrau de ritmo. Acelerar o jogo é escalar o tempo: as
+   * velocidades guardadas sobem junto, senão a bola no ar mudaria de trajetória
+   * no meio do voo em vez de só percorrê-la mais rápido.
+   */
+  private bumpTempo() {
+    if (this.tempo >= TEMPO_MAX) return
+    const prev = this.tempo
+    this.tempo = Math.min(TEMPO_MAX, this.tempo + TEMPO_STEP)
+    const k = this.tempo / prev
+    this.ballVX *= k
+    this.ballVY *= k
+    this.blobVY[LEFT] *= k
+    this.blobVY[RIGHT] *= k
+    this.knock[LEFT] *= k
+    this.knock[RIGHT] *= k
+  }
+
+  /** As miras resolvem em tempo base; a velocidade sai daqui já no ritmo atual. */
+  private scaleBallV() {
+    this.ballVX *= this.tempo
+    this.ballVY *= this.tempo
+  }
+
+  /** Direção mirada, ou o padrão pra frente e um pouco pra cima. */
+  private aimOf(p: Side, raw: PlayerInput, ignoreUp = false) {
+    const i = aimIndex(ignoreUp ? { ...raw, up: false } : raw)
+    if (i >= 0) return i
+    return p === LEFT ? 2 : 14
   }
 
   /** A parábola passa por cima da rede em toda a faixa de colisão dela? */
@@ -164,6 +199,13 @@ export class PhysicWorld {
    * pesada é privilégio do especial. Manchete pede tempo longo (arco alto e
    * lento), cortada pede tempo curto (linha rápida); só mudam os números.
    */
+  /** Mira em tempo base e devolve a velocidade já no ritmo do rally. */
+  private aimShotScaled(p: Side, vmax: number, vmin: number, depth: number, clearance: number,
+                        tMin: number, tStep: number, tSteps: number, salt: number) {
+    this.aimShot(p, vmax, vmin, depth, clearance, tMin, tStep, tSteps, salt)
+    this.scaleBallV()
+  }
+
   private aimShot(p: Side, vmax: number, vmin: number, depth: number, clearance: number,
                   tMin: number, tStep: number, tSteps: number, salt: number) {
     const dir = p === LEFT ? 1 : -1
@@ -250,7 +292,8 @@ export class PhysicWorld {
 
     this.digActive[p] = 0
     this.digCd[p] = DIG_CD
-    this.aimShot(p, DIG_VELOCITY, 0, DIG_TARGET_DEPTH, DIG_NET_CLEARANCE,
+    this.bumpTempo()
+    this.aimShotScaled(p, DIG_VELOCITY, 0, DIG_TARGET_DEPTH, DIG_NET_CLEARANCE,
       DIG_TIME_MIN, DIG_TIME_STEP, DIG_TIME_STEPS, 2)
     this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.lowerR(p))
     this.addCharge(p, DIG_GAIN, out)
@@ -267,48 +310,83 @@ export class PhysicWorld {
     this.ballY = cy + (dy / k) * need
   }
 
-  /** Empurrão: encostou perto do adversário e apertou, ele voa pra trás. */
-  private tryPush(p: Side, raw: PlayerInput, out: MatchEvent[]) {
-    if (!raw.push || this.prevPush[p] !== 0) return
-    if (this.pushCd[p] > 0 || this.stun[p] > 0) return
-    this.pushCd[p] = PUSH_CD
-    const o: Side = p === LEFT ? RIGHT : LEFT
-    const dx = this.blobX[o] - this.blobX[p]
-    const dy = this.blobY[o] - this.blobY[p]
-    if (Math.abs(dx) > PUSH_REACH_X || Math.abs(dy) > PUSH_REACH_Y) {
-      out.push({ event: Ev.PUSH, side: p, intensity: 0 })
+  /** Mão dirigida: bola perto sem encostar, o toque só vira a direção dela. */
+  /**
+   * Mão dirigida: a bola tem que estar por perto e sem encostar — encostou, o
+   * toque normal já resolveu. Não acrescenta força, só troca a direção. Errar
+   * queima a recarga e trava o pé por alguns frames.
+   */
+  private tryHand(p: Side, raw: PlayerInput, isBallValid: boolean, out: MatchEvent[]) {
+    if (!raw.hand || this.prevHand[p] !== 0) return
+    if (this.handCd[p] > 0 || this.stun[p] > 0) return
+    if (isBallValid && (this.bottomBallCollision(p) || this.topBallCollision(p))) return
+
+    this.handCd[p] = HAND_CD
+    const dx = this.ballX - this.blobX[p]
+    const dy = this.ballY - this.upperY(p)
+    const d = Math.sqrt(dx * dx + dy * dy)
+    // bola de especial alheia não se pega de raspão: pra isso existe o parry
+    const blocked = this.superFrames > 0 && this.superOwner !== p
+    if (!isBallValid || blocked || d > HAND_REACH) {
+      this.handFreeze[p] = HAND_FREEZE
+      out.push({ event: Ev.HAND_MISS, side: p, intensity: 0 })
       return
     }
-    this.knock[o] += (p === LEFT ? 1 : -1) * PUSH_FORCE
-    if (this.blobVY[o] > PUSH_POP) this.blobVY[o] = PUSH_POP
-    out.push({ event: Ev.PUSH_HIT, side: p, intensity: 1 })
+
+    this.bumpTempo()
+    const i = this.aimOf(p, raw) * 2
+    const cur = Math.sqrt(this.ballVX * this.ballVX + this.ballVY * this.ballVY)
+    const sp = Math.max(HAND_MIN_SPEED * this.tempo, cur)
+    this.ballVX = AIM_DIRS[i] * sp
+    this.ballVY = AIM_DIRS[i + 1] * sp
+    this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
+    out.push({ event: Ev.HAND_HIT, side: p, intensity: 1 })
   }
+
 
   /** Barra cheia e bola por perto: pulo de novo no ar, ou a tecla de especial. */
   private trySpecial(p: Side, raw: PlayerInput, isBallValid: boolean, wasGround: boolean, out: MatchEvent[]) {
     if (!isBallValid || this.stun[p] > 0) return
     if (this.superFrames > 0 && this.superOwner !== p) return
     if (this.charge[p] < SPECIAL_FULL) return
-    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
+    const bySpecial = raw.special && this.prevSpecial[p] === 0
+    const byUp = !bySpecial && raw.up && this.prevUp[p] === 0 && !raw.hand
+    const pressed = byUp || bySpecial
     if (!pressed) return
     if (wasGround) return
 
     const nx = this.ballX - this.blobX[p]
     const ny = this.ballY - this.upperY(p)
-    if (Math.sqrt(nx * nx + ny * ny) > SPECIAL_REACH) return
+    if (Math.sqrt(nx * nx + ny * ny) > SPECIAL_REACH) {
+      // disparar longe da bola queima a barra: é o que faz o alcance valer algo
+      this.charge[p] = 0
+      out.push({ event: Ev.SPECIAL_WASTED, side: p, intensity: 1 })
+      return
+    }
 
     this.charge[p] = 0
-    this.aimSpecial(p)
+    this.bumpTempo()
+    // quem soltou pelo pulo não estava mirando pra cima, estava pulando
+    const i = aimIndex(byUp ? { ...raw, up: false } : raw)
+    if (i >= 0) {
+      const v = SPECIAL_VELOCITY * this.tempo
+      this.ballVX = AIM_DIRS[i * 2] * v
+      this.ballVY = AIM_DIRS[i * 2 + 1] * v
+    } else {
+      this.aimSpecial(p)
+      this.scaleBallV()
+    }
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
   }
 
+
   /** Especial vindo em cima: apertar pra cima na hora certa devolve a bola mais forte. */
   private tryParry(p: Side, raw: PlayerInput, out: MatchEvent[]) {
     if (this.stun[p] > 0) return
     if (this.superFrames <= 0 || this.superOwner === p) return
-    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
+    const pressed = (raw.up && this.prevUp[p] === 0 && !raw.hand) || (raw.special && this.prevSpecial[p] === 0)
     if (pressed && this.parryCd[p] === 0 && this.parryActive[p] === 0) {
       this.parryActive[p] = PARRY_ACTIVE
       this.parryCd[p] = PARRY_CD
@@ -325,7 +403,9 @@ export class PhysicWorld {
     this.parryChain = Math.min(this.parryChain + 1, PARRY_CHAIN_MAX)
     this.superOwner = p
     this.superFrames = SPECIAL_BALL_FRAMES
+    this.bumpTempo()
     this.aimSpecial(p, 1 + this.parryChain * PARRY_BOOST)
+    this.scaleBallV()
     this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
     out.push({ event: Ev.PARRY, side: p, intensity: 1 })
   }
@@ -355,17 +435,24 @@ export class PhysicWorld {
 
   private handleBlob(p: Side, input: PlayerInput) {
     const ground = this.blobHitGround(p)
+    const T = this.tempo
+    const T2 = T * T
     let g = GRAVITATION
-    if (input.up && !input.down) {
-      if (ground && this.spikeFrames[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION; this.startAnim(p) }
+    // com a mão apertada, pra cima é mira, não pulo
+    if (input.up && !input.down && !input.hand) {
+      if (ground && this.spikeFrames[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
       g -= BLOBBY_JUMP_BUFFER
     }
     // no ar, pra baixo é queda rápida
     if (!ground && input.down) g += GRAVITATION * CROUCH_FALL_MUL
     if ((input.left || input.right) && ground) this.startAnim(p)
+    g *= T2
 
-    const slow = 1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)
-    this.blobVX[p] = ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
+    // mão no vazio prende o pé: é o preço de martelar o botão
+    const stuck = this.handFreeze[p] > 0
+    const slow = (1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)) * T
+    this.blobVX[p] = stuck ? 0
+      : ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
 
     this.blobX[p] += this.blobVX[p] + this.knock[p]
     if (this.knock[p] !== 0) {
@@ -395,13 +482,15 @@ export class PhysicWorld {
     // quem soltou o especial não reencosta na bola enquanto ela sai de perto
     if (this.superOwner === p && this.superFrames > SPECIAL_BALL_FRAMES - 12) return false
 
+    this.bumpTempo()
+
     // cortada: janela do salto carregado manda a bola no lugar em vez de refletir
     if (this.spikeFrames[p] > 0 && this.superFrames === 0) {
       const k = this.spikeK(p)
       this.spikeFrames[p] = 0
       const dx = this.ballX - this.blobX[p]
       const dy = this.ballY - cy
-      this.aimShot(p, SPIKE_VELOCITY * (SPIKE_WEAK + (1 - SPIKE_WEAK) * k),
+      this.aimShotScaled(p, SPIKE_VELOCITY * (SPIKE_WEAK + (1 - SPIKE_WEAK) * k),
         BALL_COLLISION_VELOCITY * (SPIKE_FLOOR + SPIKE_FLOOR_GAIN * k), SPIKE_TARGET_DEPTH,
         SPIKE_NET_CLEARANCE, SPIKE_TIME_MIN, SPIKE_TIME_STEP, SPIKE_TIME_STEPS, 3)
       this.pushOut(p, cy, dx, dy, Math.sqrt(dx * dx + dy * dy), cr)
@@ -418,8 +507,8 @@ export class PhysicWorld {
     let ny = this.ballY - cy
     const l = Math.sqrt(nx * nx + ny * ny) || 1
     nx /= l; ny /= l
-    this.ballVX = nx * BALL_COLLISION_VELOCITY
-    this.ballVY = ny * BALL_COLLISION_VELOCITY
+    this.ballVX = nx * BALL_COLLISION_VELOCITY * this.tempo
+    this.ballVY = ny * BALL_COLLISION_VELOCITY * this.tempo
     this.ballX += this.ballVX
     this.ballY += this.ballVY
 
@@ -429,8 +518,8 @@ export class PhysicWorld {
     if (this.superFrames > 0) {
       if (this.superOwner !== p) {
         this.stun[p] = STUN_FRAMES
-        this.knock[p] = (p === LEFT ? -1 : 1) * SPECIAL_KNOCKBACK
-        this.blobVY[p] = SPECIAL_POP
+        this.knock[p] = (p === LEFT ? -1 : 1) * SPECIAL_KNOCKBACK * this.tempo
+        this.blobVY[p] = SPECIAL_POP * this.tempo
         out.push({ event: Ev.SPECIAL_HIT, side: p, intensity: 1 })
       }
       this.superFrames = 0
@@ -496,8 +585,10 @@ export class PhysicWorld {
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
     if (this.superFrames > 0 && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
-    if (this.pushCd[LEFT] > 0) this.pushCd[LEFT]--
-    if (this.pushCd[RIGHT] > 0) this.pushCd[RIGHT]--
+    if (this.handCd[LEFT] > 0) this.handCd[LEFT]--
+    if (this.handCd[RIGHT] > 0) this.handCd[RIGHT]--
+    if (this.handFreeze[LEFT] > 0) this.handFreeze[LEFT]--
+    if (this.handFreeze[RIGHT] > 0) this.handFreeze[RIGHT]--
     if (this.parryActive[LEFT] > 0) this.parryActive[LEFT]--
     if (this.parryActive[RIGHT] > 0) this.parryActive[RIGHT]--
     if (this.parryCd[LEFT] > 0) this.parryCd[LEFT]--
@@ -528,6 +619,9 @@ export class PhysicWorld {
       this.addCharge(RIGHT, SPECIAL_GAIN_FRAME, out)
     }
 
+    this.tryHand(LEFT, li, isBallValid, out)
+    this.tryHand(RIGHT, ri, isBallValid, out)
+
     if (isBallValid) {
       this.tryParry(LEFT, li, out)
       this.tryParry(RIGHT, ri, out)
@@ -537,14 +631,12 @@ export class PhysicWorld {
 
     this.trySpecial(LEFT, li, isBallValid, groundL, out)
     this.trySpecial(RIGHT, ri, isBallValid, groundR, out)
-    this.tryPush(LEFT, li, out)
-    this.tryPush(RIGHT, ri, out)
     this.prevUp[LEFT] = li.up ? 1 : 0
     this.prevUp[RIGHT] = ri.up ? 1 : 0
     this.prevSpecial[LEFT] = li.special ? 1 : 0
     this.prevSpecial[RIGHT] = ri.special ? 1 : 0
-    this.prevPush[LEFT] = li.push ? 1 : 0
-    this.prevPush[RIGHT] = ri.push ? 1 : 0
+    this.prevHand[LEFT] = li.hand ? 1 : 0
+    this.prevHand[RIGHT] = ri.hand ? 1 : 0
     this.prevDown[LEFT] = li.down ? 1 : 0
     this.prevDown[RIGHT] = ri.down ? 1 : 0
 
@@ -582,5 +674,8 @@ export class PhysicWorld {
     this.digCd[LEFT] = 0; this.digCd[RIGHT] = 0
     this.spikeFrames[LEFT] = 0; this.spikeFrames[RIGHT] = 0
     this.spikeHold[LEFT] = 0; this.spikeHold[RIGHT] = 0
+    this.handCd[LEFT] = 0; this.handCd[RIGHT] = 0
+    this.handFreeze[LEFT] = 0; this.handFreeze[RIGHT] = 0
+    this.tempo = 1
   }
 }
