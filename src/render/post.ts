@@ -21,6 +21,12 @@ const GradeShader = {
     uLift: { value: new THREE.Vector3(0.010, 0.006, 0.004) },
     uFlash: { value: 0 },
     uAberrationBoost: { value: 0 },
+    /** LCD de quatro tons: 0 desliga, 1 é o Game Boy inteiro */
+    uLcd: { value: 0 },
+    /** paleta invertida por um compasso */
+    uInvert: { value: 0 },
+    /** escuro do túnel */
+    uDim: { value: 0 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -31,6 +37,12 @@ const GradeShader = {
     varying vec2 vUv;
     uniform sampler2D tDiffuse;
     uniform float uTime, uSunVisible, uGodRays, uCA, uVignette, uGrain, uSaturation, uContrast, uFlash, uAberrationBoost;
+    uniform float uLcd, uInvert, uDim;
+
+    const vec3 LCD0 = vec3(0.059, 0.220, 0.059);
+    const vec3 LCD1 = vec3(0.188, 0.384, 0.188);
+    const vec3 LCD2 = vec3(0.545, 0.675, 0.059);
+    const vec3 LCD3 = vec3(0.608, 0.737, 0.059);
     uniform vec2 uSunScreen;
     uniform vec3 uLift;
 
@@ -84,6 +96,20 @@ const GradeShader = {
       // film grain
       float g = hash(uv * vec2(1920.0, 1080.0) + uTime * 60.0) - 0.5;
       col += g * uGrain;
+
+      col *= 1.0 - clamp(uDim, 0.0, 0.96);
+
+      if (uLcd > 0.001) {
+        // quatro tons e nada mais: o brilho decide qual verde, a cor some
+        float lum = clamp(dot(max(col, 0.0), vec3(0.2126, 0.7152, 0.0722)), 0.0, 0.999);
+        float q = floor(lum * 4.0);
+        vec3 lcd = q < 1.0 ? LCD0 : (q < 2.0 ? LCD1 : (q < 3.0 ? LCD2 : LCD3));
+        // linha de varredura horizontal, como o reflexo do LCD real
+        lcd *= 0.90 + 0.10 * step(0.5, fract(uv.y * 160.0));
+        col = mix(col, lcd, uLcd);
+      }
+
+      col = mix(col, vec3(1.0) - col, clamp(uInvert, 0.0, 1.0));
 
       gl_FragColor = vec4(max(col, 0.0), 1.0);
     }

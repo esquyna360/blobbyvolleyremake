@@ -4,6 +4,7 @@ import { unpackInput } from '../core/input.ts'
 import type { ArenaId } from '../core/constants.ts'
 import { Rollback } from './rollback.ts'
 import { supa } from './supa.ts'
+import type { SceneRuleId } from '../core/scene-rules.ts'
 import { b64, decodeState, encodeState, unb64 } from './wire.ts'
 
 export interface LiveMeta {
@@ -11,6 +12,8 @@ export interface LiveMeta {
   stw: number
   arena: ArenaId
   wl?: boolean
+  /** regra do cenário; ausente em transmissão antiga */
+  sr?: SceneRuleId
   nl: string
   nr: string
 }
@@ -156,7 +159,7 @@ export class Spectator {
     if (!this.match) {
       this.meta = { rule: p.rule, stw: p.stw, arena: p.arena, wl: p.wl, nl: p.nl, nr: p.nr }
       this.opts.onArena(p.arena)
-      this.match = new Match(p.rule, p.stw || undefined, 0, p.wl !== false)
+      this.match = new Match(p.rule, p.stw || undefined, 0, p.wl !== false, p.sr ?? 'none')
     } else if (fresh) {
       if (this.meta && this.meta.arena !== p.arena) { this.meta.arena = p.arena; this.opts.onArena(p.arena) }
     }

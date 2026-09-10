@@ -3,6 +3,8 @@ import { Rollback } from './rollback.ts'
 import type { PeerId, Transport } from './transport.ts'
 import { LEFT, RIGHT } from '../core/constants.ts'
 import { setArena, arenaId } from '../core/constants.ts'
+import { sceneRuleCode, sceneRuleFromCode } from '../core/scene-rules.ts'
+import type { SceneRuleId } from '../core/scene-rules.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
@@ -46,8 +48,11 @@ export interface SessionOpts {
   ruleId: string
   arena: ArenaId
   walls: boolean
+  /** cenário do host: os que são regra mudam a física dos dois lados */
+  sceneRule: SceneRuleId
   onArena?: (id: ArenaId) => void
   onWalls?: (on: boolean) => void
+  onSceneRule?: (r: SceneRuleId) => void
   scoreToWin?: number
   name: string
   host: boolean
@@ -77,7 +82,7 @@ export class NetSession {
   rtt = 0
   private checksums = new Map<number, number>()
   desynced = false
-  private began: { ruleId: string; stw: number; arena: ArenaId; walls: boolean; serving: Side } | null = null
+  private began: { ruleId: string; stw: number; arena: ArenaId; walls: boolean; rule: SceneRuleId; serving: Side } | null = null
 
   /** Regra, placar-alvo, arena, paredes e quem saca: o replay precisa disso pra reproduzir. */
   get setup() { return this.began }
@@ -155,7 +160,8 @@ export class NetSession {
       if (!ok) { this.deny(from, Deny.REJECTED); this.setPhase('waiting'); return }
       this.peer = from
       this.sendWelcome(from)
-      this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side, this.opts.arena, this.opts.walls)
+      this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side,
+        this.opts.arena, this.opts.walls, this.opts.sceneRule)
     }
     if (this.opts.onJoinRequest) this.opts.onJoinRequest(this.peerName, () => settle(true), () => settle(false))
     else settle(true)
@@ -166,13 +172,14 @@ export class NetSession {
   private sendWelcome(to: PeerId) {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
     const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
-    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const buf = new Uint8Array(1 + 1 + 1 + 1 + 1 + 2 + 1 + nameBytes.length + 1 + ruleBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.WELCOME)
     dv.setUint8(o++, PROTO)
     dv.setUint8(o++, this.seed & 1)
     dv.setUint8(o++, (this.opts.arena === 'wide' ? 1 : 0) | (this.opts.walls ? 0 : 2))
+    dv.setUint8(o++, sceneRuleCode(this.opts.sceneRule))
     dv.setUint16(o, this.scoreToWin()); o += 2
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
     dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o)
@@ -187,6 +194,7 @@ export class NetSession {
     const arenaByte = dv.getUint8(o++)
     const arena: ArenaId = (arenaByte & 1) === 1 ? 'wide' : 'default'
     const walls = (arenaByte & 2) === 0
+    const sceneRule = sceneRuleFromCode(dv.getUint8(o++))
     const stw = dv.getUint16(o); o += 2
     const nl = dv.getUint8(o++)
     this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)) || 'Player'; o += nl
@@ -194,18 +202,21 @@ export class NetSession {
     const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl))
     this.peer = from
     clearInterval(this.helloTimer)
-    this.begin(ruleId, stw, serving, arena, walls)
+    this.begin(ruleId, stw, serving, arena, walls, sceneRule)
   }
 
-  private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId, walls: boolean) {
+  private begin(
+    ruleId: string, stw: number, serving: Side, arena: ArenaId, walls: boolean, rule: SceneRuleId,
+  ) {
     if (arenaId() !== arena) { setArena(arena); this.opts.onArena?.(arena) }
     if (this.opts.walls !== walls) { this.opts.walls = walls; this.opts.onWalls?.(walls) }
-    this.began = { ruleId, stw, arena, walls, serving }
+    if (this.opts.sceneRule !== rule) { this.opts.sceneRule = rule; this.opts.onSceneRule?.(rule) }
+    this.began = { ruleId, stw, arena, walls, rule, serving }
     this.wantMine = false
     this.wantTheirs = false
     this.checksums.clear()
     this.desynced = false
-    this.match = new Match(ruleId, stw || undefined, serving, walls)
+    this.match = new Match(ruleId, stw || undefined, serving, walls, rule)
     this.rollback = new Rollback(this.match, this.localSide)
     clearInterval(this.helloTimer)
     this.setPhase('playing')
@@ -227,7 +238,7 @@ export class NetSession {
     this.seed = (Math.random() * 0xffffffff) >>> 0
     const serving = (this.seed & 1) as Side
     this.transport.send(new Uint8Array([P.REMATCH, 1, serving]))
-    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls)
+    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls, this.began.rule)
   }
 
   private onRematch(dv: DataView) {
@@ -235,7 +246,7 @@ export class NetSession {
     if (dv.getUint8(1) === 1) {
       if (this.opts.host) return
       const serving = (dv.byteLength > 2 ? dv.getUint8(2) : 0) as Side
-      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls)
+      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls, this.began.rule)
       return
     }
     this.wantTheirs = true

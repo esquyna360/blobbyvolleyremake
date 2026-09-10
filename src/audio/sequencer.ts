@@ -71,8 +71,9 @@ export class Sequencer {
     return k - Math.floor(k)
   }
 
+  /** Tempo, não compasso: em 6/8 o compasso tem três tempos, não quatro. */
   beatPhase(at = this.rack.ctx.currentTime) {
-    const k = this.barPhase(at) * 4
+    const k = this.barPhase(at) * (this.spb / 4)
     return k - Math.floor(k)
   }
 

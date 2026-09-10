@@ -4,12 +4,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import themes  # noqa: E402
+import themes_scenes  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[2] / 'public' / 'music'
 OUT.mkdir(parents=True, exist_ok=True)
 
 total = 0
-for make in themes.ALL:
+for make in themes.ALL + themes_scenes.ALL:
     song = make()
     path, notes, size = song.write(OUT)
     total += size

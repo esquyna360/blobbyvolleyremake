@@ -48,10 +48,10 @@ const BEAT = [
 
 // ---- tempestade ----
 /** 6° de inclinação; a cada terceira onda a maré sobe pra 9,3°. */
-const TILT = GRAVITATION * 0.1051
-const TILT_BIG = 1.55
+export const TILT = GRAVITATION * 0.1051
+export const TILT_BIG = 1.55
 /** 512 frames por onda: oito segundos e meio de gangorra. */
-const WAVE_PERIOD = 512
+export const WAVE_PERIOD = 512
 /** Quanto da inclinação vira arrasto lateral no blob em pé. */
 export const BLOB_SLIDE = 2.6
 /** Areia molhada: o mergulho escorrega 30% mais longe que no seco. */
@@ -211,7 +211,8 @@ export function sceneField(
 
     case 'gameboy': {
       out.quantize = 1
-      if (rally >= 20) out.fx |= FX_INVERT
+      // a inversão dura um compasso e volta: piscar é o susto, ficar é o bug
+      if (rally >= 20 && frame % 288 < 72) out.fx |= FX_INVERT
       break
     }
 

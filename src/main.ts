@@ -26,6 +26,7 @@ import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
 import { MENU_SONG, SCENES, getScene } from './render/scenes.ts'
 import type { SceneId } from './render/scenes.ts'
+import type { SceneRuleId } from './core/scene-rules.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
@@ -345,7 +346,7 @@ class App {
   private get viewing() { return !!this.spectator || !!this.replay }
 
   private newMatch(cfg: GameConfig, serving: Side = LEFT) {
-    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls)
+    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls, getScene(cfg.scene).rule)
     this.rec.reset()
     this.recUpTo = -1
     this.recBroken = false
@@ -387,16 +388,28 @@ class App {
     }
   }
 
-  /** Cenário troca na hora, inclusive no meio da partida: é só pintura e trilha. */
+  /**
+   * Cenário troca na hora. Os antigos são só pintura; os novos carregam regra,
+   * e regra em partida corrente vira física nova no meio do ponto — então nesse
+   * caso a troca só vale a partir da próxima partida.
+   */
   applyScene(id: SceneId) {
     this.cfg.scene = id
     localStorage.setItem('bv.scene', id)
     const sc = getScene(id)
     this.stage.setScene(id)
     this.audio.setScene(!sc.d3.indoor)
+    if (this.match) this.match.world.sceneRule = sc.rule
+    if (this.session) this.session.opts.sceneRule = sc.rule
     // no menu quem toca é o tema do menu; o do cenário só entra em partida
     if (this.phase === 'menu') this.audio.preload(sc.music)
     else this.audio.setSong(sc.music)
+  }
+
+  /** O host mandou o cenário dele: acha qual é e aplica sem devolver pela rede. */
+  private applySceneByRule(rule: SceneRuleId) {
+    const hit = (Object.keys(SCENES) as SceneId[]).find(k => SCENES[k].rule === rule)
+    if (hit && hit !== this.cfg.scene) this.applyScene(hit)
   }
 
   startLocal(cfg: GameConfig) {
@@ -495,6 +508,7 @@ class App {
         stw: this.match?.logic.scoreToWin ?? 0,
         arena: this.cfg.arena,
         wl: this.cfg.walls,
+        sr: getScene(this.cfg.scene).rule,
         nl: s.localSide === LEFT ? this.cfg.name : s.peerName,
         nr: s.localSide === LEFT ? s.peerName : this.cfg.name,
       }))
@@ -624,8 +638,11 @@ class App {
       ruleId: cfg.ruleId,
       arena: cfg.arena,
       walls: cfg.walls,
+      sceneRule: getScene(cfg.scene).rule,
       onArena: id => this.applyArena(id),
       onWalls: on => this.applyWalls(on),
+      // o host manda o cenário junto: regra diferente nos dois lados desincroniza
+      onSceneRule: r => this.applySceneByRule(r),
       scoreToWin: cfg.scoreToWin,
       name: cfg.name,
       host,
@@ -770,6 +787,7 @@ class App {
       stw: m.logic.scoreToWin,
       arena: setup?.arena ?? this.cfg.arena,
       walls: setup?.walls ?? this.cfg.walls,
+      srule: m.world.sceneRule,
       serve: setup?.serving ?? LEFT,
       nl: nameL.slice(0, 16),
       nr: nameR.slice(0, 16),
@@ -970,7 +988,8 @@ class App {
 
   private loop(now: number) {
     requestAnimationFrame(t => this.loop(t))
-    const dt = Math.min((now - this.last) / 1000, 0.25)
+    // relógio nunca anda pra trás: dt negativo faria todo decaimento virar ganho
+    const dt = Math.max(0, Math.min((now - this.last) / 1000, 0.25))
     this.last = now
 
     // pausa local congela a simulação de verdade; online e transmissão seguem
@@ -992,6 +1011,8 @@ class App {
     const m = this.match
     if (m) {
       const alpha = this.acc / TICK_MS
+      const on = this.audio.musicOn
+      this.stage.setBeat(on ? this.audio.barPhase : -1, on ? this.audio.beatPhase : -1)
       this.stage.render(m, alpha, dt)
       this.hud.update(m.logic.scores, m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
       if (this.phase === 'playing') {

@@ -14,6 +14,10 @@ import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 import { getScene } from './scenes.ts'
 import type { Scene, SceneId } from './scenes.ts'
+import {
+  CLOUD_HALF_W, CLOUD_THICK, FX_BUBBLE, FX_GUST, FX_GUST_WARN, FX_INVERT, FX_TUNNEL,
+  cloudX, cloudY,
+} from '../core/scene-rules.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const BLOB_FILL = ['#ec2f3f', '#2f7ff0']
@@ -102,6 +106,11 @@ export class Stage2D implements GameRenderer {
   private wallHits: { x: number; y: number; life: number }[] = []
   private glow: HTMLCanvasElement
   private scene: Scene = getScene('praia')
+  private lcdK = 0
+  private invertK = 0
+  private dimK = 0
+  private audioBar = 0
+  private audioBeat = 0
   private wallsOn = true
   /** estrelas e bichinhos da frente: sorteados uma vez, animados por relógio */
   private specks: { x: number; y: number; r: number; seed: number }[] = []
@@ -183,6 +192,39 @@ export class Stage2D implements GameRenderer {
         seed: Math.random() * 6.28,
       }
     }
+    if (kind === 'rain') {
+      return {
+        x: Math.random() * 1.2 - 0.1, y: startY - Math.random() * 0.4, s: 0.6 + Math.random() * 0.9,
+        vx: -0.08, vy: 1.5 + Math.random() * 1.1, seed: Math.random() * 6.28,
+      }
+    }
+    if (kind === 'sparks') {
+      return {
+        x: Math.random(), y: 1.05 + Math.random() * 0.3, s: 0.4 + Math.random() * 0.9,
+        vx: (Math.random() - 0.5) * 0.05, vy: -0.16 - Math.random() * 0.2,
+        seed: Math.random() * 6.28,
+      }
+    }
+    if (kind === 'bubbles') {
+      return {
+        x: Math.random(), y: 1.05 + Math.random() * 0.3, s: 0.35 + Math.random() * 1.1,
+        vx: (Math.random() - 0.5) * 0.02, vy: -0.07 - Math.random() * 0.11,
+        seed: Math.random() * 6.28,
+      }
+    }
+    if (kind === 'dust') {
+      return {
+        x: 1.1 + Math.random() * 0.3, y: Math.random(), s: 0.5 + Math.random() * 1.2,
+        vx: -0.45 - Math.random() * 0.5, vy: (Math.random() - 0.5) * 0.02,
+        seed: Math.random() * 6.28,
+      }
+    }
+    if (kind === 'pixels') {
+      return {
+        x: Math.random(), y: startY, s: 0.5 + Math.random() * 1.4,
+        vx: 0, vy: 0.03 + Math.random() * 0.05, seed: Math.random() * 6.28,
+      }
+    }
     return {
       x: Math.random() < 0.5 ? -0.15 : 1.15, y: 0.06 + Math.random() * 0.34,
       s: 0.6 + Math.random() * 0.8,
@@ -243,6 +285,24 @@ export class Stage2D implements GameRenderer {
           this.squashBall(w, 0.10 + 0.08 * power)
           this.craters.push({ x: w.ballX, r: 22 + power * 26 })
           if (this.craters.length > 14) this.craters.shift()
+          break
+        }
+        case Ev.SCENE_MOMENT:
+          if (e.intensity === 2) {
+            this.flash = Math.max(this.flash, 0.95)
+            this.trauma = Math.min(1, this.trauma + 0.5)
+          } else {
+            this.flash = Math.max(this.flash, 0.2)
+          }
+          break
+        case Ev.BEAT_HIT:
+          this.flash = Math.max(this.flash, 0.10)
+          this.burst(w.ballX, w.ballY, 16, 240, '#ff2fa0', 0.4, 5)
+          break
+        case Ev.CLOUD_POP: {
+          const i = Math.max(0, Math.min(2, e.intensity))
+          this.burst(cloudX(i), cloudY(i), 30, 130, '#f2f7ff', 0.35, 7)
+          this.trauma = Math.min(1, this.trauma + 0.08)
           break
         }
         case Ev.BALL_HIT_NET:
@@ -706,10 +766,14 @@ export class Stage2D implements GameRenderer {
       const f = this.fg[i]
       f.x += f.vx * dt
       f.y += f.vy * dt
-      if (kind === 'confetti') {
+      if (kind === 'confetti' || kind === 'pixels') {
         if (f.y > 1.2) { this.fg[i] = this.spawnFg(-0.2); continue }
-      } else if (kind === 'gulls') {
-        if (f.x < -0.3 || f.x > 1.3) { this.fg[i] = this.spawnFg(); continue }
+      } else if (kind === 'gulls' || kind === 'birds' || kind === 'dust') {
+        if (f.x < -0.3 || f.x > 1.45) { this.fg[i] = this.spawnFg(); continue }
+      } else if (kind === 'rain') {
+        if (f.y > 1.2) { this.fg[i] = this.spawnFg(-0.25); continue }
+      } else if (kind === 'sparks' || kind === 'bubbles') {
+        if (f.y < -0.2) { this.fg[i] = this.spawnFg(); continue }
       } else {
         f.x += Math.sin(this.time * 0.7 + f.seed) * 0.0016
         f.y += Math.cos(this.time * 0.9 + f.seed * 1.7) * 0.0012
@@ -737,18 +801,170 @@ export class Stage2D implements GameRenderer {
         c.globalCompositeOperation = 'source-over'
         c.fillStyle = '#d8ff9a'
         c.beginPath(); c.arc(x, y, 1.7 * s, 0, Math.PI * 2); c.fill()
+      } else if (kind === 'rain') {
+        c.strokeStyle = 'rgba(198,224,255,0.5)'
+        c.lineWidth = 1.6 * s
+        c.beginPath()
+        c.moveTo(x, y)
+        c.lineTo(x - 3 * s, y + 26 * s)
+        c.stroke()
+      } else if (kind === 'sparks') {
+        const pulse = 0.4 + Math.abs(Math.sin(this.time * 5 + f.seed)) * 0.6
+        const r = 9 * s * pulse
+        c.globalCompositeOperation = 'lighter'
+        c.globalAlpha = pulse * 0.8
+        c.drawImage(this.glow, x - r, y - r, r * 2, r * 2)
+        c.globalAlpha = 1
+        c.globalCompositeOperation = 'source-over'
+      } else if (kind === 'bubbles') {
+        c.strokeStyle = 'rgba(220,246,255,0.55)'
+        c.lineWidth = 1.6 * s
+        c.beginPath()
+        c.arc(x + Math.sin(this.time * 1.4 + f.seed) * 5 * s, y, 5.5 * s, 0, Math.PI * 2)
+        c.stroke()
+      } else if (kind === 'dust') {
+        c.strokeStyle = 'rgba(226,196,140,0.4)'
+        c.lineWidth = 1.4 * s
+        c.beginPath()
+        c.moveTo(x, y); c.lineTo(x + 22 * s, y)
+        c.stroke()
+      } else if (kind === 'pixels') {
+        c.fillStyle = 'rgba(155,188,15,0.35)'
+        const q = 5 * s
+        c.fillRect(Math.round(x / q) * q, Math.round(y / q) * q, q, q)
       } else {
         const flap = Math.sin(this.time * 7 + f.seed) * 0.55
         const dir = f.vx > 0 ? 1 : -1
-        c.strokeStyle = 'rgba(28,32,44,0.5)'
-        c.lineWidth = 3.4 * s
+        const far = kind === 'birds' ? 0.55 : 1
+        c.strokeStyle = kind === 'birds' ? 'rgba(24,26,40,0.32)' : 'rgba(28,32,44,0.5)'
+        c.lineWidth = 3.4 * s * far
         c.lineCap = 'round'
         c.beginPath()
-        c.moveTo(x - 15 * s * dir, y + flap * 9 * s)
-        c.quadraticCurveTo(x, y - 5 * s, x + 15 * s * dir, y + flap * 9 * s)
+        c.moveTo(x - 15 * s * far * dir, y + flap * 9 * s * far)
+        c.quadraticCurveTo(x, y - 5 * s * far, x + 15 * s * far * dir, y + flap * 9 * s * far)
         c.stroke()
       }
     }
+  }
+
+  /**
+   * O que a regra faz, desenhado. As nuvens são o caso que não pode faltar: a
+   * bola quica nelas, então elas têm que existir na tela.
+   */
+  private sceneProps(w: Match['world']) {
+    const c = this.ctx
+    const f = w.field
+    if (f.clouds) {
+      for (let i = 0; i < 3; i++) {
+        const alive = w.cloudAlive(i)
+        const k = alive ? 1 : 0
+        if (!k) continue
+        const cx = cloudX(i), cy = cloudY(i)
+        c.fillStyle = 'rgba(246,250,255,0.92)'
+        for (let b = 0; b < 6; b++) {
+          const bx = cx - CLOUD_HALF_W + (b / 5) * CLOUD_HALF_W * 2
+          const r = CLOUD_THICK * (1.5 + Math.sin(b * 1.7 + i) * 0.35)
+          c.beginPath(); c.arc(bx, cy + Math.sin(b * 2.1) * 3, r, 0, Math.PI * 2); c.fill()
+        }
+        c.fillStyle = 'rgba(198,214,238,0.6)'
+        c.fillRect(cx - CLOUD_HALF_W, cy + CLOUD_THICK * 0.6, CLOUD_HALF_W * 2, 4)
+      }
+    }
+    if (w.sceneRule === 'rave') {
+      // o chão bate junto com o kick: é o mesmo tempo da janela de acerto
+      const kick = this.audioBeat < 0
+        ? 0.25 + 0.25 * Math.sin(this.time * 3.2)
+        : Math.pow(1 - this.audioBeat, 2.4)
+      c.globalCompositeOperation = 'lighter'
+      c.globalAlpha = 0.04 + kick * 0.20
+      c.fillStyle = '#ff2fa0'
+      c.fillRect(LEFT_PLANE, GROUND - 6, RIGHT_PLANE - LEFT_PLANE, 70)
+      c.globalAlpha = 0.05 + kick * 0.16
+      c.strokeStyle = '#51e0ff'
+      c.lineWidth = 4
+      for (let i = 0; i < 5; i++) {
+        const a = Math.max(0, this.audioBar) * 6.28 + i * 1.25
+        const x = NET_POSITION_X + Math.sin(a) * (RIGHT_PLANE - LEFT_PLANE) * 0.45
+        c.beginPath(); c.moveTo(NET_POSITION_X, 0); c.lineTo(x, GROUND); c.stroke()
+      }
+      c.globalCompositeOperation = 'source-over'
+      c.globalAlpha = 1
+    }
+    if (f.fx & FX_BUBBLE) {
+      const span = RIGHT_PLANE - LEFT_PLANE
+      c.globalCompositeOperation = 'lighter'
+      for (const k of [0.25, 0.75]) {
+        const bx = LEFT_PLANE + span * k
+        c.fillStyle = 'rgba(180,232,255,0.10)'
+        c.fillRect(bx - 60, 0, 120, GROUND + 40)
+      }
+      c.globalCompositeOperation = 'source-over'
+    }
+    if (f.fx & (FX_GUST_WARN | FX_GUST)) {
+      const warn = (f.fx & FX_GUST_WARN) !== 0
+      const dir = f.wind >= 0 ? 1 : -1
+      c.globalAlpha = warn ? 0.35 + Math.sin(this.time * 14) * 0.2 : 0.55
+      c.strokeStyle = warn ? 'rgba(255,236,170,0.9)' : 'rgba(222,240,255,0.9)'
+      c.lineWidth = 3
+      for (let i = 0; i < 5; i++) {
+        const y = 120 + i * 62
+        const x0 = LEFT_PLANE + 40 + ((this.time * 340 * (warn ? 0 : dir) + i * 90) % 360)
+        c.beginPath()
+        c.moveTo(x0, y); c.lineTo(x0 + 90 * dir, y)
+        c.lineTo(x0 + 70 * dir, y - 9)
+        c.stroke()
+      }
+      c.globalAlpha = 1
+    }
+  }
+
+  /** LCD, inversão e escuro de túnel: passa por cima de tudo, sem tocar no jogo. */
+  private sceneGrade(w: Match['world'], dt: number) {
+    const c = this.ctx
+    const f = w.field
+    const k = (a: number, b: number, r: number) => a + (b - a) * (1 - Math.exp(-dt * r))
+    this.lcdK = k(this.lcdK, w.sceneRule === 'gameboy' ? 1 : 0, 5)
+    this.invertK = k(this.invertK, (f.fx & FX_INVERT) ? 1 : 0, 22)
+    this.dimK = k(this.dimK, (f.fx & FX_TUNNEL) ? 0.82 : 0, 7)
+
+    if (this.dimK > 0.004) {
+      c.fillStyle = `rgba(0,0,0,${this.dimK})`
+      c.fillRect(0, 0, this.cw, this.ch)
+    }
+    if (this.lcdK > 0.01) {
+      c.globalAlpha = this.lcdK
+      c.globalCompositeOperation = 'saturation'
+      c.fillStyle = '#808080'
+      c.fillRect(0, 0, this.cw, this.ch)
+      c.globalCompositeOperation = 'source-over'
+      // sem contraste o verde vira papa: o LCD só tem quatro tons por um motivo
+      c.globalAlpha = 1
+      c.filter = 'contrast(2.6) brightness(1.05)'
+      c.drawImage(c.canvas, 0, 0)
+      c.filter = 'none'
+      c.globalAlpha = this.lcdK
+      c.globalCompositeOperation = 'multiply'
+      c.fillStyle = '#9bbc0f'
+      c.fillRect(0, 0, this.cw, this.ch)
+      c.globalCompositeOperation = 'source-over'
+      c.globalAlpha = this.lcdK * 0.16
+      c.fillStyle = '#0f380f'
+      for (let y = 0; y < this.ch; y += 4) c.fillRect(0, y, this.cw, 2)
+      c.globalAlpha = 1
+    }
+    if (this.invertK > 0.01) {
+      c.globalAlpha = this.invertK
+      c.globalCompositeOperation = 'difference'
+      c.fillStyle = '#ffffff'
+      c.fillRect(0, 0, this.cw, this.ch)
+      c.globalCompositeOperation = 'source-over'
+      c.globalAlpha = 1
+    }
+  }
+
+  setBeat(bar: number, beat: number) {
+    this.audioBar = bar
+    this.audioBeat = beat
   }
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
@@ -1186,6 +1402,7 @@ export class Stage2D implements GameRenderer {
     c.stroke()
 
     this.walls()
+    this.sceneProps(w)
 
     c.fillStyle = 'rgba(150,116,64,0.30)'
     for (const cr of this.craters) {
@@ -1319,6 +1536,7 @@ export class Stage2D implements GameRenderer {
 
     c.setTransform(1, 0, 0, 1, 0, 0)
     this.foreground(dt)
+    this.sceneGrade(w, dt)
 
     if (this.flash > 0.001) {
       c.fillStyle = `rgba(255,255,255,${this.flash})`

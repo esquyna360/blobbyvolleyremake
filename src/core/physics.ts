@@ -26,7 +26,7 @@ import {
 import type { Side } from './constants.ts'
 import {
   BEAT_HIT_BOOST, BLOB_SLIDE, CLOUD_COUNT, CLOUD_HALF_W, CLOUD_RESPAWN, CLOUD_RESTITUTION,
-  CLOUD_THICK, GB_GLITCH_TOUCHES, GB_TELEPORT, cloudHits, cloudTop, cloudX,
+  CLOUD_THICK, GB_GLITCH_TOUCHES, GB_SPEEDS, GB_TELEPORT, WAVE_PERIOD, cloudHits, cloudTop, cloudX,
   newSceneField, quantizeVelocity, sceneField,
 } from './scene-rules.ts'
 import type { SceneRuleId } from './scene-rules.ts'
@@ -371,6 +371,21 @@ export class PhysicWorld {
     }
 
     this.charge[p] = 0
+
+    // Game Boy: o especial é soprar o cartucho. A bola volta ao centro na
+    // velocidade neutra e o rally recomeça limpo, sem ninguém ganhar nada.
+    if (this.field.quantize) {
+      this.ballX = NET_POSITION_X
+      this.ballY = STANDARD_BALL_HEIGHT
+      this.ballVX = 0
+      this.ballVY = GB_SPEEDS[0] * 0.35
+      this.ballSpin = 0
+      this.sceneTouch = 0
+      out.push({ event: Ev.SCENE_MOMENT, side: p, intensity: 1 })
+      out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
+      return
+    }
+
     this.bumpTempo()
     this.aimSpecial(p)
     this.scaleBallV()
@@ -571,11 +586,18 @@ export class PhysicWorld {
     if (isGameRunning) this.sceneFrame++
     sceneField(this.sceneRule, this.sceneFrame, this.rally, this.matchPoint, this.ballX, this.field)
 
+    // raio: só no match point, e só na crista da onda grande
+    if (isGameRunning && this.sceneRule === 'tempestade' && this.matchPoint) {
+      const cycle = this.sceneFrame % (WAVE_PERIOD * 3)
+      if (cycle === WAVE_PERIOD * 2 + WAVE_PERIOD / 4) {
+        out.push({ event: Ev.SCENE_MOMENT, side: LEFT, intensity: 2 })
+      }
+    }
+
     if (!this.field.clouds) { this.cloudUp = 7; this.cloudRe[0] = 0; this.cloudRe[1] = 0; this.cloudRe[2] = 0; return }
     for (let i = 0; i < CLOUD_COUNT; i++) {
       if (this.cloudRe[i] > 0 && --this.cloudRe[i] === 0) this.cloudUp |= 1 << i
     }
-    void out
   }
 
   cloudAlive(i: number) { return (this.cloudUp & (1 << i)) !== 0 }

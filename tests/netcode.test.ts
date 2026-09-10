@@ -5,9 +5,10 @@ import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
 import {
   BALL_COLLISION_VELOCITY, BALL_RADIUS, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, RIGHT_PLANE,
-  SPECIAL_CAP, SPECIAL_FULL, SPECIAL_VELOCITY,
+  SPECIAL_CAP, SPECIAL_FULL, SPECIAL_VELOCITY, BLOBBY_UPPER_SPHERE,
 } from '../src/core/constants.ts'
 import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
+import { GB_SPEEDS, cloudTop, cloudX } from '../src/core/scene-rules.ts'
 
 function rng(seed: number) {
   let s = seed >>> 0
@@ -300,4 +301,54 @@ test('quadra aberta pontua a bola fora; com parede ela quica', () => {
   for (let f = 0; f < 6; f++) walled.step(NO_INPUT, NO_INPUT)
   assert.ok(walled.world.ballVX < 0, 'não quicou na parede')
   assert.equal(walled.logic.scores[RIGHT], 0, 'quique não pode virar ponto')
+})
+
+/** Cenário que é regra: a nuvem segura a bola e o estado dela volta no rollback. */
+test('nuvem segura a bola e sobrevive ao save/restore', () => {
+  const m = new Match('default', 15, LEFT, true, 'nuvens')
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.ballX = cloudX(2)
+  w.ballY = cloudTop(2) - BALL_RADIUS - 4
+  w.ballVX = 0
+  w.ballVY = 3
+
+  for (let f = 0; f < 4 && w.ballVY > 0; f++) m.step(NO_INPUT, NO_INPUT)
+  assert.ok(w.ballVY < 0, `bola atravessou a nuvem: vy=${w.ballVY}`)
+
+  // o blob que encosta estoura a nuvem, e ela volta depois do castigo
+  w.blobX[LEFT] = cloudX(0)
+  w.blobY[LEFT] = cloudTop(0) + BLOBBY_UPPER_SPHERE
+  m.step(NO_INPUT, NO_INPUT)
+  assert.ok(!w.cloudAlive(0), 'nuvem não estourou')
+  assert.ok(m.events.some(e => e.event === Ev.CLOUD_POP), 'evento de estouro não saiu')
+
+  const snap = allocState()
+  m.save(snap)
+  const before = m.checksum()
+  for (let f = 0; f < 30; f++) m.step(NO_INPUT, NO_INPUT)
+  assert.notEqual(m.checksum(), before)
+  m.restore(snap)
+  assert.equal(m.checksum(), before, 'checksum não voltou depois do restore')
+  assert.equal(w.cloudAlive(0), false, 'nuvem voltou sozinha no restore')
+})
+
+/** Game Boy: dezesseis direções, três velocidades, nada no meio. */
+test('game boy quantiza a bola na grade de 22,5 graus', () => {
+  const m = new Match('default', 15, LEFT, true, 'gameboy')
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 200
+  w.blobY[LEFT] = 455.5
+  w.ballX = 200
+  w.ballY = 455.5 - BLOBBY_UPPER_SPHERE - BALL_RADIUS + 2
+  w.ballVX = 3.3
+  w.ballVY = 1.7
+
+  for (let f = 0; f < 3; f++) m.step(NO_INPUT, NO_INPUT)
+  const speed = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY)
+  const ok = GB_SPEEDS.some(v => Math.abs(speed - v) < 1.2)
+  assert.ok(ok, `velocidade fora da grade: ${speed}`)
 })
