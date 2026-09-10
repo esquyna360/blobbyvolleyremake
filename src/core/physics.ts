@@ -4,11 +4,16 @@ import {
   BLOBBY_SPEED, BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, GRAVITATION,
   GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
-  STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
+  STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
   SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
   SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
-  HAND_REACH, HAND_CD, HAND_FREEZE, HAND_MIN_SPEED, AIM_DIRS, TEMPO_MAX, TEMPO_STEP,
+  TEMPO_MAX, TEMPO_STEP,
+  SPIN_FROM_VX, SPIN_MAX, SPIN_DECAY, MAGNUS_K, SPIN_ROT, APEX_WINDOW, APEX_MUL, FALL_MUL,
+  DIVE_SPEED, DIVE_HOP, DIVE_FRAMES, DIVE_RECOVER, DIVE_CD, DIVE_WIDE, CROUCH_WIDE,
+  DIVE_VELOCITY, DIVE_TARGET_DEPTH, DIVE_NET_CLEARANCE,
+  DIVE_TIME_MIN, DIVE_TIME_STEP, DIVE_TIME_STEPS, DIVE_GAIN,
+  SPECIAL_RALLY_HOT, SPECIAL_RALLY_MUL, SPECIAL_LEAK,
   SPECIAL_COMEBACK_STEP, SPECIAL_COMEBACK_MIN, SPECIAL_COMEBACK_MAX,
   SPECIAL_DEPTH_JITTER, SPECIAL_ARC_JITTER,
   PARRY_ACTIVE, PARRY_CD, PARRY_REACH, PARRY_BOOST, PARRY_CHAIN_MAX,
@@ -23,7 +28,7 @@ import {
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
-import { NO_INPUT, aimIndex } from './input.ts'
+import { NO_INPUT } from './input.ts'
 import type { PlayerInput } from './input.ts'
 
 export class PhysicWorld {
@@ -46,9 +51,14 @@ export class PhysicWorld {
   knock = [0, 0]
   prevUp = [0, 0]
   prevSpecial = [0, 0]
-  prevHand = [0, 0]
-  handCd = [0, 0]
-  handFreeze = [0, 0]
+  /** Rotação da bola. Positivo = curva pra direita/pra baixo no voo. */
+  ballSpin = 0
+  diveFrames = [0, 0]
+  diveDir = [0, 0]
+  diveCd = [0, 0]
+  diveRecover = [0, 0]
+  /** Espelho do rally da lógica: a barra carrega mais rápido em troca longa. */
+  rally = 0
   /** Escala de tempo do rally: 1 no saque, sobe a cada toque até TEMPO_MAX. */
   tempo = 1
   superFrames = 0
@@ -72,6 +82,12 @@ export class PhysicWorld {
   upperY(p: Side) { return this.blobY[p] - BLOBBY_UPPER_SPHERE + this.crouch[p] * CROUCH_DUCK }
   upperR(p: Side) { return BLOBBY_UPPER_RADIUS - this.crouch[p] * CROUCH_SLIM }
   lowerR(p: Side) { return BLOBBY_LOWER_RADIUS + this.crouch[p] * CROUCH_SPREAD }
+  /** Esticada horizontal da caixa de baixo: agachado alarga um pouco, mergulhando alarga muito. */
+  wideX(p: Side) {
+    const dive = this.diveFrames[p] > 0 ? 1 : this.diveRecover[p] > 0 ? 0.5 : 0
+    return 1 + this.crouch[p] * CROUCH_WIDE + dive * DIVE_WIDE
+  }
+  diving(p: Side) { return this.diveFrames[p] > 0 }
   spikeK(p: Side) {
     return Math.max(0, Math.min(1, (this.spikePow[p] - SPIKE_MIN_HOLD) / (SPIKE_MAX_HOLD - SPIKE_MIN_HOLD)))
   }
@@ -83,11 +99,13 @@ export class PhysicWorld {
     return Math.max(SPECIAL_COMEBACK_MIN, Math.min(SPECIAL_COMEBACK_MAX, m))
   }
 
-  private addCharge(p: Side, amount: number, out: MatchEvent[]) {
-    if (this.charge[p] >= SPECIAL_FULL) return
-    this.charge[p] += amount * this.comeback(p)
-    if (this.charge[p] >= SPECIAL_FULL) {
-      this.charge[p] = SPECIAL_FULL
+  addCharge(p: Side, amount: number, out: MatchEvent[]) {
+    if (this.charge[p] >= SPECIAL_CAP) return
+    const hot = this.rally >= SPECIAL_RALLY_HOT ? SPECIAL_RALLY_MUL : 1
+    const was = this.charge[p]
+    this.charge[p] += amount * this.comeback(p) * hot
+    if (this.charge[p] > SPECIAL_CAP) this.charge[p] = SPECIAL_CAP
+    if (was < SPECIAL_FULL && this.charge[p] >= SPECIAL_FULL) {
       out.push({ event: Ev.SPECIAL_READY, side: p, intensity: 1 })
     }
   }
@@ -130,13 +148,6 @@ export class PhysicWorld {
   private scaleBallV() {
     this.ballVX *= this.tempo
     this.ballVY *= this.tempo
-  }
-
-  /** Direção mirada, ou o padrão pra frente e um pouco pra cima. */
-  private aimOf(p: Side, raw: PlayerInput, ignoreUp = false) {
-    const i = aimIndex(ignoreUp ? { ...raw, up: false } : raw)
-    if (i >= 0) return i
-    return p === LEFT ? 2 : 14
   }
 
   /** A parábola passa por cima da rede em toda a faixa de colisão dela? */
@@ -273,7 +284,10 @@ export class PhysicWorld {
       }
     }
 
-    if (raw.down && this.prevDown[p] === 0 && this.stun[p] <= 0 && this.digCd[p] === 0) {
+    // baixo + lado no chão é mergulho, não manchete: sem esse corte a manchete
+    // pega a bola de 128px de distância e o mergulho nunca serve pra nada
+    if (raw.down && this.prevDown[p] === 0 && this.stun[p] <= 0 && this.digCd[p] === 0 &&
+        !this.divePress(p, raw)) {
       this.digActive[p] = DIG_WINDOW
       this.digCd[p] = DIG_CD
     }
@@ -310,48 +324,38 @@ export class PhysicWorld {
     this.ballY = cy + (dy / k) * need
   }
 
-  /** Mão dirigida: bola perto sem encostar, o toque só vira a direção dela. */
   /**
-   * Mão dirigida: a bola tem que estar por perto e sem encostar — encostou, o
-   * toque normal já resolveu. Não acrescenta força, só troca a direção. Errar
-   * queima a recarga e trava o pé por alguns frames.
+   * Mergulho. Baixo apertado enquanto corre no chão: o blob se joga de lado,
+   * esticado e rente à areia. Alcança o que a corrida não alcança e paga
+   * ficando deitado no fim.
    */
-  private tryHand(p: Side, raw: PlayerInput, isBallValid: boolean, out: MatchEvent[]) {
-    if (!raw.hand || this.prevHand[p] !== 0) return
-    if (this.handCd[p] > 0 || this.stun[p] > 0) return
-    if (isBallValid && (this.bottomBallCollision(p) || this.topBallCollision(p))) return
-
-    this.handCd[p] = HAND_CD
-    const dx = this.ballX - this.blobX[p]
-    const dy = this.ballY - this.upperY(p)
-    const d = Math.sqrt(dx * dx + dy * dy)
-    // bola de especial alheia não se pega de raspão: pra isso existe o parry
-    const blocked = this.superFrames > 0 && this.superOwner !== p
-    if (!isBallValid || blocked || d > HAND_REACH) {
-      this.handFreeze[p] = HAND_FREEZE
-      out.push({ event: Ev.HAND_MISS, side: p, intensity: 0 })
-      return
-    }
-
-    this.bumpTempo()
-    const i = this.aimOf(p, raw) * 2
-    const cur = Math.sqrt(this.ballVX * this.ballVX + this.ballVY * this.ballVY)
-    const sp = Math.max(HAND_MIN_SPEED * this.tempo, cur)
-    this.ballVX = AIM_DIRS[i] * sp
-    this.ballVY = AIM_DIRS[i + 1] * sp
-    this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
-    out.push({ event: Ev.HAND_HIT, side: p, intensity: 1 })
+  /** Esse toque de baixo é mergulho? Vale pra manchete e pro mergulho lerem igual. */
+  private divePress(p: Side, raw: PlayerInput) {
+    return raw.left !== raw.right && this.stun[p] === 0 && this.diveCd[p] === 0 &&
+      this.diveFrames[p] === 0 && this.diveRecover[p] === 0 && this.blobHitGround(p)
   }
 
+  private tryDive(p: Side, raw: PlayerInput, out: MatchEvent[]) {
+    if (!raw.down || this.prevDown[p] !== 0) return
+    if (!this.divePress(p, raw)) return
+    const dir = raw.right ? 1 : -1
+
+    this.diveFrames[p] = DIVE_FRAMES
+    this.diveDir[p] = dir
+    this.diveCd[p] = DIVE_CD
+    this.spikeHold[p] = 0
+    this.spikeFrames[p] = 0
+    this.blobVX[p] = dir * DIVE_SPEED * this.tempo
+    this.blobVY[p] = DIVE_HOP * this.tempo
+    out.push({ event: Ev.DIVE, side: p, intensity: 0 })
+  }
 
   /** Barra cheia e bola por perto: pulo de novo no ar, ou a tecla de especial. */
   private trySpecial(p: Side, raw: PlayerInput, isBallValid: boolean, wasGround: boolean, out: MatchEvent[]) {
     if (!isBallValid || this.stun[p] > 0) return
     if (this.superFrames > 0 && this.superOwner !== p) return
     if (this.charge[p] < SPECIAL_FULL) return
-    const bySpecial = raw.special && this.prevSpecial[p] === 0
-    const byUp = !bySpecial && raw.up && this.prevUp[p] === 0 && !raw.hand
-    const pressed = byUp || bySpecial
+    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
     if (!pressed) return
     if (wasGround) return
 
@@ -366,16 +370,8 @@ export class PhysicWorld {
 
     this.charge[p] = 0
     this.bumpTempo()
-    // quem soltou pelo pulo não estava mirando pra cima, estava pulando
-    const i = aimIndex(byUp ? { ...raw, up: false } : raw)
-    if (i >= 0) {
-      const v = SPECIAL_VELOCITY * this.tempo
-      this.ballVX = AIM_DIRS[i * 2] * v
-      this.ballVY = AIM_DIRS[i * 2 + 1] * v
-    } else {
-      this.aimSpecial(p)
-      this.scaleBallV()
-    }
+    this.aimSpecial(p)
+    this.scaleBallV()
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
@@ -386,7 +382,7 @@ export class PhysicWorld {
   private tryParry(p: Side, raw: PlayerInput, out: MatchEvent[]) {
     if (this.stun[p] > 0) return
     if (this.superFrames <= 0 || this.superOwner === p) return
-    const pressed = (raw.up && this.prevUp[p] === 0 && !raw.hand) || (raw.special && this.prevSpecial[p] === 0)
+    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
     if (pressed && this.parryCd[p] === 0 && this.parryActive[p] === 0) {
       this.parryActive[p] = PARRY_ACTIVE
       this.parryCd[p] = PARRY_CD
@@ -418,7 +414,7 @@ export class PhysicWorld {
   }
 
   private bottomBallCollision(p: Side) {
-    const dx = this.ballX - this.blobX[p]
+    const dx = (this.ballX - this.blobX[p]) / this.wideX(p)
     const dy = this.ballY - (this.blobY[p] + BLOBBY_LOWER_SPHERE)
     const r = BALL_RADIUS + this.lowerR(p)
     return dx * dx + dy * dy < r * r
@@ -438,8 +434,7 @@ export class PhysicWorld {
     const T = this.tempo
     const T2 = T * T
     let g = GRAVITATION
-    // com a mão apertada, pra cima é mira, não pulo
-    if (input.up && !input.down && !input.hand) {
+    if (input.up && !input.down) {
       if (ground && this.spikeFrames[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
       g -= BLOBBY_JUMP_BUFFER
     }
@@ -448,8 +443,26 @@ export class PhysicWorld {
     if ((input.left || input.right) && ground) this.startAnim(p)
     g *= T2
 
-    // mão no vazio prende o pé: é o preço de martelar o botão
-    const stuck = this.handFreeze[p] > 0
+    // mergulhando o blob é um projétil: não freia nem muda de ideia no meio
+    if (this.diveFrames[p] > 0) {
+      this.blobX[p] += this.blobVX[p] + this.knock[p]
+      if (this.knock[p] !== 0) {
+        this.knock[p] *= KNOCK_DECAY
+        if (Math.abs(this.knock[p]) < 0.05) this.knock[p] = 0
+      }
+      this.blobY[p] += 0.5 * g + this.blobVY[p]
+      this.blobVY[p] += g
+      if (this.blobY[p] >= GROUND_PLANE_HEIGHT) {
+        this.blobY[p] = GROUND_PLANE_HEIGHT
+        this.blobVY[p] = 0
+        this.diveFrames[p] = 0
+        this.diveRecover[p] = DIVE_RECOVER
+      }
+      return
+    }
+
+    // levantando da areia: o preço do mergulho é ficar parado um instante
+    const stuck = this.diveRecover[p] > 0
     const slow = (1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)) * T
     this.blobVX[p] = stuck ? 0
       : ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
@@ -484,6 +497,19 @@ export class PhysicWorld {
 
     this.bumpTempo()
 
+    // mergulho: é defesa, não ataque. Levanta a bola alto e devagar, sem spin.
+    if ((this.diveFrames[p] > 0 || this.diveRecover[p] > 0) && this.superFrames === 0) {
+      const dx = this.ballX - this.blobX[p]
+      const dy = this.ballY - cy
+      this.ballSpin = 0
+      this.aimShotScaled(p, DIVE_VELOCITY, DIVE_VELOCITY * 0.7, DIVE_TARGET_DEPTH,
+        DIVE_NET_CLEARANCE, DIVE_TIME_MIN, DIVE_TIME_STEP, DIVE_TIME_STEPS, 5)
+      this.pushOut(p, cy, dx, dy, Math.sqrt(dx * dx + dy * dy), cr)
+      this.addCharge(p, DIVE_GAIN, out)
+      out.push({ event: Ev.DIVE_HIT, side: p, intensity: 1 })
+      return true
+    }
+
     // cortada: janela do salto carregado manda a bola no lugar em vez de refletir
     if (this.spikeFrames[p] > 0 && this.superFrames === 0) {
       const k = this.spikeK(p)
@@ -503,12 +529,23 @@ export class PhysicWorld {
     const ry = this.ballVY - this.blobVY[p]
     const intensity = Math.min(1, Math.sqrt(rx * rx + ry * ry) / 25)
 
-    let nx = this.ballX - this.blobX[p]
+    let nx = (this.ballX - this.blobX[p]) / this.wideX(p)
     let ny = this.ballY - cy
     const l = Math.sqrt(nx * nx + ny * ny) || 1
     nx /= l; ny /= l
-    this.ballVX = nx * BALL_COLLISION_VELOCITY * this.tempo
-    this.ballVY = ny * BALL_COLLISION_VELOCITY * this.tempo
+
+    // onde no pulo você bateu: no ápice sai mais forte, caindo sai mais fraco
+    const bvy = this.blobVY[p]
+    const apex = bvy < 0 || bvy > 0
+      ? (bvy > -APEX_WINDOW && bvy < APEX_WINDOW ? APEX_MUL : bvy > 0 ? FALL_MUL : 1)
+      : 1
+    const v = BALL_COLLISION_VELOCITY * this.tempo * apex
+    this.ballVX = nx * v
+    this.ballVY = ny * v
+    // e o quanto você estava correndo vira rotação, que é o que curva a bola
+    const raw = this.blobVX[p] * SPIN_FROM_VX
+    this.ballSpin = raw > SPIN_MAX ? SPIN_MAX : raw < -SPIN_MAX ? -SPIN_MAX : raw
+    if (apex === APEX_MUL) out.push({ event: Ev.APEX_HIT, side: p, intensity: 1 })
     this.ballX += this.ballVX
     this.ballY += this.ballVY
 
@@ -540,14 +577,17 @@ export class PhysicWorld {
       this.ballVY = -this.ballVY * 0.95
       this.ballVX *= 0.95
       this.ballY = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+      this.ballSpin = 0
       out.push({ event: Ev.BALL_HIT_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 0 })
     }
 
     if (this.ballX - BALL_RADIUS <= LEFT_PLANE && this.ballVX < 0) {
+      this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = LEFT_PLANE + BALL_RADIUS
       out.push({ event: Ev.BALL_HIT_WALL, side: LEFT, intensity: 0 })
     } else if (this.ballX + BALL_RADIUS >= RIGHT_PLANE && this.ballVX > 0) {
+      this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = RIGHT_PLANE - BALL_RADIUS
       out.push({ event: Ev.BALL_HIT_WALL, side: RIGHT, intensity: 0 })
@@ -555,6 +595,7 @@ export class PhysicWorld {
       const right = this.ballX - NET_POSITION_X > 0
       this.ballVX = -this.ballVX
       this.ballX = NET_POSITION_X + (right ? BALL_RADIUS + NET_RADIUS : -BALL_RADIUS - NET_RADIUS)
+      this.ballSpin = 0
       out.push({ event: Ev.BALL_HIT_NET, side: right ? RIGHT : LEFT, intensity: 0 })
     } else {
       const dx = this.ballX - NET_POSITION_X
@@ -585,10 +626,10 @@ export class PhysicWorld {
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
     if (this.superFrames > 0 && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
-    if (this.handCd[LEFT] > 0) this.handCd[LEFT]--
-    if (this.handCd[RIGHT] > 0) this.handCd[RIGHT]--
-    if (this.handFreeze[LEFT] > 0) this.handFreeze[LEFT]--
-    if (this.handFreeze[RIGHT] > 0) this.handFreeze[RIGHT]--
+    if (this.diveCd[LEFT] > 0) this.diveCd[LEFT]--
+    if (this.diveCd[RIGHT] > 0) this.diveCd[RIGHT]--
+    if (this.diveRecover[LEFT] > 0) this.diveRecover[LEFT]--
+    if (this.diveRecover[RIGHT] > 0) this.diveRecover[RIGHT]--
     if (this.parryActive[LEFT] > 0) this.parryActive[LEFT]--
     if (this.parryActive[RIGHT] > 0) this.parryActive[RIGHT]--
     if (this.parryCd[LEFT] > 0) this.parryCd[LEFT]--
@@ -612,15 +653,28 @@ export class PhysicWorld {
 
     if (isGameRunning) {
       const g = this.ballG()
+      // Magnus: a rotação empurra a bola perpendicular ao próprio voo, então
+      // ela curva sem ganhar velocidade. Escala com o tempo igual à gravidade.
+      if (this.ballSpin !== 0) {
+        const k = this.ballSpin * MAGNUS_K * this.tempo
+        const vx = this.ballVX, vy = this.ballVY
+        this.ballVX = vx - vy * k
+        this.ballVY = vy + vx * k
+        this.ballSpin *= SPIN_DECAY
+        if (this.ballSpin < 0.006 && this.ballSpin > -0.006) this.ballSpin = 0
+      }
       this.ballX += this.ballVX
       this.ballY += 0.5 * g + this.ballVY
       this.ballVY += g
       this.addCharge(LEFT, SPECIAL_GAIN_FRAME, out)
       this.addCharge(RIGHT, SPECIAL_GAIN_FRAME, out)
+      // barra cheia guardada vaza: o especial é pra usar, não pra colecionar
+      if (this.charge[LEFT] >= SPECIAL_FULL) this.charge[LEFT] = Math.max(0, this.charge[LEFT] - SPECIAL_LEAK)
+      if (this.charge[RIGHT] >= SPECIAL_FULL) this.charge[RIGHT] = Math.max(0, this.charge[RIGHT] - SPECIAL_LEAK)
     }
 
-    this.tryHand(LEFT, li, isBallValid, out)
-    this.tryHand(RIGHT, ri, isBallValid, out)
+    this.tryDive(LEFT, li, out)
+    this.tryDive(RIGHT, ri, out)
 
     if (isBallValid) {
       this.tryParry(LEFT, li, out)
@@ -635,8 +689,6 @@ export class PhysicWorld {
     this.prevUp[RIGHT] = ri.up ? 1 : 0
     this.prevSpecial[LEFT] = li.special ? 1 : 0
     this.prevSpecial[RIGHT] = ri.special ? 1 : 0
-    this.prevHand[LEFT] = li.hand ? 1 : 0
-    this.prevHand[RIGHT] = ri.hand ? 1 : 0
     this.prevDown[LEFT] = li.down ? 1 : 0
     this.prevDown[RIGHT] = ri.down ? 1 : 0
 
@@ -651,8 +703,10 @@ export class PhysicWorld {
 
     const speed = Math.sqrt(this.ballVX * this.ballVX + this.ballVY * this.ballVY)
     if (!isGameRunning) this.ballRot -= this.ballAngVel
-    else if (this.ballVX > 0) this.ballRot += this.ballAngVel * (speed / 6)
-    else this.ballRot -= this.ballAngVel * (speed / 6)
+    else {
+      const base = (this.ballVX > 0 ? 1 : -1) * this.ballAngVel * (speed / 6)
+      this.ballRot += base + this.ballSpin * SPIN_ROT
+    }
 
     if (this.ballRot <= 0) this.ballRot = 6.25 + this.ballRot
     else if (this.ballRot >= 6.25) this.ballRot = this.ballRot - 6.25
@@ -674,8 +728,10 @@ export class PhysicWorld {
     this.digCd[LEFT] = 0; this.digCd[RIGHT] = 0
     this.spikeFrames[LEFT] = 0; this.spikeFrames[RIGHT] = 0
     this.spikeHold[LEFT] = 0; this.spikeHold[RIGHT] = 0
-    this.handCd[LEFT] = 0; this.handCd[RIGHT] = 0
-    this.handFreeze[LEFT] = 0; this.handFreeze[RIGHT] = 0
+    this.diveFrames[LEFT] = 0; this.diveFrames[RIGHT] = 0
+    this.diveRecover[LEFT] = 0; this.diveRecover[RIGHT] = 0
+    this.diveCd[LEFT] = 0; this.diveCd[RIGHT] = 0
+    this.ballSpin = 0
     this.tempo = 1
   }
 }

@@ -385,18 +385,27 @@ export class GameAudio {
     this.burst(0.30, 0.16, 'bandpass', 2400, 1.4, pan)
   }
 
-  /** Mão certeira: tapa seco e curto, sem peso — ela não dá força à bola. */
-  handHit(pan = 0) {
+  /** Mergulho: o grunhido do salto e o corpo arrastando na areia. */
+  dive(pan = 0) {
     if (!this.ctx) return
-    this.thump(320, 1.1, 0.09, 0.14, 'triangle')
-    this.burst(0.06, 0.06, 'highpass', 3400, 1.0, pan)
-    this.bell(1760, 0.01, 0.28, 0.09)
+    this.thump(150, 0.5, 0.16, 0.12, 'triangle')
+    this.burst(0.34, 0.26, 'lowpass', 1500, 0.7, pan)
   }
 
-  /** Mão no vazio: só o sopro do braço passando. */
-  handMiss(pan = 0) {
+  /** Salvou de mergulho: pancada de antebraço com areia voando junto. */
+  diveHit(pan = 0) {
     if (!this.ctx) return
-    this.burst(0.16, 0.13, 'bandpass', 1100, 2.2, pan)
+    this.thump(190, 1.5, 0.14, 0.2, 'sine')
+    this.burst(0.42, 0.3, 'bandpass', 900, 1.6, pan)
+    this.bell(1245, 0.02, 0.34, 0.1)
+  }
+
+  /** Toque no ápice do pulo: estalo limpo e agudo, o som de acertar em cheio. */
+  apexHit(pan = 0) {
+    if (!this.ctx) return
+    this.thump(430, 1.4, 0.07, 0.12, 'triangle')
+    this.bell(2093, 0, 0.4, 0.1)
+    this.burst(0.05, 0.05, 'highpass', 5200, 1.0, pan)
   }
 
   /** Barra queimada à toa: nota que despenca. */
@@ -509,8 +518,9 @@ export class GameAudio {
         case Ev.SPECIAL_FIRED: this.special('fired', ballPan); break
         case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break
         case Ev.SPECIAL_GROUND: this.groundBurn(ballPan); break
-        case Ev.HAND_HIT: this.handHit(panOf(world.blobX[e.side as Side])); break
-        case Ev.HAND_MISS: this.handMiss(panOf(world.blobX[e.side as Side])); break
+        case Ev.DIVE: this.dive(panOf(world.blobX[e.side as Side])); break
+        case Ev.DIVE_HIT: this.diveHit(panOf(world.blobX[e.side as Side])); break
+        case Ev.APEX_HIT: this.apexHit(ballPan); break
         case Ev.SPECIAL_WASTED: this.specialWasted(panOf(world.blobX[e.side as Side])); break
         case Ev.PARRY: this.parry(panOf(world.blobX[e.side as Side])); break
         case Ev.PARRY_TRY: this.parryWhiff(panOf(world.blobX[e.side as Side])); break

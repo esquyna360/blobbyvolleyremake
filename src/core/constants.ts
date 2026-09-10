@@ -117,59 +117,55 @@ export const SPIKE_TIME_STEPS = 26
 export const SPIKE_GAIN = 0.075
 
 /**
- * Mão dirigida. Ela não empurra o adversário nem dá força à bola: pega a bola
- * de raspão — perto mas sem encostar, porque encostar é o toque normal — e vira
- * a velocidade dela pra direção escolhida. Errar custa recarga e alguns frames
- * parado, senão dá pra martelar o botão de graça.
+ * Spin. A velocidade horizontal do blob no instante do toque vira rotação, e
+ * rotação empurra a bola de lado enquanto ela voa. É daí que sai a direção:
+ * de como você se moveu, não de uma tecla de mira.
  */
-export const HAND_REACH = 108
-export const HAND_CD = 60
-export const HAND_FREEZE = 22
-export const HAND_MIN_SPEED = 6
+export const SPIN_FROM_VX = 0.085
+export const SPIN_MAX = 0.55
+export const SPIN_DECAY = 0.982
+export const MAGNUS_K = 0.030
+/** Quanto do spin vira giro visível na bola: sem isso ninguém lê o efeito. */
+export const SPIN_ROT = 0.34
 
-/** Direção: 32 passos de 11.25°, 0 = direita, 8 = cima. Tabela literal porque
- * a simulação é determinística e não pode chamar cos/sin. */
-export const AIM_STEPS = 32
-export const AIM_DIRS: readonly number[] = [
-  1.000000000, -0.000000000,
-  0.980785280, -0.195090322,
-  0.923879533, -0.382683432,
-  0.831469612, -0.555570233,
-  0.707106781, -0.707106781,
-  0.555570233, -0.831469612,
-  0.382683432, -0.923879533,
-  0.195090322, -0.980785280,
-  0.000000000, -1.000000000,
-  -0.195090322, -0.980785280,
-  -0.382683432, -0.923879533,
-  -0.555570233, -0.831469612,
-  -0.707106781, -0.707106781,
-  -0.831469612, -0.555570233,
-  -0.923879533, -0.382683432,
-  -0.980785280, -0.195090322,
-  -1.000000000, -0.000000000,
-  -0.980785280, 0.195090322,
-  -0.923879533, 0.382683432,
-  -0.831469612, 0.555570233,
-  -0.707106781, 0.707106781,
-  -0.555570233, 0.831469612,
-  -0.382683432, 0.923879533,
-  -0.195090322, 0.980785280,
-  -0.000000000, 1.000000000,
-  0.195090322, 0.980785280,
-  0.382683432, 0.923879533,
-  0.555570233, 0.831469612,
-  0.707106781, 0.707106781,
-  0.831469612, 0.555570233,
-  0.923879533, 0.382683432,
-  0.980785280, 0.195090322,
-]
+/** Bater no ápice do pulo vale mais que bater caindo. */
+export const APEX_WINDOW = 2.6
+export const APEX_MUL = 1.22
+export const FALL_MUL = 0.88
 
 /**
- * Ritmo do rally: cada toque acelera o jogo inteiro um degrau até o teto. É
- * escala de tempo de verdade — velocidade vezes T, aceleração vezes T² — então
- * a trajetória é a mesma, só percorrida mais rápido.
+ * Mergulho. Baixo + lado no chão joga o blob de lado, esticado e rente à
+ * areia. É último recurso: alcança o que a corrida não alcança, mas deita e
+ * demora pra levantar.
  */
+export const DIVE_SPEED = BLOBBY_SPEED * 3.2
+export const DIVE_HOP = -3.4
+export const DIVE_FRAMES = 24
+export const DIVE_RECOVER = 20
+export const DIVE_CD = 52
+/** Quanto a caixa de colisão de baixo estica na horizontal, 0 = redonda. */
+export const DIVE_WIDE = 0.55
+export const CROUCH_WIDE = 0.16
+export const DIVE_VELOCITY = BALL_COLLISION_VELOCITY * 0.95
+export const DIVE_TARGET_DEPTH = 0.42
+export const DIVE_NET_CLEARANCE = 26
+export const DIVE_TIME_MIN = 40
+export const DIVE_TIME_STEP = 3
+export const DIVE_TIME_STEPS = 26
+export const DIVE_GAIN = 0.05
+
+/** Barra: quem perde ponto carrega, rally longo carrega dobrado, cheia vaza. */
+export const SPECIAL_GAIN_LOST = 0.15
+export const SPECIAL_RALLY_HOT = 10
+export const SPECIAL_RALLY_MUL = 2
+export const SPECIAL_LEAK = 0.00035
+/**
+ * A barra continua enchendo depois de cheia, mas o excedente não aparece: é
+ * reserva. Guardar o especial gasta essa reserva, e quando ela acaba a barra
+ * cai abaixo do cheio e o especial some. Dá uns 9 segundos pra usar.
+ */
+export const SPECIAL_CAP = 1.2
+
 export const TEMPO_MAX = 1.1
 export const TEMPO_STEP = 0.0125
 

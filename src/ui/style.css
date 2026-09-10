@@ -333,7 +333,6 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 }
 .touch.on { display: flex; }
 .tpad { display: flex; gap: 14px; align-items: flex-end; }
-.tcol { display: flex; flex-direction: column; gap: 12px; }
 .tbtn {
   width: 78px; height: 78px; border-radius: 26px;
   background: rgba(255,255,255,0.07); border: 1px solid var(--line);
@@ -341,20 +340,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   display: grid; place-items: center; font-size: 26px; color: var(--ink);
 }
 .tbtn.big { width: 104px; height: 104px; border-radius: 34px; background: rgba(255,210,87,0.16); border-color: rgba(255,210,87,0.4); }
-.tcol .tbtn { width: 70px; height: 62px; border-radius: 20px; }
 .tbtn.press { background: rgba(255,255,255,0.22); transform: scale(0.94); }
-
-/* a mão dispara ao soltar: o arrasto escolhe a direção e a seta mostra qual é */
-.tbtn.hand { position: relative; }
-.tbtn.hand.aim { background: rgba(159,228,255,0.26); border-color: rgba(159,228,255,0.6); }
-.tbtn.hand.aim::after {
-  content: ''; position: absolute; left: 50%; top: 50%;
-  width: 46px; height: 3px; border-radius: 2px;
-  background: linear-gradient(90deg, rgba(159,228,255,0.15), #9fe4ff);
-  transform-origin: 0 50%;
-  transform: rotate(var(--aim, 0deg)) translateY(-50%);
-  pointer-events: none;
-}
 
 .tmenu {
   position: absolute;
@@ -496,8 +482,6 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   .touch { height: 54vh; padding: 14px 18px calc(28px + env(safe-area-inset-bottom)); }
   .tbtn { width: 62px; height: 62px; border-radius: 20px; font-size: 21px; }
   .tbtn.big { width: 80px; height: 80px; border-radius: 26px; }
-  .tcol { gap: 9px; }
-  .tcol .tbtn { width: 58px; height: 50px; border-radius: 16px; font-size: 18px; }
 }
 
 /* ---------- parry ---------- */

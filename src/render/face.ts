@@ -1,5 +1,5 @@
 import {
-  BLOBBY_UPPER_SPHERE, HAND_REACH, LEFT, RIGHT, SPECIAL_FULL, SPECIAL_REACH,
+  BLOBBY_UPPER_SPHERE, LEFT, RIGHT, SPECIAL_FULL, SPECIAL_REACH,
   SPIKE_MIN_HOLD, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
@@ -9,7 +9,7 @@ import type { MatchEvent } from '../core/events.ts'
 export type Mood =
   | 'calm' | 'focus' | 'worry' | 'panic' | 'shock'
   | 'laugh' | 'sad' | 'angry' | 'smug' | 'hurt'
-  | 'aim' | 'slick' | 'whiff' | 'dumb'
+  | 'aim' | 'slick' | 'whiff' | 'dumb' | 'strain'
 
 export interface FacePose {
   /** 0 fechada .. 1 escancarada */
@@ -42,6 +42,8 @@ const POSES: Record<Mood, FacePose> = {
   whiff: { open: 0.26, curve: -0.58, brow: 0.28, lid: 0.08, tear: 0.25 },
   // barra queimada à toa: queixo caído, cara de bobo
   dumb: { open: 1.00, curve: -0.28, brow: 1.00, lid: 0.30, tear: 0.85 },
+  // se jogando na areia: dente trincado, olho espremido, sobrancelha travada
+  strain: { open: 0.62, curve: -0.42, brow: -0.95, lid: 0.16, tear: 0 },
 }
 
 const mix = (a: FacePose, b: FacePose, k: number): FacePose => ({
@@ -159,13 +161,15 @@ export function faceEvents(rigs: FaceRig[], events: MatchEvent[], scores: number
         rigs[s].set('smug', 0.9, 3)
         rigs[other(s)].set('shock', 0.7, 3)
         break
-      case Ev.HAND_HIT:
-        rigs[s].set('slick', 1.1, 3)
-        rigs[other(s)].set('worry', 0.8, 2)
+      case Ev.DIVE:
+        rigs[s].set('strain', 0.78, 3)
         break
-      case Ev.HAND_MISS:
-        rigs[s].set('whiff', 1.2, 3)
-        rigs[other(s)].set('laugh', 0.8, 2)
+      case Ev.DIVE_HIT:
+        rigs[s].set('strain', 0.5, 3)
+        rigs[other(s)].set('shock', 0.7, 2)
+        break
+      case Ev.APEX_HIT:
+        rigs[s].set('slick', 0.55, 2)
         break
       case Ev.SPECIAL_WASTED:
         rigs[s].set('dumb', 1.7, 4)
@@ -201,12 +205,12 @@ export function crouchMoods(rigs: FaceRig[], crouch: number[], charge: number[])
 }
 
 /**
- * Bola dentro do alcance da mão ou do especial pronto: a cara mira antes do
- * botão. Prioridade 1, então qualquer reação de evento passa por cima.
+ * Bola dentro do alcance do especial pronto: a cara mira antes do botão.
+ * Prioridade 1, então qualquer reação de evento passa por cima.
  */
 export function reachMoods(
   rigs: FaceRig[],
-  w: { blobX: number[]; blobY: number[]; ballX: number; ballY: number; handCd: number[]; charge: number[] },
+  w: { blobX: number[]; blobY: number[]; ballX: number; ballY: number; charge: number[] },
   valid: boolean,
 ) {
   if (!valid) return
@@ -214,9 +218,7 @@ export function reachMoods(
     const dx = w.ballX - w.blobX[s]
     const dy = w.ballY - (w.blobY[s] - BLOBBY_UPPER_SPHERE)
     const d2 = dx * dx + dy * dy
-    const ready = w.handCd[s] === 0 ? HAND_REACH : 0
-    const sp = w.charge[s] >= SPECIAL_FULL ? SPECIAL_REACH : 0
-    const r = Math.max(ready, sp)
+    const r = w.charge[s] >= SPECIAL_FULL ? SPECIAL_REACH : 0
     if (r > 0 && d2 < r * r) rigs[s].set('aim', 0.06, 1)
   }
 }

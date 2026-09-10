@@ -3,11 +3,10 @@ import {
   BLOBBY_JUMP_BUFFER, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_SPEED,
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
-  AIM_DIRS, AIM_STEPS, HAND_MIN_SPEED, HAND_REACH, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
+  DIVE_SPEED, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
   SPECIAL_GRAVITY_MUL, SPECIAL_REACH, SPIKE_MAX_HOLD, SPIKE_MIN_HOLD, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
-import { aimBits } from '../core/input.ts'
 import type { PlayerInput } from '../core/input.ts'
 import type { Match } from '../core/match.ts'
 
@@ -184,7 +183,13 @@ interface Plan {
   hitT: number
   jumpAt: number
   dig: boolean
+  diveDir: number
+  diveT: number
   score: number
+}
+
+const NO_PLAN: Plan = {
+  standX: NET_POSITION_X, hitT: 999, jumpAt: -99, dig: false, diveDir: 0, diveT: 999, score: 0,
 }
 
 export class Bot {
@@ -193,11 +198,10 @@ export class Bot {
   private rng: () => number
   private cool = 0
   private aim = 0
-  private plan: Plan = { standX: NET_POSITION_X, hitT: 999, jumpAt: -99, dig: false, score: 0 }
+  private plan: Plan = { ...NO_PLAN }
   private upHeld = false
   private spHeld = false
-  private handHeld = false
-  private handAim = -1
+  private diveHeld = false
   private digLock = 0
   private spikeHold = 0
 
@@ -227,8 +231,8 @@ export class Bot {
     if (this.digLock > 0) this.digLock--
 
     if (w.stun[me] > 0) {
-      this.upHeld = false; this.spHeld = false; this.handHeld = false; this.spikeHold = 0
-      return { left: false, right: false, up: false, special: false, hand: false, down: false, fine: 0 }
+      this.upHeld = false; this.spHeld = false; this.diveHeld = false; this.spikeHold = 0
+      return { left: false, right: false, up: false, special: false, down: false }
     }
 
     if (--this.cool <= 0) {
@@ -238,7 +242,18 @@ export class Bot {
     } else {
       this.plan.hitT--
       this.plan.jumpAt--
+      this.plan.diveT--
     }
+
+    const diveDir = this.wantDive(w, me, onGround)
+    if (diveDir !== 0) {
+      this.diveHeld = true
+      this.upHeld = false; this.spHeld = false; this.spikeHold = 0
+      return {
+        left: diveDir < 0, right: diveDir > 0, up: false, special: false, down: true,
+      }
+    }
+    this.diveHeld = false
 
     const down = this.wantDown(w, me, onGround, p)
 
@@ -254,17 +269,20 @@ export class Bot {
     if (!onGround && w.blobVY[me] < 0 && (this.upHeld || w.charge[me] < SPECIAL_FULL)) up = true
     this.upHeld = up
 
-    const hand = this.wantHand(w, me, p)
-    const special = !hand && this.wantSpecial(w, me, onGround, p)
-    const out: PlayerInput = { left, right, up, special, hand, down, fine: 0 }
-    // sem direção o especial usa o solver da física, que já mira melhor que o bot
-    if (special) { out.left = false; out.right = false; out.up = false; out.down = false }
-    // com a mão, os bits de direção viram mira: o pulo fica bloqueado mesmo
-    if (hand && this.handAim >= 0) {
-      const b = aimBits((-this.handAim / AIM_STEPS) * Math.PI * 2)
-      out.left = b.left; out.right = b.right; out.up = b.up; out.down = b.down; out.fine = b.fine
-    }
-    return out
+    const special = this.wantSpecial(w, me, onGround, p)
+    return { left, right, up, special, down }
+  }
+
+  /**
+   * Mergulho é último recurso: só quando nenhum apoio a pé chega na bola, ela
+   * vem baixa e a distância que falta cabe num salto rasteiro.
+   */
+  private wantDive(w: Match['world'], me: Side, onGround: boolean) {
+    if (this.diveHeld) return 0
+    if (!onGround || w.diveCd[me] > 0 || w.diveFrames[me] > 0 || w.diveRecover[me] > 0) return 0
+    if (w.superFrames > 0 && w.superOwner !== me) return 0
+    if (this.plan.diveDir === 0 || this.plan.diveT > 4 || this.plan.diveT < -2) return 0
+    return this.plan.diveDir
   }
 
   /** Quando apertar pra que a cabeça esteja na altura `want` no frame `t`. */
@@ -314,18 +332,17 @@ export class Bot {
     if (t0 < 0) {
       // bola ainda é dele: cobre o campo de acordo com de onde ele vai bater
       const depth = 108 + Math.abs(w.blobX[foe] - NET_POSITION_X) * 0.42
-      this.plan = { standX: NET_POSITION_X - dir * depth, hitT: 999, jumpAt: -99, dig: false, score: 0 }
+      this.plan = { ...NO_PLAN, standX: NET_POSITION_X - dir * depth }
       return
     }
 
     if (w.superFrames > 0 && w.superOwner !== me) {
       // especial na área: não é hora de devolver, é hora de ficar embaixo pro parry
       this.plan = {
+        ...NO_PLAN,
         standX: this.clampX(px[t0]),
         hitT: t0,
         jumpAt: py[t0] < GROUND_PLANE_HEIGHT - 150 ? this.jumpFor(t0, py[t0], landIn) : -99,
-        dig: false,
-        score: 0,
       }
       return
     }
@@ -408,7 +425,24 @@ export class Bot {
       dig = dxb * dxb + dyb * dyb < DIG_REACH * DIG_REACH * 0.8
     }
 
-    this.plan = { standX: bStand, hitT: bT, jumpAt: bJump, dig, score: best }
+    // nem a pé nem de manchete: sobra jogar o corpo. O mergulho anda muito mais
+    // que a corrida por alguns frames, então cobre a faixa que a caminhada perde
+    let diveDir = 0
+    let diveT = 999
+    if (bGround && !dig && best < -300) {
+      for (let t = t0; t <= t1; t++) {
+        if (py[t] < GROUND_PLANE_HEIGHT - 160) continue
+        const gap = px[t] - bx0
+        const ad = Math.abs(gap)
+        if (ad <= BLOBBY_SPEED * t + LOWER_REACH * 0.8) continue
+        if (ad > LOWER_REACH * 1.4 + DIVE_SPEED * t * 0.55) continue
+        diveDir = gap > 0 ? 1 : -1
+        diveT = t - 6
+        break
+      }
+    }
+
+    this.plan = { standX: bStand, hitT: bT, jumpAt: bJump, dig, diveDir, diveT, score: best }
   }
 
   /**
@@ -468,40 +502,4 @@ export class Bot {
     return true
   }
 
-  /**
-   * A mão só compensa na faixa em que a bola passa perto sem encostar: dentro
-   * do alcance do toque normal ela é desperdício, fora do alcance é recarga
-   * queimada e pé preso.
-   */
-  private wantHand(w: Match['world'], me: Side, p: Params) {
-    const off = () => { this.handHeld = false; this.handAim = -1; return false }
-    if (w.handCd[me] > 0 || w.stun[me] > 0) return off()
-    if (w.superFrames > 0 && w.superOwner !== me) return off()
-    if (!this.plan.dig && this.plan.hitT >= 0 && this.plan.hitT < 6) return off()
-    const dx = w.ballX - w.blobX[me]
-    const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
-    const d = Math.sqrt(dx * dx + dy * dy)
-    if (d > HAND_REACH - 10 || d < BALL_RADIUS + BLOBBY_UPPER_RADIUS + 6) return off()
-    if (this.rng() > p.attack * 0.55) { this.handHeld = false; return false }
-    if (this.handHeld) return false
-
-    const foe = other(me)
-    CTX.dir = this.dir
-    CTX.clear = p.clear
-    CTX.foeX = w.blobX[foe] + w.blobVX[foe] * p.foeLead
-    const cur = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY) / w.tempo
-    const sp = Math.max(HAND_MIN_SPEED, cur)
-    let best = -1e9
-    let bi = -1
-    for (let i = 0; i < AIM_STEPS; i++) {
-      const vx = AIM_DIRS[i * 2] * sp
-      const vy = AIM_DIRS[i * 2 + 1] * sp
-      const sc = shotScore(w.ballX + vx, w.ballY + vy, vx, vy)
-      if (sc > best) { best = sc; bi = i }
-    }
-    if (bi < 0 || best < 0) return off()
-    this.handAim = bi
-    this.handHeld = true
-    return true
-  }
 }

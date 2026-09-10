@@ -3,7 +3,7 @@ import {
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD,
-  HAND_REACH, SPECIAL_FULL, SPECIAL_REACH,
+  DIVE_RECOVER, SPECIAL_FULL, SPECIAL_REACH,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -86,6 +86,8 @@ export class Stage2D implements GameRenderer {
   private pops: Pop[] = []
   private craters: { x: number; r: number }[] = []
   private scorch: { x: number; r: number; life: number }[] = []
+  /** Rastro de corpo arrastado na areia: some devagar, igual marca de verdade. */
+  private skids: { x: number; dir: number; life: number }[] = []
   private time = 0
   private tension = 0
   private faces: FaceRig[] = [new FaceRig(), new FaceRig()]
@@ -240,21 +242,29 @@ export class Stage2D implements GameRenderer {
           if (this.scorch.length > 6) this.scorch.shift()
           break
         }
-        case Ev.HAND_HIT: {
+        case Ev.DIVE: {
           const p = e.side as Side
-          const hx = w.blobX[p], hy = w.blobY[p] - BLOBBY_UPPER_SPHERE
-          this.trauma = Math.min(1, this.trauma + 0.12)
-          this.rings.push({ x: hx, y: hy, r: HAND_REACH * 0.5, max: HAND_REACH * 1.15, life: 0, color: '#7fe0ff', w: 6 })
-          this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 110, life: -0.04, color: '#ffffff', w: 5 })
-          this.burst(w.ballX, w.ballY, 16, 190, '#bff0ff', 0.35, 4)
-          this.squashBall(w, 0.14)
+          const d = w.diveDir[p] || 1
+          this.trauma = Math.min(1, this.trauma + 0.10)
+          // areia saindo do pé no impulso, jogada pro lado contrário do salto
+          this.burst(w.blobX[p] - d * 12, GROUND + 4, 22, 260, '#e2c893', 0.9, 4)
+          this.burst(w.blobX[p] - d * 12, GROUND + 4, 10, 150, '#a98d5c', 0.5, 5)
+          this.skids.push({ x: w.blobX[p] + d * 46, dir: d, life: 0 })
+          if (this.skids.length > 5) this.skids.shift()
           break
         }
-        case Ev.HAND_MISS: {
+        case Ev.DIVE_HIT: {
           const p = e.side as Side
-          const hx = w.blobX[p], hy = w.blobY[p] - BLOBBY_UPPER_SPHERE
-          this.rings.push({ x: hx, y: hy, r: 8, max: HAND_REACH * 0.8, life: 0, color: '#7e8aa0', w: 5 })
-          this.burst(hx, hy, 8, 90, '#9aa6bb', 0.2, 3)
+          this.trauma = Math.min(1, this.trauma + 0.2)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 8, max: 124, life: 0, color: '#ffffff', w: 7 })
+          this.burst(w.ballX, w.ballY, 26, 300, '#f2ddaa', 1.1, 5)
+          this.burst(w.blobX[p], GROUND + 4, 16, 210, '#c8a86e', 0.7, 4)
+          this.squashBall(w, 0.24)
+          break
+        }
+        case Ev.APEX_HIT: {
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 10, max: 128, life: 0, color: '#fff2b0', w: 5 })
+          this.burst(w.ballX, w.ballY, 12, 200, '#ffe89a', 0.4, 3)
           break
         }
         case Ev.SPECIAL_WASTED: {
@@ -397,6 +407,11 @@ export class Stage2D implements GameRenderer {
       for (const sc of this.scorch) { sc.life += dt; if (sc.life < 14) live.push(sc) }
       this.scorch = live
     }
+    if (this.skids.length) {
+      const live: typeof this.skids = []
+      for (const k of this.skids) { k.life += dt; if (k.life < 5) live.push(k) }
+      this.skids = live
+    }
     this.flash = Math.max(0, this.flash - dt * 1.6)
     const keep: Dust[] = []
     for (const d of this.dust) {
@@ -482,13 +497,22 @@ export class Stage2D implements GameRenderer {
   }
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
-               stunned: boolean, cr: number, hold: number) {
+               stunned: boolean, cr: number, hold: number, dive = 0, dvDir = 0) {
     if (this.gib[p] > 0) return
     const c = this.ctx
     if (stunned) {
       c.save()
       c.translate(x, y)
       c.rotate(Math.sin(this.time * 9.5) * 0.16)
+      c.translate(-x, -y)
+    }
+    // corpo deitado no ar: gira em volta do pé e estica no eixo cabeça-corpo,
+    // que depois do giro é exatamente a direção do salto
+    if (dive > 0.01) {
+      c.save()
+      c.translate(x, y)
+      c.rotate(dvDir * 1.0 * dive)
+      c.scale(1 - 0.1 * dive, 1 + 0.3 * dive)
       c.translate(-x, -y)
     }
     // mesma geometria do hitbox: agachado a cabeça afunda e o corpo espalha
@@ -499,6 +523,21 @@ export class Stage2D implements GameRenderer {
     const ly = y + BLOBBY_LOWER_SPHERE
 
     if (hold >= SPIKE_MIN_HOLD) this.chargeAura(x, ly, rl, hold)
+
+    // braços esticados na frente da cabeça: no espaço já girado eles apontam
+    // pro lado do mergulho, e é o que o olho lê como "foi buscar"
+    if (dive > 0.01) {
+      c.beginPath()
+      c.ellipse(x, uy - ru * (0.5 + 0.62 * dive), ru * 0.42, ru * (0.55 + 0.7 * dive), 0, 0, Math.PI * 2)
+      c.fillStyle = BLOB_FILL[p]
+      c.fill()
+      c.beginPath()
+      c.ellipse(x, uy - ru * (1.0 + 1.16 * dive), ru * 0.31, ru * 0.31, 0, 0, Math.PI * 2)
+      c.fillStyle = BLOB_DARK[p]
+      c.globalAlpha = 0.9
+      c.fill()
+      c.globalAlpha = 1
+    }
 
     c.beginPath()
     c.arc(x, uy, ru, 0, Math.PI * 2)
@@ -611,6 +650,7 @@ export class Stage2D implements GameRenderer {
       c.globalAlpha = 1
     }
 
+    if (dive > 0.01) c.restore()
     if (stunned) c.restore()
   }
 
@@ -677,27 +717,56 @@ export class Stage2D implements GameRenderer {
     }
   }
 
-  /** Anel grande = especial pronto, anel pequeno = mão pronta. Ambos discretos. */
-  private reach(x: number, y: number, special: boolean, hand: boolean) {
-    if (!special && !hand) return
+  /** Anel dourado: especial pronto e a bola dentro dele sai voando. */
+  private reach(x: number, y: number, special: boolean) {
+    if (!special) return
     const c = this.ctx
     const cy = y - BLOBBY_UPPER_SPHERE
     c.save()
-    if (special) {
-      c.setLineDash([11, 13])
-      c.lineDashOffset = -this.time * 26
-      c.globalAlpha = 0.30 + Math.sin(this.time * 4) * 0.05
-      c.strokeStyle = '#ffd257'
-      c.lineWidth = 3.6
-      c.beginPath(); c.arc(x, cy, SPECIAL_REACH, 0, Math.PI * 2); c.stroke()
+    c.setLineDash([11, 13])
+    c.lineDashOffset = -this.time * 26
+    c.globalAlpha = 0.30 + Math.sin(this.time * 4) * 0.05
+    c.strokeStyle = '#ffd257'
+    c.lineWidth = 3.6
+    c.beginPath(); c.arc(x, cy, SPECIAL_REACH, 0, Math.PI * 2); c.stroke()
+    c.restore()
+    c.globalAlpha = 1
+  }
+
+  /** Marca do corpo arrastado: fica na areia depois que o blobby já levantou. */
+  private skidMarks() {
+    const c = this.ctx
+    for (const k of this.skids) {
+      const fade = Math.max(0, 1 - k.life / 5)
+      c.globalAlpha = 0.34 * fade
+      c.fillStyle = '#9c7c4c'
+      c.beginPath()
+      c.ellipse(k.x, GROUND + 9, 62, 7, 0, 0, Math.PI * 2)
+      c.fill()
+      c.globalAlpha = 0.22 * fade
+      c.fillStyle = '#5e4526'
+      c.beginPath()
+      c.ellipse(k.x - k.dir * 16, GROUND + 8, 34, 4, 0, 0, Math.PI * 2)
+      c.fill()
     }
-    if (hand) {
-      c.setLineDash([6, 8])
-      c.lineDashOffset = this.time * 18
-      c.globalAlpha = 0.30
-      c.strokeStyle = '#7fe0ff'
-      c.lineWidth = 3
-      c.beginPath(); c.arc(x, cy, HAND_REACH, 0, Math.PI * 2); c.stroke()
+    c.globalAlpha = 1
+  }
+
+  /** Linhas de velocidade atrás do mergulho: é o que faz o salto parecer rápido. */
+  private diveStreak(x: number, y: number, dir: number, k: number) {
+    const c = this.ctx
+    c.save()
+    c.globalCompositeOperation = 'lighter'
+    c.strokeStyle = 'rgba(255,252,236,0.5)'
+    c.lineCap = 'round'
+    for (let i = 0; i < 4; i++) {
+      const oy = (i - 1.5) * 13
+      c.globalAlpha = (0.42 - i * 0.05) * k
+      c.lineWidth = 5 - i * 0.8
+      c.beginPath()
+      c.moveTo(x - dir * (26 + i * 9), y + oy)
+      c.lineTo(x - dir * (86 + i * 22), y + oy * 1.2)
+      c.stroke()
     }
     c.restore()
     c.globalAlpha = 1
@@ -870,6 +939,8 @@ export class Stage2D implements GameRenderer {
       c.globalAlpha = 1
     }
 
+    this.skidMarks()
+
     this.shadow(bx, by, BALL_RADIUS)
     for (const s of [0, 1] as Side[]) {
       if (this.gib[s] > 0) continue
@@ -878,9 +949,13 @@ export class Stage2D implements GameRenderer {
 
     for (const s of [0, 1] as Side[]) {
       const sx = lerp(p.px[s], q.px[s]), sy = lerp(p.py[s], q.py[s])
-      if (this.gib[s] === 0 && w.stun[s] === 0) this.reach(sx, sy, w.charge[s] >= SPECIAL_FULL, w.handCd[s] === 0)
+      if (this.gib[s] === 0 && w.stun[s] === 0) this.reach(sx, sy, w.charge[s] >= SPECIAL_FULL)
       if (w.digActive[s] > 0) this.digSwipe(s, sx, sy, w.digActive[s] / DIG_WINDOW)
-      this.blob(s, sx, sy, lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0, w.crouch[s], w.spikeHold[s])
+      const air = w.diveFrames[s] > 0
+      const dive = air ? 1 : Math.min(1, w.diveRecover[s] / (DIVE_RECOVER * 0.55))
+      if (air) this.diveStreak(sx, sy - BLOBBY_UPPER_SPHERE * 0.5, w.diveDir[s], 1)
+      this.blob(s, sx, sy, lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0, w.crouch[s],
+        w.spikeHold[s], dive, w.diveDir[s])
     }
 
     for (const s of [0, 1] as Side[]) {

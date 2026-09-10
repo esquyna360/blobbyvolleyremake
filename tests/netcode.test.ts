@@ -4,7 +4,8 @@ import { Match, allocState } from '../src/core/match.ts'
 import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
 import {
-  BALL_COLLISION_VELOCITY, LEFT, NO_PLAYER, RIGHT, SPECIAL_FULL, SPECIAL_VELOCITY, SPIKE_MAX_HOLD,
+  BALL_COLLISION_VELOCITY, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, SPECIAL_CAP, SPECIAL_FULL,
+  SPECIAL_VELOCITY, SPIKE_MAX_HOLD,
 } from '../src/core/constants.ts'
 import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
 
@@ -17,7 +18,7 @@ function rng(seed: number) {
 }
 
 function randomBits(r: () => number) {
-  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, hand: r() < 0.05, down: r() < 0.12, fine: (r() * 4) | 0 })
+  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12 })
 }
 
 test('simulation is deterministic for the same input stream', () => {
@@ -120,11 +121,11 @@ test('rollback never exceeds the configured window', () => {
 
 test('special state survives save/restore', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, hand: false, down: false, fine: 0 }
-  const UP = { left: false, right: false, up: true, special: false, hand: false, down: false, fine: 0 }
+  const NONE = { left: false, right: false, up: false, special: false, down: false }
+  const UP = { left: false, right: false, up: true, special: false, down: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
-  m.world.charge[LEFT] = SPECIAL_FULL
+  m.world.charge[LEFT] = SPECIAL_CAP
   m.world.ballX = m.world.blobX[LEFT]
   m.world.ballY = m.world.blobY[LEFT] - 120
   m.world.ballVX = 0
@@ -151,11 +152,11 @@ test('special state survives save/restore', () => {
 
 test('special only fires on a second jump press in the air', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, hand: false, down: false, fine: 0 }
-  const UP = { left: false, right: false, up: true, special: false, hand: false, down: false, fine: 0 }
+  const NONE = { left: false, right: false, up: false, special: false, down: false }
+  const UP = { left: false, right: false, up: true, special: false, down: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
-  m.world.charge[LEFT] = SPECIAL_FULL
+  m.world.charge[LEFT] = SPECIAL_CAP
   m.world.ballX = m.world.blobX[LEFT] + 30
   m.world.ballY = m.world.blobY[LEFT] - 110
   m.logic.isBallValid = true
@@ -163,7 +164,7 @@ test('special only fires on a second jump press in the air', () => {
 
   m.step(UP, NONE)
   assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false)
-  assert.equal(m.world.charge[LEFT], SPECIAL_FULL)
+  assert.ok(m.world.charge[LEFT] >= SPECIAL_FULL, 'barra queimada sem disparar')
 })
 
 /**
@@ -186,14 +187,14 @@ test('ação de borda do remoto chega na apresentação mesmo nascendo no rollba
     for (const e of m.events) seen.push(e.event)
     drain()
   }
-  assert.equal(seen.includes(Ev.HAND_MISS), false, 'mão prevista sem input real do remoto')
+  assert.equal(seen.includes(Ev.DIVE), false, 'mergulho previsto sem input real do remoto')
 
   const bits = new Uint8Array(10)
-  bits[4] = packInput({ ...NO_INPUT, hand: true })
+  bits[4] = packInput({ ...NO_INPUT, down: true, right: true })
   rb.onRemotePacket(0, bits, 10)
   drain()
 
-  assert.ok(seen.includes(Ev.HAND_MISS), 'evento nascido na re-simulação não chegou em pending')
+  assert.ok(seen.includes(Ev.DIVE), 'evento nascido na re-simulação não chegou em pending')
 })
 
 /**
@@ -217,6 +218,34 @@ test('estado de agachar sobrevive ao save/restore', () => {
   assert.equal(m.checksum(), before, 'checksum não voltou depois do restore')
   assert.ok(m.world.crouch[LEFT] > 0.9)
   assert.equal(m.world.spikeHold[LEFT], snap.i[33])
+})
+
+/**
+ * Mergulho: baixo + lado no chão joga o blob de lado muito além do que a
+ * caminhada alcança, e o estado dele tem que sobreviver ao rollback.
+ */
+test('mergulho estica o alcance e sobrevive ao save/restore', () => {
+  const m = new Match('default', 15, LEFT)
+  const w = m.world
+  const x0 = w.blobX[LEFT]
+  m.step({ ...NO_INPUT, down: true, right: true }, NO_INPUT)
+
+  assert.ok(m.events.some(e => e.event === Ev.DIVE), 'mergulho não saiu')
+  assert.ok(w.diveFrames[LEFT] > 0, 'não entrou no estado de mergulho')
+  assert.ok(w.wideX(LEFT) > 1.4, `caixa não alargou: ${w.wideX(LEFT)}`)
+
+  const snap = allocState()
+  m.save(snap)
+  const before = m.checksum()
+  for (let f = 0; f < 20; f++) m.step(NO_INPUT, NO_INPUT)
+  assert.notEqual(m.checksum(), before)
+  const walked = BLOBBY_SPEED * 21
+  assert.ok(w.blobX[LEFT] - x0 > walked, `mergulho não passou da caminhada: ${w.blobX[LEFT] - x0}`)
+  assert.ok(w.diveRecover[LEFT] > 0, 'não ficou caído depois de mergulhar')
+
+  m.restore(snap)
+  assert.equal(m.checksum(), before, 'checksum não voltou depois do restore')
+  assert.ok(w.diveFrames[LEFT] > 0)
 })
 
 /** Manchete devolve a bola pro outro lado e conta como toque; cortada não passa do especial. */

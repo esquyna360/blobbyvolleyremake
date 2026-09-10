@@ -1,4 +1,4 @@
-import { LEFT, NO_PLAYER, RIGHT } from './constants.ts'
+import { LEFT, NO_PLAYER, RIGHT, SPECIAL_GAIN_LOST } from './constants.ts'
 import type { Side, SideOrNone } from './constants.ts'
 import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
@@ -7,8 +7,8 @@ import type { RuleSet } from './logic.ts'
 import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
-export const STATE_FLOATS = 25
-export const STATE_INTS = 45
+export const STATE_FLOATS = 26
+export const STATE_INTS = 47
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -54,11 +54,12 @@ export class Match {
     if (tf) {
       const [ll, lr, lu] = tf(LEFT, li.left, li.right, li.up)
       const [rl, rr, ru] = tf(RIGHT, ri.left, ri.right, ri.up)
-      l = { left: ll, right: lr, up: lu, special: li.special, hand: li.hand, down: li.down, fine: li.fine }
-      r = { left: rl, right: rr, up: ru, special: ri.special, hand: ri.hand, down: ri.down, fine: ri.fine }
+      l = { left: ll, right: lr, up: lu, special: li.special, down: li.down }
+      r = { left: rl, right: rr, up: ru, special: ri.special, down: ri.down }
     }
 
     w.scores[0] = g.scores[0]; w.scores[1] = g.scores[1]
+    w.rally = g.rally
     w.step(l, r, g.isBallValid, g.isGameRunning, this.events)
     g.step()
 
@@ -69,7 +70,7 @@ export class Match {
         case Ev.PARRY:
         case Ev.DIG:
         case Ev.SPIKE_HIT:
-        case Ev.HAND_HIT:
+        case Ev.DIVE_HIT:
         case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
           g.onBallHitsGround(e.side as Side)
@@ -85,6 +86,7 @@ export class Match {
     const err = g.takeLastError()
     if (err !== NO_PLAYER) {
       this.events.push({ event: Ev.PLAYER_ERROR, side: err, intensity: 0 })
+      w.addCharge(err, SPECIAL_GAIN_LOST, this.events)
       w.ballVX *= 0.6; w.ballVY *= 0.6
     }
 
@@ -114,8 +116,8 @@ export class Match {
     i[14] = w.superFrames; i[15] = w.superOwner
     i[16] = w.prevUp[0]; i[17] = w.prevUp[1]
     i[18] = w.prevSpecial[0]; i[19] = w.prevSpecial[1]
-    i[20] = w.prevHand[0]; i[21] = w.prevHand[1]
-    i[22] = w.handCd[0]; i[23] = w.handCd[1]
+    i[20] = w.diveFrames[0]; i[21] = w.diveFrames[1]
+    i[22] = w.diveCd[0]; i[23] = w.diveCd[1]
     i[24] = w.parryActive[0]; i[25] = w.parryActive[1]
     i[26] = w.parryCd[0]; i[27] = w.parryCd[1]
     i[28] = w.parryChain
@@ -127,8 +129,9 @@ export class Match {
     i[37] = w.spikePow[0]; i[38] = w.spikePow[1]
     i[39] = w.digCd[0]; i[40] = w.digCd[1]
     i[41] = w.digActive[0]; i[42] = w.digActive[1]
-    i[43] = w.handFreeze[0]; i[44] = w.handFreeze[1]
-    f[24] = w.tempo
+    i[43] = w.diveRecover[0]; i[44] = w.diveRecover[1]
+    i[45] = w.diveDir[0]; i[46] = w.diveDir[1]
+    f[24] = w.tempo; f[25] = w.ballSpin
   }
 
   restore(s: MatchState) {
@@ -144,8 +147,8 @@ export class Match {
     w.superFrames = i[14]; w.superOwner = i[15]
     w.prevUp[0] = i[16]; w.prevUp[1] = i[17]
     w.prevSpecial[0] = i[18]; w.prevSpecial[1] = i[19]
-    w.prevHand[0] = i[20]; w.prevHand[1] = i[21]
-    w.handCd[0] = i[22]; w.handCd[1] = i[23]
+    w.diveFrames[0] = i[20]; w.diveFrames[1] = i[21]
+    w.diveCd[0] = i[22]; w.diveCd[1] = i[23]
     w.parryActive[0] = i[24]; w.parryActive[1] = i[25]
     w.parryCd[0] = i[26]; w.parryCd[1] = i[27]
     w.parryChain = i[28]
@@ -164,8 +167,10 @@ export class Match {
     w.spikePow[0] = i[37]; w.spikePow[1] = i[38]
     w.digCd[0] = i[39]; w.digCd[1] = i[40]
     w.digActive[0] = i[41]; w.digActive[1] = i[42]
-    w.handFreeze[0] = i[43]; w.handFreeze[1] = i[44]
-    w.tempo = f[24]
+    w.diveRecover[0] = i[43]; w.diveRecover[1] = i[44]
+    w.diveDir[0] = i[45]; w.diveDir[1] = i[46]
+    w.tempo = f[24]; w.ballSpin = f[25]
+    w.rally = g.rally
   }
 
   /** Especial na cara do adversário valendo o jogo: acabou. */

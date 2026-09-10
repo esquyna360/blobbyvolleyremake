@@ -111,7 +111,7 @@ export class Hud {
       // escrever style.width todo frame reinicia a transition e força repaint da barra
       for (const [i, fill, bar] of [[0, this.fillL, this.barL], [1, this.fillR, this.barR]] as
         [number, HTMLElement, HTMLElement][]) {
-        const pct = Math.round(charge[i] * 100)
+        const pct = Math.round(Math.min(1, charge[i]) * 100)
         if (pct !== this.lastCharge[i]) {
           this.lastCharge[i] = pct
           fill.style.width = `${pct}%`

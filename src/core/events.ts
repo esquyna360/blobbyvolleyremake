@@ -14,8 +14,8 @@ export const enum Ev {
   SPECIAL_FIRED = 10,
   SPECIAL_HIT = 11,
   SPECIAL_GROUND = 12,
-  HAND_MISS = 13,
-  HAND_HIT = 14,
+  DIVE = 13,
+  DIVE_HIT = 14,
   FATALITY = 15,
   PARRY = 16,
   PARRY_TRY = 17,
@@ -23,6 +23,9 @@ export const enum Ev {
   SPIKE_LEAP = 19,
   SPIKE_HIT = 20,
   SPECIAL_WASTED = 21,
+  APEX_HIT = 22,
 }
+
+/** O rollback marca eventos vistos com `1 << ev` num Int32Array: nada acima de 30. */
 
 export interface MatchEvent { event: Ev; side: SideOrNone; intensity: number }
