@@ -18,6 +18,11 @@ export class Hud {
   private touchesL: HTMLElement[] = []
   private touchesR: HTMLElement[] = []
   private netbar: HTMLElement
+  private fpsEl: HTMLElement
+  private fpsOn = false
+  private fpsAcc = 0
+  private fpsN = 0
+  private fpsShown = -1
   private lastScore = [-1, -1]
   private lastCharge = [-1, -1]
   private lastReady = [false, false]
@@ -63,11 +68,39 @@ export class Hud {
     this.netbar = el('div', { class: 'netbar mono' })
     this.netbar.style.display = 'none'
 
+    this.fpsEl = el('div', { class: 'fps mono' })
+    this.fpsEl.style.display = 'none'
+
     this.rallyEl = el('div', { class: 'rally mono' })
 
     this.root = el('div', { class: 'hud' },
       el('div', { class: 'score-card' }, left, mid, right), this.rallyEl, this.barL, this.barR)
-    parent.append(this.root, this.netbar)
+    parent.append(this.root, this.netbar, this.fpsEl)
+  }
+
+  setFps(on: boolean) {
+    if (on === this.fpsOn) return
+    this.fpsOn = on
+    this.fpsEl.style.display = on ? '' : 'none'
+    this.fpsAcc = 0
+    this.fpsN = 0
+    this.fpsShown = -1
+    document.body.classList.toggle('fps-on', on)
+  }
+
+  /** Média de ~0.4s: número por frame só serviria pra piscar. */
+  tickFps(dt: number) {
+    if (!this.fpsOn) return
+    this.fpsAcc += dt
+    this.fpsN++
+    if (this.fpsAcc < 0.4) return
+    const fps = Math.round(this.fpsN / this.fpsAcc)
+    this.fpsAcc = 0
+    this.fpsN = 0
+    if (fps === this.fpsShown) return
+    this.fpsShown = fps
+    this.fpsEl.textContent = `${fps} FPS`
+    this.fpsEl.className = `fps mono${fps < 30 ? ' bad' : fps < 50 ? ' mid' : ''}`
   }
 
   setNames(l: string, r: string) { this.nameL.textContent = l; this.nameR.textContent = r }

@@ -20,11 +20,12 @@ export interface GameConfig {
   quality: 'min' | 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
   name: string
   arena: ArenaId
+  showFps: boolean
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
-  scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default',
+  scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default', showFps: false,
 }
 
 const DIFFS: [Difficulty, string, string][] = [
@@ -41,6 +42,11 @@ const QUALITIES: [GameConfig['quality'], string, string][] = [
   ['medium', 'Média', ''],
   ['high', 'Alta', ''],
   ['ultra', 'Ultra', ''],
+]
+
+const FPS_OPTS: ['off' | 'on', string, string][] = [
+  ['off', 'Ocultar', ''],
+  ['on', 'Mostrar', 'contador no canto'],
 ]
 
 const randomCode = () => {
@@ -61,6 +67,7 @@ export interface MenuHandlers {
   getVolume(): VolumeId
   onVolume(v: VolumeId): void
   onQuality(q: GameConfig['quality']): void
+  onFps(on: boolean): void
   onWatchRooms(cb: (rooms: RoomAd[]) => void): () => void
   onLeaveOnline(): void
   onRematch?(): void
@@ -271,6 +278,9 @@ export class Menu {
       this.selector(ARENAS, cfg.arena, v => { cfg.arena = v }, 'grid two'),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
       this.selector(QUALITIES, cfg.quality, v => { cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
+      el('h2', { class: 'sec', textContent: 'FPS' }),
+      this.selector(FPS_OPTS, cfg.showFps ? 'on' : 'off',
+        v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) }, 'grid two'),
       el('h2', { class: 'sec', textContent: 'Som' }),
       this.selector(VOLUMES as [VolumeId, string, string][], this.handlers.getVolume(),
         v => this.handlers.onVolume(v)),

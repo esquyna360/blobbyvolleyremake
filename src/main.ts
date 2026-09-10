@@ -110,6 +110,7 @@ class App {
     if (savedQ && (IS_2D(savedQ) || QUALITY_PRESETS[savedQ])) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
+    this.cfg.showFps = localStorage.getItem('bv.fps') === '1'
     const savedArena = localStorage.getItem('bv.arena')
     if (savedArena === 'wide' || savedArena === 'default') this.cfg.arena = savedArena
     setArena(this.cfg.arena)
@@ -120,6 +121,7 @@ class App {
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
     this.hud = new Hud(this.ui)
     this.hud.root.style.opacity = '0'
+    this.hud.setFps(this.cfg.showFps)
 
     this.menu = new Menu(this.ui, this.cfg, {
       onStart: c => this.startLocal(c),
@@ -131,6 +133,7 @@ class App {
       getVolume: () => this.audio.volume,
       onVolume: v => { this.audio.setVolume(v); this.audio.ui() },
       onQuality: q => this.applyQuality(q, true),
+      onFps: on => { localStorage.setItem('bv.fps', on ? '1' : '0'); this.hud.setFps(on) },
       onWatchRooms: cb => this.lobby.watch(cb),
       onWatch: ad => this.watchRoom(ad),
       onWatchReplay: card => void this.watchReplay(card),
@@ -938,6 +941,7 @@ class App {
       }
       this.checkWin()
     }
+    this.hud.tickFps(dt)
     this.tickRepBar()
     if (this.session && this.phase === 'playing') this.hud.showNet(this.session.stats())
     if (this.phase === 'playing' && !this.viewing) this.autoScale(dt)
