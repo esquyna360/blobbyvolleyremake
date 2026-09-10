@@ -238,7 +238,16 @@ export class Hud {
       (stats.desync ? '<br><span style="color:#ff6b6b">DESSINCRONIZADO</span>' : '')
   }
 
+  /**
+   * Quem desenha os textões, quando o renderizador sabe fazer isso por dentro.
+   * Devolve true se assumiu — aí não nasce camada nenhuma por cima do canvas.
+   */
+  bigSink: ((text: string, kind: 'banner' | 'parry' | 'fatality',
+             ms: number, color?: string) => boolean) | null = null
+  bigClear: (() => void) | null = null
+
   banner(text: string, ms = 1400, color?: string) {
+    if (this.bigSink?.(text, 'banner', ms + 450, color)) return
     const b = el('div', { class: 'banner', textContent: text })
     if (color) b.style.color = color
     this.root.parentElement!.append(b)
@@ -248,6 +257,7 @@ export class Hud {
 
   /** Parry certo: PARRY azul celeste estourando no meio da tela. */
   parry() {
+    if (this.bigSink?.('PARRY', 'parry', 1100, '#cdf3ff')) return
     const host = this.root.parentElement!
     host.querySelector('.parry')?.remove()
     const ov = el('div', { class: 'parry' },
@@ -259,6 +269,7 @@ export class Hud {
   }
 
   fatality() {
+    if (this.bigSink?.('FATALITY', 'fatality', 4000, '#c81111')) return
     const host = this.root.parentElement!
     host.querySelector('.fatality')?.remove()
     const lite = document.body.classList.contains('lite')
@@ -293,6 +304,7 @@ export class Hud {
     const host = this.root.parentElement
     if (!host) return
     for (const n of host.querySelectorAll('.parry, .fatality, .banner')) n.remove()
+    this.bigClear?.()
     this.rallyShown = -1
     this.rallyRec = false
     this.rallyBase = 0

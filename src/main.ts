@@ -151,6 +151,7 @@ class App {
     this.hud = new Hud(this.ui)
     this.hud.root.style.opacity = '0'
     this.hud.setFps(this.cfg.showFps)
+    this.wireBigText()
 
     this.menu = new Menu(this.ui, this.cfg, {
       onStart: c => (c.mode === 'drill' ? this.startDrill(c) : this.startLocal(c)),
@@ -212,6 +213,12 @@ class App {
    * Aparência é do jogador, não do lado: quem eu controlo usa a minha, o outro
    * usa a que veio pela rede ou a de fábrica. Nada disso chega na simulação.
    */
+  /** Trocar de renderizador troca quem desenha os textões. */
+  private wireBigText() {
+    this.hud.bigSink = (t, k, ms, c) => this.stage.bigText(t, k, ms, c)
+    this.hud.bigClear = () => this.stage.clearBigs()
+  }
+
   private applyLooks() {
     const me = this.session ? this.localSide : LEFT
     const foe = me === LEFT ? RIGHT : LEFT
@@ -252,6 +259,7 @@ class App {
     this.stage.setWalls(this.drill ? true : this.cfg.walls)
     this.stage.setSolo(!!this.drill)
     this.stage.setTarget(this.drill?.mark ?? null)
+    this.wireBigText()
     this.applyLooks()
     this.resize()
     if (this.match) { this.stage.capture(this.match); this.stage.capture(this.match) }

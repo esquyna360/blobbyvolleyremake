@@ -9,7 +9,7 @@ import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
-import type { GameRenderer } from './stage.ts'
+import type { BigKind, GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 import { getScene } from './scenes.ts'
@@ -73,6 +73,28 @@ function makeGlow(): HTMLCanvasElement {
   return cv
 }
 
+/**
+ * Halo do alcance do especial, desenhado uma vez. `createRadialGradient` a cada
+ * quadro, para cada jogador, obriga o Chrome a montar o gradiente de novo toda
+ * vez — e é justamente enquanto a barra está cheia que ele era chamado.
+ */
+function makeReach(): HTMLCanvasElement {
+  const S = 256
+  const cv = document.createElement('canvas')
+  cv.width = S; cv.height = S
+  const g = cv.getContext('2d')!
+  const rg = g.createRadialGradient(S / 2, S / 2, (S / 2) * 0.7, S / 2, S / 2, S / 2)
+  rg.addColorStop(0, 'rgba(255,210,87,0)')
+  rg.addColorStop(0.55, 'rgba(255,228,155,0.26)')
+  rg.addColorStop(1, 'rgba(255,210,87,0)')
+  g.fillStyle = rg
+  g.fillRect(0, 0, S, S)
+  return cv
+}
+
+/** Texto que estoura na tela. No 2D ele mora aqui, não no DOM. */
+interface Big { text: string; kind: BigKind; color: string; life: number; max: number }
+
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
 
 export class Stage2D implements GameRenderer {
@@ -96,6 +118,7 @@ export class Stage2D implements GameRenderer {
   private diveK = [0, 0]
   private trail: { x: number; y: number; life: number; seed: number }[] = []
   private pops: Pop[] = []
+  private bigs: Big[] = []
   private craters: { x: number; r: number }[] = []
   private scorch: { x: number; r: number; life: number }[] = []
   /** Rastro de corpo arrastado na areia: some devagar, igual marca de verdade. */
@@ -110,6 +133,7 @@ export class Stage2D implements GameRenderer {
   private squash = { k: 0, ang: 0 }
   private wallHits: { x: number; y: number; life: number }[] = []
   private glow: HTMLCanvasElement
+  private reachGlow: HTMLCanvasElement
   private scene: Scene = getScene('praia')
   private depth: DepthLayer[] = getDepth(getScene('praia').depth)
   private pan = 0
@@ -132,6 +156,7 @@ export class Stage2D implements GameRenderer {
     if (!ctx) throw new Error('canvas 2d indisponível')
     this.ctx = ctx
     this.glow = makeGlow()
+    this.reachGlow = makeReach()
     this.setSize(innerWidth, innerHeight)
   }
 
@@ -564,8 +589,76 @@ export class Stage2D implements GameRenderer {
     c.strokeRect(t.x0, y0, t.x1 - t.x0, h)
   }
 
+  /**
+   * O 2D desenha PARRY, FATALITY e o banner de ponto aqui dentro. Em DOM eles
+   * eram camadas por cima do canvas, e camada sobreposta obriga o compositor a
+   * remontar a tela a cada quadro enquanto a animação corre — com o canvas do
+   * jogo repintando junto, a 60fps. Aqui é fillText, e some no orçamento.
+   */
+  bigText(text: string, kind: BigKind, ms: number, color?: string) {
+    const fallback = kind === 'parry' ? '#cdf3ff' : kind === 'fatality' ? '#c81111' : '#f4f7fc'
+    this.bigs = this.bigs.filter(b => b.kind !== kind)
+    this.bigs.push({ text, kind, color: color ?? fallback, life: 0, max: ms / 1000 })
+    return true
+  }
+
+  clearBigs() { this.bigs.length = 0 }
+
+  private drawBigs() {
+    if (!this.bigs.length) return
+    const c = this.ctx
+    for (const b of this.bigs) {
+      const t = Math.min(1, b.life / b.max)
+      const big = b.kind !== 'banner'
+      const size = b.kind === 'fatality'
+        ? Math.max(40, Math.min(this.cw * 0.15, this.ch * 0.26))
+        : b.kind === 'parry'
+          ? Math.max(34, Math.min(this.cw * 0.105, this.ch * 0.2))
+          : Math.max(28, Math.min(this.cw * 0.085, this.ch * 0.15))
+      // entrada curta em relação ao tempo total, saída nos últimos 18%
+      const inK = Math.min(1, b.life / (big ? 0.42 : 0.34))
+      const back = 1 - Math.pow(1 - inK, 3)
+      const grow = b.kind === 'fatality' ? 3.4 + (1 - 3.4) * back : 0.45 + 0.55 * back
+      const over = inK < 1 ? 1 : 1 + Math.sin(Math.min(1, (b.life - 0.42) * 8) * Math.PI) * 0.06
+      const sc = grow * over
+      const alpha = t > 0.82 ? 1 - (t - 0.82) / 0.18 : Math.min(1, b.life / 0.08)
+      // FATALITY treme depois de aterrissar
+      const shake = b.kind === 'fatality' && b.life > 0.42 && b.life < 1.14
+        ? Math.sin(b.life * 62) * size * 0.05 : 0
+      const y = b.kind === 'banner' ? this.ch * 0.30 : this.ch * 0.46
+      const fam = big
+        ? '"Bebas Neue", Impact, "Arial Black", sans-serif'
+        : "'Bricolage Grotesque', system-ui, sans-serif"
+
+      c.save()
+      c.globalAlpha = Math.max(0, alpha)
+      c.translate(this.cw / 2 + shake, y)
+      c.scale(sc, sc)
+      if (b.kind === 'fatality') c.rotate(-0.035)
+      c.font = `800 ${size}px ${fam}`
+      c.textAlign = 'center'
+      c.textBaseline = 'middle'
+      c.lineJoin = 'round'
+      // contorno grosso no lugar de sombra borrada: lê igual e não custa blur
+      c.lineWidth = size * 0.13
+      c.strokeStyle = b.kind === 'parry' ? '#0d4f74' : b.kind === 'fatality' ? '#2a0000' : 'rgba(0,0,0,0.72)'
+      c.strokeText(b.text, 0, 0)
+      c.fillStyle = b.kind === 'fatality' ? '#4a0000' : 'rgba(0,0,0,0.45)'
+      c.fillText(b.text, 0, size * 0.07)
+      c.fillStyle = b.color
+      c.fillText(b.text, 0, 0)
+      c.restore()
+    }
+    c.globalAlpha = 1
+  }
+
   private step(dt: number) {
     this.targetFlash = Math.max(0, this.targetFlash - dt * 1.6)
+    if (this.bigs.length) {
+      const live: Big[] = []
+      for (const b of this.bigs) { b.life += dt; if (b.life < b.max) live.push(b) }
+      this.bigs = live
+    }
     this.time += dt
     for (const f of this.faces) f.update(dt, this.tension, false)
     if (this.pops.length) {
@@ -1216,15 +1309,8 @@ export class Stage2D implements GameRenderer {
     const c = this.ctx
     const cy = y - BLOBBY_UPPER_SPHERE
     const ro = SPECIAL_REACH * 1.05
-    const g = c.createRadialGradient(x, cy, SPECIAL_REACH * 0.74, x, cy, ro)
-    g.addColorStop(0, 'rgba(255,210,87,0)')
-    g.addColorStop(0.55, 'rgba(255,228,155,0.26)')
-    g.addColorStop(1, 'rgba(255,210,87,0)')
-    c.save()
     c.globalAlpha = 0.86 + Math.sin(this.time * 2.6) * 0.14
-    c.fillStyle = g
-    c.beginPath(); c.arc(x, cy, ro, 0, Math.PI * 2); c.fill()
-    c.restore()
+    c.drawImage(this.reachGlow, x - ro, cy - ro, ro * 2, ro * 2)
     c.globalAlpha = 1
   }
 
@@ -1462,7 +1548,8 @@ export class Stage2D implements GameRenderer {
 
     if (superOn) {
       c.globalCompositeOperation = 'lighter'
-      for (let i = 0; i < 7; i++) {
+      const sparks = this.lite ? 3 : 7
+      for (let i = 0; i < sparks; i++) {
         const a = this.time * 17 + i * 0.9
         const rr = BALL_RADIUS * (0.9 + Math.sin(a * 1.7) * 0.22)
         const fx = bx + Math.cos(a) * BALL_RADIUS * 0.55
@@ -1531,6 +1618,7 @@ export class Stage2D implements GameRenderer {
       c.fillStyle = `rgba(255,255,255,${this.flash})`
       c.fillRect(0, 0, this.cw, this.ch)
     }
+    this.drawBigs()
   }
 
   dispose() {
@@ -1541,5 +1629,6 @@ export class Stage2D implements GameRenderer {
     this.wallHits.length = 0
     this.trail.length = 0
     this.pops.length = 0
+    this.bigs.length = 0
   }
 }

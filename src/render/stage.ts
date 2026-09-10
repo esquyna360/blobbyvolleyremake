@@ -81,6 +81,9 @@ const CAM_LOOK = 0.14
 const CAM_EYE_Y = 4.35
 const CAM_LOOK_Y = 2.9
 
+/** Os três textos que estouram na tela durante a partida. */
+export type BigKind = 'banner' | 'parry' | 'fatality'
+
 export interface GameRenderer {
   setSize(w: number, h: number): void
   /** Troca o tema visual sem recriar o renderer. */
@@ -95,6 +98,12 @@ export interface GameRenderer {
   setSolo(on: boolean): void
   /** Faixa-alvo no chão do campo vazio. `null` apaga. */
   setTarget(t: TargetMark | null): void
+  /**
+   * Texto grande na tela. O 2D desenha dentro do canvas e devolve `true`; o 3D
+   * devolve `false` e o HUD segue com o overlay em DOM, que lá não pesa.
+   */
+  bigText(text: string, kind: BigKind, ms: number, color?: string): boolean
+  clearBigs(): void
   capture(match: Match): void
   onEvents(match: Match, events: MatchEvent[]): void
   render(match: Match, alpha: number, dt: number): void
@@ -576,6 +585,9 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
    * O blob da direita continua existindo na simulação — o que some é o desenho
    * dele, a sombra e o alcance. A física já ignora o lado com `world.solo`.
    */
+  bigText() { return false }
+  clearBigs() { /* o 3D não desenha texto no canvas */ }
+
   setSolo(on: boolean) { this.solo = on }
 
   setTarget(t: TargetMark | null) { this.target3.set(t) }
