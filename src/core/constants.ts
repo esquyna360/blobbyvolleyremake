@@ -120,8 +120,12 @@ export const FALL_MUL = 0.88
 export const DIVE_SPEED = BLOBBY_SPEED * 3.2
 export const DIVE_HOP = -3.4
 export const DIVE_FRAMES = 24
-export const DIVE_RECOVER = 20
+export const DIVE_RECOVER = 26
 export const DIVE_CD = 52
+/** Ao tocar a areia o blob não para: guarda parte da velocidade e escorrega. */
+export const DIVE_SLIDE_KEEP = 0.62
+export const DIVE_SLIDE_DRAG = 0.9
+export const DIVE_SLIDE_STOP = 0.3
 /** Quanto a caixa de colisão de baixo estica na horizontal, 0 = redonda. */
 export const DIVE_WIDE = 0.55
 export const CROUCH_WIDE = 0.16

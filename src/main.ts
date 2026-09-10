@@ -24,7 +24,7 @@ import { EMOTES } from './core/emote.ts'
 import { Ev } from './core/events.ts'
 import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
-import { SCENES, getScene } from './render/scenes.ts'
+import { MENU_SONG, SCENES, getScene } from './render/scenes.ts'
 import type { SceneId } from './render/scenes.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
@@ -90,6 +90,7 @@ class App {
     this.phaseV = v
     this.audio.setPlaying(v !== 'menu')
     this.audio.setPaused(v === 'paused')
+    if (v === 'menu') this.audio.setSong(MENU_SONG)
   }
   match: Match | null = null
   bot: Bot | null = null
@@ -133,7 +134,9 @@ class App {
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
     this.stage.setScene(this.cfg.scene)
     this.stage.setWalls(this.cfg.walls)
-    this.audio.setScene(getScene(this.cfg.scene).music, !getScene(this.cfg.scene).d3.indoor)
+    this.audio.setScene(!getScene(this.cfg.scene).d3.indoor)
+    this.audio.setSong(MENU_SONG)
+    this.audio.preload(getScene(this.cfg.scene).music)
     this.hud = new Hud(this.ui)
     this.hud.root.style.opacity = '0'
     this.hud.setFps(this.cfg.showFps)
@@ -150,8 +153,8 @@ class App {
       onManual: (host, c) => this.startManual(host, c),
       onResume: () => this.resume(),
       onQuit: () => this.quitToMenu(),
-      getVolume: () => this.audio.volume,
-      onVolume: v => { this.audio.setVolume(v); this.audio.ui() },
+      getVolume: bus => this.audio.getVolume(bus),
+      onVolume: (v, bus) => { this.audio.setVolume(v, bus); this.audio.ui() },
       onQuality: q => this.applyQuality(q, true),
       onFps: on => { localStorage.setItem('bv.fps', on ? '1' : '0'); this.hud.setFps(on) },
       onWatchRooms: cb => this.lobby.watch(cb),
@@ -390,7 +393,10 @@ class App {
     localStorage.setItem('bv.scene', id)
     const sc = getScene(id)
     this.stage.setScene(id)
-    this.audio.setScene(sc.music, !sc.d3.indoor)
+    this.audio.setScene(!sc.d3.indoor)
+    // no menu quem toca é o tema do menu; o do cenário só entra em partida
+    if (this.phase === 'menu') this.audio.preload(sc.music)
+    else this.audio.setSong(sc.music)
   }
 
   startLocal(cfg: GameConfig) {
@@ -991,6 +997,9 @@ class App {
       if (this.phase === 'playing') {
         this.hud.setRally(m.logic.rally, m.logic.rallyBest)
         this.audio.setTension(rallyTension(m.logic.rally))
+        const stw = m.logic.scoreToWin
+        const mp = Math.max(m.logic.scores[LEFT], m.logic.scores[RIGHT]) >= stw - 1
+        this.audio.setRally(m.logic.rally, mp)
       }
       if (this.live && (m.logic.scores[LEFT] !== this.adScore[0] || m.logic.scores[RIGHT] !== this.adScore[1])) {
         this.adScore = [m.logic.scores[LEFT], m.logic.scores[RIGHT]]

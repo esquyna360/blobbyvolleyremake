@@ -5,6 +5,9 @@
  */
 export type SceneId = 'praia' | 'luau' | 'ginasio'
 
+/** Trilha do menu: fica fora da lista de cenários porque não é um. */
+export const MENU_SONG = 'menu'
+
 export type Foreground = 'gulls' | 'fireflies' | 'confetti'
 
 export interface Scene2D {
@@ -60,6 +63,7 @@ export interface Scene {
   id: SceneId
   name: string
   hint: string
+  /** id da trilha em public/music */
   music: string
   fg: Foreground
   night: boolean
@@ -67,14 +71,12 @@ export interface Scene {
   d3: Scene3D
 }
 
-const bgm = (n: string) => `${import.meta.env.BASE_URL}bgm/bgm-${n}.mp3`
-
 export const SCENES: Record<SceneId, Scene> = {
   praia: {
     id: 'praia',
     name: 'Praia',
     hint: 'sol a pino, mar aberto',
-    music: bgm('praia'),
+    music: 'praia',
     fg: 'gulls',
     night: false,
     d2: {
@@ -117,7 +119,7 @@ export const SCENES: Record<SceneId, Scene> = {
     id: 'luau',
     name: 'Luau',
     hint: 'noite, fogueira e lanterna',
-    music: bgm('luau'),
+    music: 'luau',
     fg: 'fireflies',
     night: true,
     d2: {
@@ -160,7 +162,7 @@ export const SCENES: Record<SceneId, Scene> = {
     id: 'ginasio',
     name: 'Ginásio',
     hint: 'quadra coberta, torcida no pé do ouvido',
-    music: bgm('ginasio'),
+    music: 'ginasio',
     fg: 'confetti',
     night: false,
     d2: {

@@ -11,6 +11,7 @@ import {
   TEMPO_MAX, TEMPO_STEP,
   SPIN_FROM_VX, SPIN_MAX, SPIN_DECAY, MAGNUS_K, SPIN_ROT, APEX_WINDOW, APEX_MUL, FALL_MUL,
   DIVE_SPEED, DIVE_HOP, DIVE_FRAMES, DIVE_RECOVER, DIVE_CD, DIVE_WIDE, CROUCH_WIDE,
+  DIVE_SLIDE_KEEP, DIVE_SLIDE_DRAG, DIVE_SLIDE_STOP,
   DIVE_VELOCITY, DIVE_TARGET_DEPTH, DIVE_NET_CLEARANCE,
   DIVE_TIME_MIN, DIVE_TIME_STEP, DIVE_TIME_STEPS, DIVE_GAIN,
   SPECIAL_RALLY_HOT, SPECIAL_RALLY_MUL, SPECIAL_LEAK,
@@ -434,6 +435,7 @@ export class PhysicWorld {
         this.blobVY[p] = 0
         this.diveFrames[p] = 0
         this.diveRecover[p] = DIVE_RECOVER
+        this.blobVX[p] *= DIVE_SLIDE_KEEP
       }
       return
     }
@@ -441,8 +443,13 @@ export class PhysicWorld {
     // levantando da areia: o preço do mergulho é ficar parado um instante
     const stuck = this.diveRecover[p] > 0
     const slow = (1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)) * T
-    this.blobVX[p] = stuck ? 0
-      : ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
+    if (stuck) {
+      // escorrega até parar: quem se joga não freia no ar seco
+      this.blobVX[p] *= DIVE_SLIDE_DRAG
+      if (Math.abs(this.blobVX[p]) < DIVE_SLIDE_STOP) this.blobVX[p] = 0
+    } else {
+      this.blobVX[p] = ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
+    }
 
     this.blobX[p] += this.blobVX[p] + this.knock[p]
     if (this.knock[p] !== 0) {

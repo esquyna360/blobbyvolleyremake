@@ -3,21 +3,31 @@ import type { Side, SideOrNone } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { PhysicWorld } from '../core/physics.ts'
+import { Sequencer } from './sequencer.ts'
+import { loadSong } from './song.ts'
+import type { Rack } from './synth.ts'
 
 export const FATALITY_SFX = `${import.meta.env.BASE_URL}fatality.mp3`
 
-/** Quantos segundos de sobreposição entre uma volta da música e a próxima. */
-const LOOP_XFADE = 3.0
-
 /**
  * Rally parado não é rally mudo: o piso do volume e do filtro tem que deixar a
- * faixa audível já no saque, senão parece que a música demorou pra entrar.
+ * trilha audível já no saque.
  */
-const musicGain = (k: number) => 0.5 + Math.max(0, Math.min(1, k)) * 0.28
+const musicGain = (k: number) => 0.62 + Math.max(0, Math.min(1, k)) * 0.24
 const musicCut = (k: number) => {
   const kk = Math.max(0, Math.min(1, k))
-  return 1600 + kk * kk * 14000
+  return 2600 + kk * kk * 14000
 }
+
+/**
+ * Andamento e camadas em função do rally, como o compositor pediu: sobe rápido
+ * nos primeiros toques e desacelera perto do teto de 1.5x.
+ */
+export const tempoForRally = (rally: number) =>
+  1 + 0.5 * Math.pow(Math.min(rally, 24) / 24, 0.75)
+
+export const tierForRally = (rally: number, matchPoint: boolean) =>
+  rally >= 20 || matchPoint ? 3 : rally >= 10 ? 2 : rally >= 5 ? 1 : 0
 
 export const VOLUMES: [string, string, string][] = [
   ['off', 'Mudo', 'silêncio'],
@@ -29,10 +39,13 @@ export const VOLUMES: [string, string, string][] = [
 export type VolumeId = 'off' | 'low' | 'normal' | 'loud'
 const LEVEL: Record<VolumeId, number> = { off: 0, low: 0.35, normal: 0.7, loud: 1.0 }
 
+export type VolumeBus = 'music' | 'sfx'
+
 
 export class GameAudio {
   private ctx: AudioContext | null = null
-  private master!: GainNode
+  private sfxBus!: GainNode
+  private musicBus!: GainNode
   private sfx!: GainNode
   private amb!: GainNode
   private noise!: AudioBuffer
@@ -44,24 +57,36 @@ export class GameAudio {
 
   private music!: GainNode
   private musicLp!: BiquadFilterNode
+  private seq: Sequencer | null = null
   private surf: GainNode[] = []
   private crowd: GainNode | null = null
   /** praia e luau têm mar e bicho; ginásio tem plateia. */
   private outdoor = true
   private playing = false
   private paused = false
-  private trackUrl = ''
-  private buffers = new Map<string, AudioBuffer>()
-  private voices: { src: AudioBufferSourceNode; gain: GainNode }[] = []
-  private loopAt = 0
+  private songId = ''
   private intensity = 0
 
-  volume: VolumeId
+  /** Trilha e efeitos têm botão separado: dá pra jogar ouvindo só a música. */
+  musicVol: VolumeId
+  sfxVol: VolumeId
 
   constructor() {
-    const saved = localStorage.getItem('bv.volume') as VolumeId | null
-    this.volume = saved && saved in LEVEL ? saved : 'low'
+    const old = localStorage.getItem('bv.volume') as VolumeId | null
+    const fallback: VolumeId = old && old in LEVEL ? old : 'low'
+    const m = localStorage.getItem('bv.vol.music') as VolumeId | null
+    const s = localStorage.getItem('bv.vol.sfx') as VolumeId | null
+    this.musicVol = m && m in LEVEL ? m : fallback
+    this.sfxVol = s && s in LEVEL ? s : fallback
   }
+
+  /** O menu ainda tem um controle só em alguns lugares: mostra o maior dos dois. */
+  get volume(): VolumeId {
+    return LEVEL[this.musicVol] >= LEVEL[this.sfxVol] ? this.musicVol : this.sfxVol
+  }
+
+  get beatPhase() { return this.seq?.beatPhase() ?? 0 }
+  get barPhase() { return this.seq?.barPhase() ?? 0 }
 
   /** Browsers only allow audio after a gesture, so this is called from the first click/keypress. */
   unlock() {
@@ -69,52 +94,78 @@ export class GameAudio {
     const ctx = new AudioContext()
     this.ctx = ctx
 
-    this.master = ctx.createGain()
-    this.master.gain.value = LEVEL[this.volume]
     const limiter = ctx.createDynamicsCompressor()
     limiter.threshold.value = -8
     limiter.knee.value = 12
     limiter.ratio.value = 6
     limiter.attack.value = 0.004
     limiter.release.value = 0.2
-    this.master.connect(limiter).connect(ctx.destination)
+    limiter.connect(ctx.destination)
+
+    this.sfxBus = ctx.createGain()
+    this.sfxBus.gain.value = LEVEL[this.sfxVol]
+    this.sfxBus.connect(limiter)
+
+    this.musicBus = ctx.createGain()
+    this.musicBus.gain.value = LEVEL[this.musicVol]
+    this.musicBus.connect(limiter)
 
     this.sfx = ctx.createGain()
     this.sfx.gain.value = 1.0
-    this.sfx.connect(this.master)
+    this.sfx.connect(this.sfxBus)
 
     this.amb = ctx.createGain()
     this.amb.gain.value = 0
-    this.amb.connect(this.master)
+    this.amb.connect(this.sfxBus)
 
     const conv = ctx.createConvolver()
     conv.buffer = this.impulse(1.6, 2.4)
     this.wet = ctx.createGain()
     this.wet.gain.value = 0.22
-    this.wet.connect(conv).connect(this.master)
+    this.wet.connect(conv).connect(this.sfxBus)
     this.sfx.connect(this.wet)
 
     this.music = ctx.createGain()
-    this.music.gain.value = 0
+    this.music.gain.value = musicGain(0)
     this.musicLp = ctx.createBiquadFilter()
     this.musicLp.type = 'lowpass'
     this.musicLp.Q.value = 0.4
-    this.musicLp.frequency.value = 1600
-    this.musicLp.connect(this.music).connect(this.master)
+    this.musicLp.frequency.value = musicCut(0)
+    this.musicLp.connect(this.music).connect(this.musicBus)
 
     this.noise = this.noiseBuffer(4)
+
+    // reverb próprio da trilha: o dos efeitos vive no barramento errado
+    const musicConv = ctx.createConvolver()
+    musicConv.buffer = this.impulse(2.1, 2.8)
+    const musicWet = ctx.createGain()
+    musicWet.gain.value = 0.3
+    musicWet.connect(musicConv).connect(this.musicLp)
+    const seqOut = ctx.createGain()
+    seqOut.connect(this.musicLp)
+    const rack: Rack = { ctx, out: seqOut, wet: musicWet, noise: this.noise }
+    this.seq = new Sequencer(rack)
+
     this.buildAmbience()
     this.gullTimer = ctx.currentTime + 12
     if (this.playing) this.amb.gain.setTargetAtTime(1, ctx.currentTime, 2.0)
-    this.preload()
-    if (this.trackUrl) void this.startTrack(this.trackUrl)
+    if (this.songId) void this.startSong(this.songId)
   }
 
-  setVolume(v: VolumeId) {
-    this.volume = v
-    localStorage.setItem('bv.volume', v)
-    if (this.ctx) this.master.gain.setTargetAtTime(LEVEL[v], this.ctx.currentTime, 0.08)
+  setVolume(v: VolumeId, bus: VolumeBus | 'both' = 'both') {
+    if (bus !== 'sfx') {
+      this.musicVol = v
+      localStorage.setItem('bv.vol.music', v)
+      if (this.ctx) this.musicBus.gain.setTargetAtTime(LEVEL[v], this.ctx.currentTime, 0.08)
+    }
+    if (bus !== 'music') {
+      this.sfxVol = v
+      localStorage.setItem('bv.vol.sfx', v)
+      if (this.ctx) this.sfxBus.gain.setTargetAtTime(LEVEL[v], this.ctx.currentTime, 0.08)
+    }
   }
+
+  getVolume(bus: VolumeBus) { return bus === 'music' ? this.musicVol : this.sfxVol }
 
   toggle(): VolumeId {
     const next: VolumeId = this.volume === 'off' ? 'normal' : 'off'
@@ -125,8 +176,8 @@ export class GameAudio {
   // ---------- música e ambiente ----------
 
   /**
-   * Menu é silêncio. O barulho de fundo só existe enquanto tem bola em jogo —
-   * ouvir mar e música parados na tela de opções cansa em trinta segundos.
+   * O ambiente — mar, plateia, bicho — só existe com bola em jogo. A trilha
+   * não: o menu tem a dele, então aqui só troca quem está tocando.
    */
   setPlaying(on: boolean) {
     if (this.playing === on) return
@@ -134,8 +185,7 @@ export class GameAudio {
     if (!this.ctx) return
     const t = this.ctx.currentTime
     this.amb.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.6 : 0.35)
-    if (on) { if (this.trackUrl) void this.startTrack(this.trackUrl) }
-    else { this.paused = false; this.fadeOutMusic() }
+    if (!on) this.paused = false
   }
 
   /**
@@ -154,134 +204,83 @@ export class GameAudio {
     this.musicLp.frequency.setTargetAtTime(on ? 480 : musicCut(this.intensity), t, 0.3)
   }
 
-  /** Troca a trilha e o ambiente pro cenário escolhido. */
-  setScene(music: string, outdoor: boolean) {
+  /** Troca o ambiente pro cenário escolhido. */
+  setScene(outdoor: boolean) {
     this.outdoor = outdoor
-    if (this.ctx) {
-      const t = this.ctx.currentTime
-      for (const b of this.surf) b.gain.setTargetAtTime(outdoor ? 1 : 0, t, 0.5)
-      if (this.crowd) this.crowd.gain.setTargetAtTime(outdoor ? 0 : 0.055, t, 0.5)
-    }
-    if (music === this.trackUrl) return
-    this.trackUrl = music
-    this.fadeOutMusic()
-    if (this.playing) void this.startTrack(music)
-    else this.preload()
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    for (const b of this.surf) b.gain.setTargetAtTime(outdoor ? 1 : 0, t, 0.5)
+    if (this.crowd) this.crowd.gain.setTargetAtTime(outdoor ? 0 : 0.055, t, 0.5)
   }
 
   /**
-   * A música acompanha a troca: rally curto fica abafado e baixo, rally longo
-   * abre o filtro e sobe. É a mesma faixa o tempo todo, o que muda é quanto
-   * dela chega no ouvido.
+   * Troca a trilha. Trocar pra mesma não faz nada — é o que deixa voltar do
+   * menu de pausa sem a música recomeçar do começo.
    */
+  setSong(id: string) {
+    if (id === this.songId) return
+    this.songId = id
+    void this.startSong(id)
+  }
+
+  private async startSong(id: string) {
+    const seq = this.seq
+    if (!seq) return
+    let song
+    try { song = await loadSong(id) } catch { return }
+    if (this.songId !== id || !this.seq) return
+    if (seq.playing && seq.songId !== id) seq.stop(0.4)
+    if (seq.playing) { seq.load(song); return }
+    setTimeout(() => {
+      if (this.songId !== id) return
+      seq.start(song)
+      seq.setTier(this.tier)
+      seq.setTempo(this.tempo)
+    }, seq.songId && seq.songId !== id ? 420 : 0)
+  }
+
+  /** Deixa o JSON no cache antes da hora. Uma música do jogo tem 20 KB, mas
+   * fetch no meio do saque ainda custa um engasgo. */
+  preload(id: string) { void loadSong(id).catch(() => undefined) }
+
+  private tier = 0
+  private tempo = 1
+
+  /**
+   * O rally manda no andamento e nas camadas. Não é a mesma faixa mais alta:
+   * é a mesma faixa mais rápida e com mais gente tocando.
+   */
+  setRally(rally: number, matchPoint: boolean) {
+    const tier = tierForRally(rally, matchPoint)
+    const tempo = tempoForRally(rally) + (matchPoint ? 0.04 : 0)
+    this.tier = tier
+    this.tempo = tempo
+    if (this.paused) return
+    this.seq?.setTier(tier)
+    this.seq?.setTempo(tempo)
+  }
+
+  /** Abre o filtro conforme o rally aperta. É o brilho, não o volume. */
   setIntensity(k: number) {
     this.intensity = k
-    if (!this.ctx || !this.playing || this.paused) return
+    if (!this.ctx || this.paused) return
     const t = this.ctx.currentTime
     const kk = Math.max(0, Math.min(1, k))
     this.musicLp.frequency.setTargetAtTime(musicCut(kk), t, 0.5)
     this.music.gain.setTargetAtTime(musicGain(kk), t, 0.6)
   }
 
+  /** Especial disparado: sobra a percussão por um compasso. */
+  cutToDrums(bars = 1) { this.seq?.cutToDrums(bars) }
+
   /** Ponto marcado: a música dá um passo atrás por um instante. */
   duckMusic(seconds = 1.1) {
-    if (!this.ctx || !this.playing || this.paused) return
+    if (!this.ctx || this.paused) return
     const t = this.ctx.currentTime
     const g = this.music.gain
     g.cancelScheduledValues(t)
     g.setTargetAtTime(0.16, t, 0.06)
     g.setTargetAtTime(musicGain(this.intensity), t + seconds, 0.5)
-  }
-
-  private loading = new Map<string, Promise<AudioBuffer>>()
-
-  private load(url: string): Promise<AudioBuffer> {
-    const hit = this.buffers.get(url)
-    if (hit) return Promise.resolve(hit)
-    const flying = this.loading.get(url)
-    if (flying) return flying
-    const job = (async () => {
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`bgm ${res.status}`)
-      const buf = await this.ctx!.decodeAudioData(await res.arrayBuffer())
-      this.buffers.set(url, buf)
-      return buf
-    })()
-    this.loading.set(url, job)
-    void job.catch(() => undefined).then(() => { this.loading.delete(url) })
-    return job
-  }
-
-  /**
-   * Dois megabytes de mp3 não baixam no instante do saque. Baixa e decodifica
-   * assim que dá — o silêncio do menu é o momento certo.
-   */
-  preload() {
-    if (this.ctx && this.trackUrl) void this.load(this.trackUrl).catch(() => undefined)
-  }
-
-  private async startTrack(url: string) {
-    if (!this.ctx) return
-    let buf: AudioBuffer
-    try { buf = await this.load(url) } catch { return }
-    // a aba pode ter voltado pro menu enquanto o mp3 baixava
-    if (!this.playing || this.trackUrl !== url || !this.ctx) return
-    if (this.voices.length) return
-    // sem rampa no filtro e no volume: quem acabou de dar o saque já ouve
-    const t = this.ctx.currentTime
-    this.music.gain.cancelScheduledValues(t)
-    this.music.gain.setValueAtTime(this.paused ? 0.05 : musicGain(this.intensity), t)
-    this.musicLp.frequency.cancelScheduledValues(t)
-    this.musicLp.frequency.setValueAtTime(this.paused ? 480 : musicCut(this.intensity), t)
-    this.queue(buf, t + 0.05, true)
-  }
-
-  /**
-   * Faixa de música não emenda sozinha: o fim não casa com o começo. Em vez de
-   * cortar, a volta seguinte entra por cima com um crossfade — ninguém ouve
-   * onde é a emenda.
-   */
-  private queue(buf: AudioBuffer, at: number, first: boolean) {
-    const ctx = this.ctx!
-    const src = ctx.createBufferSource()
-    src.buffer = buf
-    const gain = ctx.createGain()
-    const end = at + buf.duration
-    gain.gain.setValueAtTime(first ? 0.0001 : 0.0001, at)
-    gain.gain.linearRampToValueAtTime(1, at + (first ? 0.35 : LOOP_XFADE))
-    gain.gain.setValueAtTime(1, end - LOOP_XFADE)
-    gain.gain.linearRampToValueAtTime(0.0001, end)
-    src.connect(gain).connect(this.musicLp)
-    src.start(at)
-    src.stop(end + 0.1)
-    const voice = { src, gain }
-    this.voices.push(voice)
-    src.onended = () => {
-      const i = this.voices.indexOf(voice)
-      if (i >= 0) this.voices.splice(i, 1)
-    }
-    this.loopAt = end - LOOP_XFADE
-  }
-
-  /** Chamado todo frame: agenda a próxima volta quando o crossfade se aproxima. */
-  private pumpMusic() {
-    if (!this.ctx || !this.playing || !this.voices.length) return
-    const buf = this.buffers.get(this.trackUrl)
-    if (!buf) return
-    const t = this.ctx.currentTime
-    if (t > this.loopAt - 1.5 && this.voices.length < 2) this.queue(buf, this.loopAt, false)
-  }
-
-  private fadeOutMusic() {
-    if (!this.ctx) return
-    const t = this.ctx.currentTime
-    for (const v of this.voices) {
-      v.gain.gain.cancelScheduledValues(t)
-      v.gain.gain.setTargetAtTime(0.0001, t, 0.25)
-      try { v.src.stop(t + 1.4) } catch { /* já parou */ }
-    }
-    this.voices = []
-    this.loopAt = 0
   }
 
   // ---------- buffers ----------
@@ -467,7 +466,7 @@ export class GameAudio {
   setTension(t: number) {
     const ctx = this.ctx
     if (!ctx) return
-    this.pumpMusic()
+    this.seq?.pump()
     this.setIntensity(t)
     if (t < 0.45) { this.pulseAt = 0; return }
     const period = 0.62 - t * 0.38
@@ -659,7 +658,7 @@ export class GameAudio {
       g.gain.setValueAtTime(0.0001, t0 + d)
       g.gain.exponentialRampToValueAtTime(0.22, t0 + d + 0.05)
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.42)
-      o.connect(g).connect(this.master!)
+      o.connect(g).connect(this.sfxBus)
       o.start(t0 + d)
       o.stop(t0 + d + 0.5)
     }

@@ -83,6 +83,8 @@ export class Stage2D implements GameRenderer {
   private dust: Dust[] = []
   private rings: Ring[] = []
   private gib = [0, 0]
+  /** mesma rampa do 3D: sem ela o bote troca de pose num quadro só */
+  private diveK = [0, 0]
   private trail: { x: number; y: number; life: number; seed: number }[] = []
   private pops: Pop[] = []
   private craters: { x: number; r: number }[] = []
@@ -1222,7 +1224,11 @@ export class Stage2D implements GameRenderer {
       if (this.gib[s] === 0 && w.stun[s] === 0) this.reach(sx, sy, w.charge[s] >= SPECIAL_FULL)
       if (w.digActive[s] > 0) this.digSwipe(s, sx, sy, w.digActive[s] / DIG_WINDOW)
       const air = w.diveFrames[s] > 0
-      const dive = air ? 1 : Math.min(1, w.diveRecover[s] / (DIVE_RECOVER * 0.55))
+      const target = air ? 1 : Math.min(1, w.diveRecover[s] / (DIVE_RECOVER * 0.7))
+      const rate = target > this.diveK[s] ? 15 : 6.5
+      this.diveK[s] += (target - this.diveK[s]) * (1 - Math.exp(-dt * rate))
+      if (this.diveK[s] < 0.002) this.diveK[s] = 0
+      const dive = this.diveK[s]
       if (air) this.diveStreak(sx, sy - BLOBBY_UPPER_SPHERE * 0.5, w.diveDir[s], 1)
       this.blob(s, sx, sy, lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0, w.crouch[s],
         dive, w.diveDir[s])

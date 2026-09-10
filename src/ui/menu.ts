@@ -1,7 +1,7 @@
 import { el, clear } from './dom.ts'
 import { RULES } from '../core/logic.ts'
 import { VOLUMES } from '../audio/audio.ts'
-import type { VolumeId } from '../audio/audio.ts'
+import type { VolumeBus, VolumeId } from '../audio/audio.ts'
 import type { Difficulty } from '../ai/bot.ts'
 import type { LobbyNet, RoomAd } from '../net/lobby.ts'
 import { ARENAS } from '../core/constants.ts'
@@ -76,8 +76,8 @@ export interface MenuHandlers {
   }
   onResume?(): void
   onQuit?(): void
-  getVolume(): VolumeId
-  onVolume(v: VolumeId): void
+  getVolume(bus: VolumeBus): VolumeId
+  onVolume(v: VolumeId, bus: VolumeBus): void
   onQuality(q: GameConfig['quality']): void
   onFps(on: boolean): void
   onWatchRooms(cb: (rooms: RoomAd[]) => void): () => void
@@ -154,18 +154,24 @@ export class Menu {
       el('button', { class: 'ghost center back', onclick: to }, '← Voltar'))
   }
 
-  private selector<T extends string>(
-    items: [T, string, string][], current: T, onPick: (v: T) => void, cls = 'grid four',
+  /** Rótulo à esquerda, opções à direita: cabe o dobro de ajuste na mesma altura. */
+  private field<T extends string>(
+    label: string, items: [T, string, string][], current: T, onPick: (v: T) => void, cols = 0,
   ) {
-    const wrap = el('div', { class: cls })
-    for (const [id, label, desc] of items) {
-      const b = el('button', {
+    const n = cols || Math.min(items.length, 4)
+    const chips = el('div', { class: 'chips', style: `grid-template-columns:repeat(${n},1fr)` })
+    for (const [id, text, desc] of items) {
+      chips.append(el('button', {
         class: `chip${id === current ? ' sel' : ''}`,
+        title: desc,
         onclick: () => { onPick(id); this.refresh() },
-      }, label, desc ? el('small', { textContent: desc }) : el('span'))
-      wrap.append(b)
+      }, text))
     }
-    return wrap
+    return el('div', { class: 'field' }, el('h3', { textContent: label }), chips)
+  }
+
+  private wrapField(label: string, control: Node) {
+    return el('div', { class: 'field' }, el('h3', { textContent: label }), control)
   }
 
   private refresh() { this.currentScreen() }
@@ -279,35 +285,36 @@ export class Menu {
     nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby' })
     this.panel(
       this.title('AJUSTES'),
-      el('h2', { class: 'sec', textContent: 'Seu nome' }),
-      nameIn,
-      el('h2', { class: 'sec', textContent: 'Bot' }),
-      this.selector(DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
-      el('h2', { class: 'sec', textContent: 'Regras' }),
-      this.selector(
-        RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
-        cfg.ruleId,
-        v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin },
-        'grid two'),
-      el('h2', { class: 'sec', textContent: 'Arena' }),
-      this.selector(ARENAS, cfg.arena, v => { cfg.arena = v }, 'grid two'),
-      el('h2', { class: 'sec', textContent: 'Cenário' }),
-      this.selector(SCENE_LIST, cfg.scene,
-        v => { cfg.scene = v; this.handlers.onScene(v) }, 'grid three'),
-      el('h2', { class: 'sec', textContent: 'Paredes da quadra' }),
-      this.selector(WALL_OPTS, cfg.walls ? 'on' : 'off',
-        v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }, 'grid two'),
-      el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, cfg.quality, v => { cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
-      el('h2', { class: 'sec', textContent: 'FPS' }),
-      this.selector(FPS_OPTS, cfg.showFps ? 'on' : 'off',
-        v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) }, 'grid two'),
-      el('h2', { class: 'sec', textContent: 'Som' }),
-      this.selector(VOLUMES as [VolumeId, string, string][], this.handlers.getVolume(),
-        v => this.handlers.onVolume(v)),
-      el('p', { class: 'credit', textContent: 'Trilha: Kevin MacLeod (incompetech.com), CC BY 4.0' }),
+      el('div', { class: 'fields' },
+        this.wrapField('Nome', nameIn),
+        this.field('Bot', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
+        this.field(
+          'Regras',
+          RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
+          cfg.ruleId,
+          v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin }),
+        this.field('Arena', ARENAS, cfg.arena, v => { cfg.arena = v }, 2),
+        this.field('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
+          v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }, 2),
+        this.field('Cenário', SCENE_LIST, cfg.scene,
+          v => { cfg.scene = v; this.handlers.onScene(v) }, 3),
+        this.field('Gráficos', QUALITIES, cfg.quality,
+          v => { cfg.quality = v; this.handlers.onQuality(v) }, 3),
+        this.field('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
+          v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) }, 2),
+        this.volumeFields(),
+      ),
+      el('p', { class: 'credit', textContent: 'Trilha e efeitos: sintetizados pelo próprio jogo' }),
       this.back(() => this.main()),
     )
+  }
+
+  /** Música e efeito em barramentos separados: dá pra jogar ouvindo só a bola. */
+  private volumeFields() {
+    const vols = VOLUMES as [VolumeId, string, string][]
+    return el('div', { class: 'fields' },
+      this.field('Música', vols, this.handlers.getVolume('music'), v => this.handlers.onVolume(v, 'music')),
+      this.field('Efeitos', vols, this.handlers.getVolume('sfx'), v => this.handlers.onVolume(v, 'sfx')))
   }
 
   online() {
@@ -518,8 +525,11 @@ export class Menu {
       el('div', { class: 'grid' },
         el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'VOLTAR PRO JOGO'),
         el('button', { class: 'center', onclick: () => this.handlers.onStopWatch() }, 'Parar de assistir')),
-      el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
+      el('div', { class: 'fields' },
+        this.field('Gráficos', QUALITIES, this.cfg.quality,
+          v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 3),
+        this.volumeFields(),
+      ),
     )
   }
 
@@ -565,20 +575,18 @@ export class Menu {
     this.show()
     this.panel(
       this.title('PAUSA'),
-      el('div', { class: 'grid' },
+      el('div', { class: 'grid two' },
         el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'CONTINUAR'),
-        el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair para o menu')),
-      el('h2', { class: 'sec', textContent: 'Cenário' }),
-      this.selector(SCENE_LIST, this.cfg.scene,
-        v => { this.cfg.scene = v; this.handlers.onScene(v) }, 'grid three'),
-      el('h2', { class: 'sec', textContent: 'Paredes da quadra' }),
-      this.selector(WALL_OPTS, this.cfg.walls ? 'on' : 'off',
-        v => this.handlers.onWalls(v === 'on'), 'grid two'),
-      el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
-      el('h2', { class: 'sec', textContent: 'Som' }),
-      this.selector(VOLUMES as [VolumeId, string, string][], this.handlers.getVolume(),
-        v => this.handlers.onVolume(v)),
+        el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair')),
+      el('div', { class: 'fields' },
+        this.field('Cenário', SCENE_LIST, this.cfg.scene,
+          v => { this.cfg.scene = v; this.handlers.onScene(v) }, 3),
+        this.field('Paredes', WALL_OPTS, this.cfg.walls ? 'on' : 'off',
+          v => this.handlers.onWalls(v === 'on'), 2),
+        this.field('Gráficos', QUALITIES, this.cfg.quality,
+          v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 3),
+        this.volumeFields(),
+      ),
     )
   }
 

@@ -55,4 +55,4 @@ pnpm build
 
 Jogo original: [Daniel Knobe e contribuidores](https://github.com/danielknobe/blobbyvolley2) (GPL-2.0). Este remake reimplementa as regras e a física a partir daquele código; nenhum asset original foi usado.
 
-Trilha sonora: [Kevin MacLeod](https://incompetech.com/) — *Beachfront Celebration*, *Bossa Antigua* e *Funkorama*, licenciadas em [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Trilha sonora original, feita pra este jogo: cada tema e um arquivo de notas em `public/music/` tocado pelo sintetizador do proprio jogo (`src/audio/`). Os temas sao gerados por `python3 tools/music/build.py`.

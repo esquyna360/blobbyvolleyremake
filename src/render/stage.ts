@@ -144,6 +144,8 @@ interface BlobAnim {
   lastVY: number
   wasGrounded: boolean
   flash: number
+  /** pose de mergulho suavizada: o alvo do mundo é degrau, isto é a rampa */
+  dive: number
 }
 
 interface EmotePop {
@@ -455,7 +457,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       scene.add(v.group)
       this.blobs.push({
         visual: v, wobble: 0, squashSpring: 0, squashVel: 0, mouth: 0,
-        face: new FaceRig(), lastVY: 0, wasGrounded: true, flash: 0,
+        face: new FaceRig(), lastVY: 0, wasGrounded: true, flash: 0, dive: 0,
       })
     }
 
@@ -952,7 +954,12 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     // mergulho é bote, não tombo: o corpo estica pra frente, achata em pé e
     // tomba só o que basta pra ler a direção. Tombar de vez virava salsicha.
     const air = world.diveFrames[i] > 0
-    const dive = air ? 1 : Math.min(1, world.diveRecover[i] / (DIVE_RECOVER * 0.55))
+    const target = air ? 1 : Math.min(1, world.diveRecover[i] / (DIVE_RECOVER * 0.7))
+    // entra rápido, sai devagar: o bote precisa ser seco, o levantar não
+    const rate = target > b.dive ? 15 : 6.5
+    b.dive += (target - b.dive) * (1 - Math.exp(-dt * rate))
+    if (b.dive < 0.002) b.dive = 0
+    const dive = b.dive
 
     const sy = 1 + b.squashSpring + airStretch - anim * 0.5 - cr * 0.34 - dive * 0.32
     const sxz = 1 - (b.squashSpring + airStretch) * 0.55 + anim * 0.45 + cr * 0.26
@@ -973,7 +980,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       ? -world.diveDir[i] * 0.44 * dive
       : -vx * 0.028 + (grounded ? 0 : vy * 0.004)
     b.visual.group.rotation.z = THREE.MathUtils.lerp(
-      b.visual.group.rotation.z, lean, 1 - Math.exp(-dt * (dive > 0.01 ? 26 : 12)))
+      b.visual.group.rotation.z, lean, 1 - Math.exp(-dt * (air ? 17 : 9)))
 
     // areia levantando o mergulho inteiro: no ar é o rastro, no chão é o arrasto
     if (dive > 0.01 && Math.random() < dt * 60) {
