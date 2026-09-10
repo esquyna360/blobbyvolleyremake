@@ -19,6 +19,7 @@ import type { Scene, SceneId } from './scenes.ts'
 import { drawHair2D } from './hair2d.ts'
 import { bodyHex, defaultLook, shade } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
+import type { TargetMark } from '../core/drill.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 
@@ -87,6 +88,10 @@ export class Stage2D implements GameRenderer {
   private dust: Dust[] = []
   private rings: Ring[] = []
   private gib = [0, 0]
+  private solo = false
+  private target: TargetMark | null = null
+  private targetFlash = 0
+  private targetState = 0
   /** mesma rampa do 3D: sem ela o bote troca de pose num quadro só */
   private diveK = [0, 0]
   private trail: { x: number; y: number; life: number; seed: number }[] = []
@@ -512,7 +517,55 @@ export class Stage2D implements GameRenderer {
     this.trauma = Math.min(1, this.trauma + 0.35)
   }
 
+  /** Minigame de mira: o lado direito não é desenhado. A física já o ignora. */
+  setSolo(on: boolean) { this.solo = on }
+
+  /** Chamada todo quadro com o mesmo objeto: o estalo só dispara na virada. */
+  setTarget(t: TargetMark | null) {
+    const st = t?.state ?? 0
+    if (st !== 0 && st !== this.targetState) this.targetFlash = 1
+    this.targetState = st
+    this.target = t
+  }
+
+  /** Fora da tela: explodido pelo especial, ou o lado vazio do minigame. */
+  private off(p: Side) { return this.gib[p] > 0 || (this.solo && p === RIGHT) }
+
+  /**
+   * A faixa-alvo, deitada na areia. Borda pulsando e listras andando: parada e
+   * chapada ela some no chão claro da praia.
+   */
+  private targetMark() {
+    const t = this.target
+    if (!t) return
+    const c = this.ctx
+    const y0 = GROUND - 6, y1 = GROUND + 44
+    const h = y1 - y0
+    const rgb = t.state === 0 ? '255,210,87' : t.state > 0 ? '92,240,138' : '255,90,74'
+    const pulse = 0.62 + 0.38 * Math.sin(this.time * 3.6)
+    const fl = this.targetFlash
+    c.save()
+    c.beginPath(); c.rect(t.x0, y0, t.x1 - t.x0, h); c.clip()
+    c.fillStyle = `rgba(${rgb},${0.26 + fl * 0.4})`
+    c.fillRect(t.x0, y0, t.x1 - t.x0, h)
+    c.fillStyle = `rgba(${rgb},0.22)`
+    const step = 30
+    const skew = 18
+    const shift = (this.time * 24) % step
+    for (let x = t.x0 - skew - step + shift; x < t.x1 + step; x += step) {
+      c.beginPath()
+      c.moveTo(x, y1); c.lineTo(x + step * 0.45, y1)
+      c.lineTo(x + step * 0.45 + skew, y0); c.lineTo(x + skew, y0)
+      c.closePath(); c.fill()
+    }
+    c.restore()
+    c.strokeStyle = `rgba(${rgb},${Math.min(1, 0.5 + pulse * 0.4 + fl)})`
+    c.lineWidth = 4 + fl * 3
+    c.strokeRect(t.x0, y0, t.x1 - t.x0, h)
+  }
+
   private step(dt: number) {
+    this.targetFlash = Math.max(0, this.targetFlash - dt * 1.6)
     this.time += dt
     for (const f of this.faces) f.update(dt, this.tension, false)
     if (this.pops.length) {
@@ -889,7 +942,7 @@ export class Stage2D implements GameRenderer {
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
                stunned: boolean, cr: number, dive = 0, dvDir = 0) {
-    if (this.gib[p] > 0) return
+    if (this.off(p)) return
     const c = this.ctx
     if (stunned) {
       c.save()
@@ -1364,16 +1417,17 @@ export class Stage2D implements GameRenderer {
     }
 
     this.skidMarks()
+    this.targetMark()
 
     this.shadow(bx, by, BALL_RADIUS)
     for (const s of [0, 1] as Side[]) {
-      if (this.gib[s] > 0) continue
+      if (this.off(s)) continue
       this.shadow(lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
     }
 
     for (const s of [0, 1] as Side[]) {
       const sx = lerp(p.px[s], q.px[s]), sy = lerp(p.py[s], q.py[s])
-      if (this.gib[s] === 0 && w.stun[s] === 0) this.reach(sx, sy, w.charge[s] >= SPECIAL_FULL)
+      if (!this.off(s) && w.stun[s] === 0) this.reach(sx, sy, w.charge[s] >= SPECIAL_FULL)
       if (w.digActive[s] > 0) this.digSwipe(s, sx, sy, w.digActive[s] / DIG_WINDOW)
       const air = w.diveFrames[s] > 0
       const target = air ? 1 : Math.min(1, w.diveRecover[s] / (DIVE_RECOVER * 0.7))

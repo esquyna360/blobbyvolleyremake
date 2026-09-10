@@ -30,6 +30,8 @@ import { createScenery } from './scenery.ts'
 import { createIndoor } from './indoor.ts'
 import type { Indoor } from './indoor.ts'
 import { Depth3D } from './depth3d.ts'
+import { Target3D } from './target3d.ts'
+import type { TargetMark } from '../core/drill.ts'
 import { createForeground3D } from './foreground3d.ts'
 import type { Foreground3D } from './foreground3d.ts'
 import { createCampfire } from './campfire.ts'
@@ -89,6 +91,10 @@ export interface GameRenderer {
   setLook(side: Side, look: PlayerLook): void
   /** Paredes da quadra: existem sempre na física, aqui só some o desenho. */
   setWalls(on: boolean): void
+  /** Minigame de mira: o lado direito some da tela — não tem ninguém lá. */
+  setSolo(on: boolean): void
+  /** Faixa-alvo no chão do campo vazio. `null` apaga. */
+  setTarget(t: TargetMark | null): void
   capture(match: Match): void
   onEvents(match: Match, events: MatchEvent[]): void
   render(match: Match, alpha: number, dt: number): void
@@ -284,6 +290,8 @@ export class Stage implements GameRenderer {
   campfire!: Campfire
   fg3!: Foreground3D
   private depth3 = new Depth3D()
+  private target3 = new Target3D()
+  private solo = false
   oceanUniforms!: Record<string, THREE.IUniform>
   oceanMesh!: THREE.Mesh
   hemi!: THREE.HemisphereLight
@@ -419,6 +427,7 @@ export class Stage implements GameRenderer {
     this.fg3 = createForeground3D()
     this.camera.add(this.fg3.group)
     this.scene.add(this.depth3.group)
+    this.scene.add(this.target3.mesh)
     scene.add(this.camera)
 
     this.net = createNet()
@@ -562,6 +571,14 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       ;((w.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color).copy(wallCol)
     }
   }
+
+  /**
+   * O blob da direita continua existindo na simulação — o que some é o desenho
+   * dele, a sombra e o alcance. A física já ignora o lado com `world.solo`.
+   */
+  setSolo(on: boolean) { this.solo = on }
+
+  setTarget(t: TargetMark | null) { this.target3.set(t) }
 
   setWalls(on: boolean) {
     this.wallsOn = on
@@ -946,7 +963,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       const gxp = THREE.MathUtils.lerp(this.prev.px[i], this.cur.px[i], alpha)
       const gyp = THREE.MathUtils.lerp(this.prev.py[i], this.cur.py[i], alpha)
       const x = gx(gxp), y = gy(gyp - BLOBBY_UPPER_SPHERE)
-      const hidden = this.gib[i] > 0 || w.stun[i] > 0
+      const hidden = this.gib[i] > 0 || w.stun[i] > 0 || (this.solo && i === RIGHT)
       const on = !hidden && w.charge[i] >= SPECIAL_FULL
       const m = this.reachRings[i]
       const mat = m.material as THREE.MeshBasicMaterial
@@ -959,7 +976,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
 
   private updateBlob(i: Side, alpha: number, dt: number, match: Match) {
     const b = this.blobs[i]
-    if (this.gib[i] > 0) { b.visual.group.visible = false; return }
+    if (this.gib[i] > 0 || (this.solo && i === RIGHT)) { b.visual.group.visible = false; return }
     b.visual.group.visible = true
     const u = b.visual.uniforms
     const p = this.prev, c = this.cur
@@ -1198,6 +1215,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.indoor.update(this.time, this.tension)
     this.campfire.update(this.time)
     this.depth3.update(this.camZ, this.camera.fov, this.camera.aspect, CAM_EYE_Y, CAM_LOOK_Y)
+    this.target3.update(this.time, dt)
     this.fg3.update(dt, this.time)
     this.particles.update(this.time)
     this.skyUniforms.uTime.value = this.time
@@ -1369,6 +1387,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
 
   dispose() {
     this.depth3.dispose()
+    this.target3.dispose()
     for (const e of this.emotes) { this.scene.remove(e.mesh); e.mesh.material.dispose() }
     this.emotes.length = 0
     for (const sc of this.scorches) { this.scene.remove(sc.mesh); sc.mesh.material.dispose() }

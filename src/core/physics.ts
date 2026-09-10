@@ -76,6 +76,12 @@ export class PhysicWorld {
    * quadra fica aberta e sair pelo lado é ponto de quem não tocou por último.
    */
   walls = true
+
+  /**
+   * Minigame de mira: o lado direito é cenário. Sem isso um blob invisível
+   * rebate a bola no meio do campo vazio.
+   */
+  solo = false
   /** Trava pra não pontuar duas vezes na mesma bola fora. */
   ballOut = 0
 
@@ -668,7 +674,7 @@ export class PhysicWorld {
       this.tryParry(LEFT, li, out)
       this.tryParry(RIGHT, ri, out)
       this.tryDig(LEFT, out) || this.handleBlobBallCollision(LEFT, out)
-      this.tryDig(RIGHT, out) || this.handleBlobBallCollision(RIGHT, out)
+      if (!this.solo) this.tryDig(RIGHT, out) || this.handleBlobBallCollision(RIGHT, out)
     }
 
     this.trySpecial(LEFT, li, isBallValid, groundL, out)

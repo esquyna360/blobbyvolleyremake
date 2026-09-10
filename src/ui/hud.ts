@@ -33,6 +33,8 @@ export class Hud {
   private rallyShown = -1
   private rallyRec = false
   private rallyHide = 0 as unknown as ReturnType<typeof setTimeout>
+  private lives: HTMLElement[] = []
+  private livesEl: HTMLElement
   private barL!: HTMLElement
   private barR!: HTMLElement
   private fillL!: HTMLElement
@@ -60,9 +62,13 @@ export class Hud {
       el('div', { class: 'touches' }, ...this.touchesL))
     const right = el('div', { class: 'side r' }, this.nameR, this.ptsR,
       el('div', { class: 'touches' }, ...this.touchesR))
+    for (let i = 0; i < 3; i++) this.lives.push(el('i', { textContent: '\u2665' }))
+    this.livesEl = el('div', { class: 'lives' }, ...this.lives)
+
     const mid = el('div', { class: 'mid' },
       el('span', { class: 'sep', textContent: '—' }),
       el('div', { class: 'serve-dots' }, ...this.dots),
+      this.livesEl,
       this.ruleEl)
 
     this.netbar = el('div', { class: 'netbar mono' })
@@ -104,7 +110,22 @@ export class Hud {
   }
 
   setNames(l: string, r: string) { this.nameL.textContent = l; this.nameR.textContent = r }
-  setRule(name: string, stw: number) { this.ruleEl.textContent = `${name} · ${stw}` }
+
+  /**
+   * Minigame: um lado só. O placar da direita, os pontinhos de saque e a barra
+   * do especial do adversário não têm o que mostrar — somem, e no lugar entram
+   * os corações.
+   */
+  setDrill(on: boolean) {
+    this.root.classList.toggle('drill', on)
+    if (on) this.nameL.textContent = 'ACERTOS'
+  }
+
+  setLives(n: number) {
+    for (let i = 0; i < this.lives.length; i++) this.lives[i].classList.toggle('out', i >= n)
+  }
+
+  setRule(name: string, stw: number | string) { this.ruleEl.textContent = `${name} · ${stw}` }
 
   update(scores: number[], touches: number[], serving: number, charge?: number[], stun?: number[]) {
     if (charge) {

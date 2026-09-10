@@ -4,6 +4,7 @@ import { LEFT, RIGHT, TICK_MS, NO_PLAYER, setArena, arenaId } from './core/const
 import type { Side, ArenaId } from './core/constants.ts'
 import { Match } from './core/match.ts'
 import { getRules } from './core/logic.ts'
+import { Drill, DRILL_RULES, DRILL_LIVES } from './core/drill.ts'
 import { packInput, NO_INPUT } from './core/input.ts'
 import type { PlayerInput } from './core/input.ts'
 import { Bot } from './ai/bot.ts'
@@ -114,6 +115,7 @@ class App {
   private emoteAt = [0, 0]
   private botMood: BotMood | null = null
   private botLook: PlayerLook | null = null
+  private drill: Drill | null = null
   private rec = new Recorder()
   private recMode: ReplayMode = 'bot'
   private recUpTo = -1
@@ -151,7 +153,7 @@ class App {
     this.hud.setFps(this.cfg.showFps)
 
     this.menu = new Menu(this.ui, this.cfg, {
-      onStart: c => this.startLocal(c),
+      onStart: c => (c.mode === 'drill' ? this.startDrill(c) : this.startLocal(c)),
       onScene: id => this.applyScene(id),
       onLook: look => { this.cfg.look = look; this.applyLooks() },
       onWalls: on => {
@@ -247,7 +249,9 @@ class App {
     prev.dispose()
     old.remove()
     this.stage.setScene(this.cfg.scene)
-    this.stage.setWalls(this.cfg.walls)
+    this.stage.setWalls(this.drill ? true : this.cfg.walls)
+    this.stage.setSolo(!!this.drill)
+    this.stage.setTarget(this.drill?.mark ?? null)
     this.applyLooks()
     this.resize()
     if (this.match) { this.stage.capture(this.match); this.stage.capture(this.match) }
@@ -418,7 +422,7 @@ class App {
     this.cfg.walls = on
     this.stage.setWalls(on)
     const m = this.match
-    if (m && !this.viewing && !this.session && m.world.walls !== on) {
+    if (m && !this.viewing && !this.session && !this.drill && m.world.walls !== on) {
       m.world.walls = on
       this.recBroken = true
     }
@@ -447,6 +451,7 @@ class App {
     localStorage.setItem('bv.arena', cfg.arena)
     this.applyArena(cfg.arena)
     this.closeSession()
+    this.clearDrill()
     this.demoBot = null
     this.match = this.newMatch(cfg, LEFT)
     this.localSide = LEFT
@@ -459,6 +464,91 @@ class App {
     this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
     this.hud.showNet(null)
     this.begin()
+  }
+
+  /**
+   * Mira. Não existe adversário: o lado direito some da tela e da colisão, e
+   * quem repõe a bola é o minigame. Sem gravação — o replay guarda input, e
+   * metade do que acontece aqui nasce fora do passo da simulação.
+   */
+  startDrill(cfg: GameConfig) {
+    this.cfg = cfg
+    this.applyScene(cfg.scene)
+    localStorage.setItem('bv.arena', cfg.arena)
+    this.applyArena(cfg.arena)
+    this.closeSession()
+    this.demoBot = null
+    this.bot = null
+    this.botMood = null
+    this.botLook = null
+    this.localSide = LEFT
+    const m = new Match(DRILL_RULES, DRILL_RULES.scoreToWin, NO_PLAYER, true)
+    m.world.solo = true
+    this.match = m
+    this.rec.reset()
+    this.recBroken = true
+    this.recSaved = true
+    const d = new Drill()
+    this.drill = d
+    this.stage.setWalls(true)
+    this.stage.setSolo(true)
+    this.stage.setTarget(null)
+    this.applyLooks()
+    this.hud.setDrill(true)
+    this.hud.setNames('ACERTOS', '')
+    this.hud.setRule('MIRA', `REC ${d.best}`)
+    this.hud.setLives(DRILL_LIVES)
+    this.hud.showNet(null)
+    this.stage.capture(m)
+    this.stage.capture(m)
+    this.begin()
+  }
+
+  private clearDrill() {
+    if (!this.drill) return
+    this.drill = null
+    this.stage.setSolo(false)
+    this.stage.setTarget(null)
+    this.hud.setDrill(false)
+  }
+
+  private drillScore = [0, 0]
+
+  /** Elogio que sobe com a sequência: 'boa' em tudo vira ruído em duas bolas. */
+  private static PRAISE = ['BOA!', 'ISSO!', 'NA MOSCA!', 'CIRÚRGICO!', 'IMPARÁVEL!']
+
+  private drillTick() {
+    const d = this.drill
+    if (!d) return
+    this.stage.setTarget(d.mark)
+    this.hud.setLives(d.lives)
+    const r = d.takeResult()
+    if (r > 0) {
+      this.audio.point(true)
+      this.hud.setRule('MIRA', `REC ${d.best}`)
+      const p = App.PRAISE[Math.min(App.PRAISE.length - 1, Math.floor((d.hits - 1) / 4))]
+      this.hud.banner(p, 750, '#5cf08a')
+    } else if (r < 0) {
+      this.audio.point(false)
+      if (!d.over) this.hud.banner(`ERROU · ${d.lives}`, 900, '#ff6b6b')
+    }
+    if (d.over) this.drillEnd(d)
+  }
+
+  private drillEnd(d: Drill) {
+    if (this.phase !== 'playing') return
+    this.phase = 'over'
+    const rec = d.hits > 0 && d.hits >= d.best
+    const title = rec ? 'NOVO RECORDE' : 'FIM DE JOGO'
+    const color = rec ? '#ffd257' : '#ff6b6b'
+    this.audio.finish(rec)
+    this.hud.banner(title, 2200, color)
+    setTimeout(() => {
+      if (this.phase !== 'over') return
+      this.setTouchVisible(false)
+      this.hud.clearFx()
+      this.menu.result(title, `${d.hits} acerto${d.hits === 1 ? '' : 's'} · recorde ${d.best}`, color)
+    }, 2000)
   }
 
   private begin() {
@@ -496,6 +586,7 @@ class App {
   }
 
   quitToMenu() {
+    this.clearDrill()
     this.leaveWatch(false)
     this.leaveReplay(false)
     this.closeSession()
@@ -571,6 +662,7 @@ class App {
     this.bot = null
     this.botMood = null
     this.botLook = null
+    this.clearDrill()
     this.demoBot = null
     this.spectator = new Spectator(ad.code, {
       onArena: id => this.applyArena(id),
@@ -716,6 +808,7 @@ class App {
         this.bot = null
         this.botMood = null
         this.botLook = null
+        this.clearDrill()
         this.demoBot = null
         this.applyLooks()
         this.stage.capture(this.match)
@@ -736,7 +829,7 @@ class App {
       const mine = this.input.read(SOLO, 0, true)
       return this.localSide === LEFT ? [mine, NO_INPUT] : [NO_INPUT, mine]
     }
-    if (this.bot) return [this.input.read(SOLO, 0, true), NO_INPUT]
+    if (this.bot || this.drill) return [this.input.read(SOLO, 0, true), NO_INPUT]
     return [this.input.read(P1, 0), this.input.read(P2, 1)]
   }
 
@@ -784,8 +877,13 @@ class App {
     if (this.bot) ri = this.bot.think(m)
     const f = m.frame
     m.step(li, ri)
-    if (!this.demoBot) this.rec.put(f, packInput(li), packInput(ri))
+    // a bola reposta é um salto, não um movimento: capturar duas vezes iguala
+    // o quadro anterior ao de agora e a interpolação não risca a tela
+    const jump = this.drill?.after(m) ?? false
+    if (!this.demoBot && !this.drill) this.rec.put(f, packInput(li), packInput(ri))
     this.stage.capture(m)
+    if (jump) this.stage.capture(m)
+    this.drillTick()
     this.stage.onEvents(m, m.events)
     this.audio.onEvents(m.events, m.world, this.demoBot ? NO_PLAYER : this.localSide)
     this.uiEvents(m.events)
@@ -850,6 +948,7 @@ class App {
     this.bot = null
     this.botMood = null
     this.botLook = null
+    this.clearDrill()
     this.demoBot = null
     this.applyArena(data.meta.arena)
     this.stage.setWalls(data.meta.walls !== false)
@@ -1070,7 +1169,9 @@ class App {
       const on = this.audio.musicOn
       this.stage.setBeat(on ? this.audio.barPhase : -1, on ? this.audio.beatPhase : -1)
       this.stage.render(m, alpha, dt)
-      this.hud.update(m.logic.scores, m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
+      if (this.drill) this.drillScore[0] = this.drill.hits
+      this.hud.update(this.drill ? this.drillScore : m.logic.scores,
+        m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
       if (this.phase === 'playing') {
         this.hud.setRally(m.logic.rally, m.logic.rallyBest)
         this.audio.setTension(rallyTension(m.logic.rally))

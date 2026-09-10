@@ -85,6 +85,24 @@ html, body {
 }
 .touches i.on { background: var(--accent); }
 
+/* corações do minigame: só aparecem no modo mira */
+.lives { display: none; gap: 5px; }
+.lives i {
+  font-style: normal; font-size: 15px; line-height: 1; color: #ff4d5e;
+  text-shadow: 0 0 10px rgba(255,77,94,0.55);
+  transition: color .2s, transform .2s, opacity .2s;
+}
+.lives i.out { color: rgba(255,255,255,0.18); text-shadow: none; transform: scale(0.82); }
+
+/* Mira: um jogador, um alvo. O lado direito do placar não tem o que dizer. */
+.hud.drill .side.r,
+.hud.drill .serve-dots { display: none; }
+.hud.drill .lives { display: flex; }
+.hud.drill .mid { padding: 0 2px; }
+.hud.drill .mid .sep { display: none; }
+.hud.drill .charge.r { display: none; }
+.hud.drill .side.l { min-width: 118px; }
+
 /* barras de especial nos cantos de baixo, estilo luta */
 .charge {
   position: fixed; z-index: 4;
@@ -395,6 +413,19 @@ html, body {
 .card.go { border-color: rgba(255,210,87,0.34); background: rgba(255,210,87,0.09); }
 .card.go b { color: var(--accent); }
 .card.go:hover { border-color: rgba(255,210,87,0.6); background: rgba(255,210,87,0.15); }
+
+/* O que ainda não existe fica visível e apagado: promessa, não botão morto. */
+.card.soon {
+  position: relative; cursor: default; opacity: 0.5;
+  background: rgba(255,255,255,0.02); border-style: dashed;
+}
+.card.soon:hover { background: rgba(255,255,255,0.02); border-color: var(--line); }
+.card.soon .tag {
+  position: absolute; top: 12px; right: 12px;
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.18em;
+  color: var(--accent); border: 1px solid rgba(255,210,87,0.4);
+  border-radius: 99px; padding: 3px 8px;
+}
 
 /* Foco no controle precisa se ver de longe: sem realce ninguém sabe onde está. */
 body.padnav .panel :focus {

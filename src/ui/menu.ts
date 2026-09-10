@@ -16,9 +16,10 @@ import { BODY_COLORS, HAIR_COLORS, HAIR_STYLES, defaultLook, saveLook } from '..
 import type { PlayerLook } from '../core/looks.ts'
 import { drawPortrait } from '../render/portrait.ts'
 import type { PadAction } from './pad.ts'
+import { drillBest } from '../core/drill.ts'
 
 export interface GameConfig {
-  mode: 'bot' | 'local' | 'online'
+  mode: 'bot' | 'local' | 'online' | 'drill'
   difficulty: Difficulty
   ruleId: string
   scoreToWin: number
@@ -353,8 +354,8 @@ export class Menu {
       el('div', { class: 'home' },
         el('div', { class: 'home-id' }, this.brand(), cv),
         el('div', { class: 'home-act' },
-          this.act('1 JOGADOR', 'contra o computador, na dificuldade dos ajustes',
-            () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'go'),
+          this.act('1 JOGADOR', 'versus, campanha e minigames',
+            () => this.solo(), 'go'),
           this.act('ONLINE', 'sala direta entre vocês, sem servidor no meio',
             () => this.online()),
           this.act('2 JOGADORES', 'os dois no mesmo teclado',
@@ -379,6 +380,51 @@ export class Menu {
         this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X corta, ☰ pausa')),
     )
     this.runPortrait(cv)
+  }
+
+  /** Um jogador: a partida de sempre, a campanha que vem, e os minigames. */
+  solo() {
+    this.currentScreen = () => this.solo()
+    const cfg = this.cfg
+    this.panel(
+      this.title('1 JOGADOR'),
+      el('div', { class: 'cards' },
+        this.card('Versus', 'partida contra o computador, na dificuldade dos ajustes',
+          () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'go'),
+        this.soon('Campanha', 'uma escada de adversários, cada um com o seu jeito'),
+        this.card('Minigames', 'treinos de um jogador só, sem adversário',
+          () => this.minigames())),
+      el('div', { class: 'opts pre' },
+        this.opt('Cenário', SCENE_LIST, cfg.scene,
+          v => { cfg.scene = v; this.handlers.onScene(v) })),
+      this.tipLine('a dificuldade do Versus fica em AJUSTES'),
+      this.back(() => this.main()),
+    )
+  }
+
+  minigames() {
+    this.currentScreen = () => this.minigames()
+    const cfg = this.cfg
+    const best = drillBest()
+    this.panel(
+      this.title('MINIGAMES'),
+      el('div', { class: 'cards' },
+        this.card('Mira', 'a bola volta sozinha e uma faixa acende no campo vazio — três toques pra derrubar lá dentro. Três erros e acabou.',
+          () => { cfg.mode = 'drill'; this.handlers.onStart(cfg) }, 'go'),
+        this.soon('Mais em breve', 'outros treinos entram aqui')),
+      best > 0
+        ? el('div', { class: 'hint center', textContent: `seu recorde na Mira: ${best} acertos` })
+        : el('span'),
+      this.back(() => this.solo()),
+    )
+  }
+
+  /** Cartão do que ainda não existe: aparece, explica e não clica. */
+  private soon(name: string, desc: string) {
+    const b = this.card(name, desc, () => { /* em breve */ }, 'soon')
+    b.setAttribute('disabled', '')
+    b.append(el('span', { class: 'tag', textContent: 'EM BREVE' }))
+    return b
   }
 
   /** Escolher olhando pro bicho: o retrato ao lado é o mesmo desenho do jogo. */
