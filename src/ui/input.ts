@@ -37,18 +37,15 @@ export class InputManager {
     if (!gp) return null
     const ax = gp.axes[0] ?? 0
     const ay = gp.axes[1] ?? 0
-    const dpadL = gp.buttons[14]?.pressed ?? false
-    const dpadR = gp.buttons[15]?.pressed ?? false
-    const jump = (gp.buttons[0]?.pressed ?? false) || (gp.buttons[1]?.pressed ?? false) ||
-      (gp.buttons[12]?.pressed ?? false) || (gp.buttons[7]?.pressed ?? false)
-    const special = (gp.buttons[2]?.pressed ?? false) || (gp.buttons[3]?.pressed ?? false) ||
-      (gp.buttons[5]?.pressed ?? false)
+    // mapeamento padrão do navegador: DualSense e Xbox caem os dois nele, então
+    // ✕ e A são o mesmo botão 0, □ e X o mesmo botão 2
+    const b = (i: number) => gp.buttons[i]?.pressed ?? false
     return {
-      left: dpadL || ax < -0.35,
-      right: dpadR || ax > 0.35,
-      up: jump || ay < -0.45,
-      special,
-      down: (gp.buttons[13]?.pressed ?? false) || ay > 0.4,
+      left: b(14) || ax < -0.35,
+      right: b(15) || ax > 0.35,
+      up: b(0) || b(12) || ay < -0.45,
+      special: b(1) || b(2) || b(3) || b(5) || b(7),
+      down: b(13) || b(4) || b(6) || ay > 0.4,
     }
   }
 

@@ -12,6 +12,7 @@ import type { GameRenderer } from './render/stage.ts'
 import { Stage2D } from './render/stage2d.ts'
 import { Hud } from './ui/hud.ts'
 import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
+import { PadNav } from './ui/pad.ts'
 import type { GameConfig } from './ui/menu.ts'
 import { InputManager, P1, P2, SOLO } from './ui/input.ts'
 import { NetSession, passHash } from './net/session.ts'
@@ -104,6 +105,7 @@ class App {
 
   private acc = 0
   private last = performance.now()
+  private padNav = new PadNav()
   private lastSend = 0
   private touchEls: HTMLElement | null = null
   private touchMenu: HTMLElement | null = null
@@ -174,7 +176,10 @@ class App {
     this.input.onPause = () => {
       if (this.phase === 'playing') this.pause()
       else if (this.phase === 'paused') this.resume()
+      else this.menu.escape()
     }
+    // mouse de volta: o realce de foco é do controle, não fica sobrando na tela
+    addEventListener('pointerdown', () => document.body.classList.remove('padnav'))
 
     this.buildTouch()
     this.bindAudio()
@@ -1008,6 +1013,19 @@ class App {
     void reportMatch(key, this.cfg.name, iWon, my, their)
   }
 
+  /** Controle fora da partida: anda no menu e o botão ☰ pausa e despausa. */
+  private padMenu(now: number) {
+    const acts = this.padNav.poll(now)
+    if (!acts.length) return
+    const start = acts.includes('start')
+    if (this.phase === 'playing') {
+      if (start) this.pause()
+      return
+    }
+    if (start && this.phase === 'paused') { this.resume(); return }
+    for (const a of acts) if (a !== 'start') this.menu.pad(a)
+  }
+
   private loop(now: number) {
     requestAnimationFrame(t => this.loop(t))
     // relógio nunca anda pra trás: dt negativo faria todo decaimento virar ganho
@@ -1050,6 +1068,7 @@ class App {
       }
       this.checkWin()
     }
+    this.padMenu(now)
     this.hud.tickFps(dt)
     this.tickRepBar()
     if (this.session && this.phase === 'playing') this.hud.showNet(this.session.stats())

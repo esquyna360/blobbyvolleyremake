@@ -15,6 +15,7 @@ import type { RankRow } from '../net/rank.ts'
 import { BODY_COLORS, HAIR_COLORS, HAIR_STYLES, defaultLook, saveLook } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
 import { drawPortrait } from '../render/portrait.ts'
+import type { PadAction } from './pad.ts'
 
 export interface GameConfig {
   mode: 'bot' | 'local' | 'online'
@@ -103,6 +104,8 @@ export class Menu {
   private netOff: (() => void) | null = null
   private pendingNet: (() => void) | null = null
   private currentScreen: () => void = () => this.main()
+  /** Pra onde o ESC e o ○/B voltam nesta tela. Sai do próprio botão Voltar. */
+  private escBack: (() => void) | null = null
   private tipEl: HTMLElement | null = null
   private tipIdle = ''
 
@@ -143,19 +146,113 @@ export class Menu {
     this.tipEl = null
     this.tipIdle = ''
     clear(this.container)
-    this.container.append(el('div', { class: 'panel' }, ...children))
+    const p = el('div', { class: 'panel' }, ...children)
+    this.container.append(p)
+    // o caminho de volta já está escrito no botão Voltar: ler dele evita uma
+    // segunda fonte de verdade que sai do lugar quando uma tela muda de pai
+    const b = p.querySelector('.item.back') as HTMLButtonElement | null
+    this.escBack = b ? () => b.click() : null
+  }
+
+  /** ESC e ○/B voltam uma tela. Na inicial não têm pra onde ir. */
+  escape() {
+    if (!this.escBack) return false
+    this.escBack()
+    return true
+  }
+
+  /** O menu inteiro anda no controle: direcional, ✕/A escolhe, ○/B volta. */
+  pad(a: PadAction) {
+    if (a === 'back') { this.escape(); return }
+    const list = this.focusables()
+    if (!list.length) return
+    const i = list.indexOf(document.activeElement as HTMLElement)
+    if (i < 0) { this.focusPad(list[0]); return }
+    const node = list[i]
+    if (a === 'ok') { node.click(); return }
+    if ((a === 'left' || a === 'right') && this.nudge(node, a === 'left' ? -1 : 1)) return
+    const d = a === 'up' || a === 'left' ? -1 : 1
+    this.focusPad(list[(i + d + list.length) % list.length])
+  }
+
+  private focusables() {
+    const p = this.container.querySelector('.panel')
+    if (!p) return []
+    return Array.from(p.querySelectorAll<HTMLElement>('button, input, textarea'))
+      .filter(e => e.tabIndex >= 0 && !e.hasAttribute('disabled') && e.offsetParent !== null)
+  }
+
+  private focusPad(node: HTMLElement) {
+    document.body.classList.add('padnav')
+    node.focus()
+    node.scrollIntoView({ block: 'nearest' })
+  }
+
+  /** Opção de valor e volume andam com o direcional; o resto troca o foco. */
+  private nudge(node: HTMLElement, d: number) {
+    if (node.classList.contains('val')) {
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: d < 0 ? 'ArrowLeft' : 'ArrowRight' }))
+      return true
+    }
+    if (node instanceof HTMLInputElement && node.type === 'range') {
+      node.value = String(Math.max(0, Math.min(100, Number(node.value) + d * 4)))
+      node.dispatchEvent(new Event('input'))
+      return true
+    }
+    return false
   }
 
   private title(text: string, sub?: string) {
-    return el('div', { class: 'brand' },
+    return el('div', { class: 'brand head' },
       el('h1', { textContent: text }),
       sub ? el('p', { textContent: sub }) : el('span'))
   }
 
   private brand() {
     return el('div', { class: 'brand' },
-      el('h1', {}, 'BLOBBY', el('br'), 'VOLLEY'),
+      el('h1', {}, 'BLOBBY', el('br'), el('em', { textContent: 'VOLLEY' })),
       el('p', { class: 'build mono', textContent: `build ${__BUILD__}` }))
+  }
+
+  /** Ação de peso: botão de verdade, não mais uma linha de texto na pilha. */
+  private act(text: string, tipText: string, onclick: () => void, cls = '') {
+    return this.tip(el('button', { class: `act${cls ? ' ' + cls : ''}`, onclick }, text), tipText)
+  }
+
+  /** Cartão de escolha: o nome e o que ela faz no mesmo lugar. */
+  private card(name: string, desc: string, onclick: () => void, cls = '') {
+    return el('button', { class: `card${cls ? ' ' + cls : ''}`, onclick },
+      el('b', { textContent: name }), el('small', { textContent: desc }))
+  }
+
+  /** Uma linha do rodapé: coluna de teclas, coluna do que elas fazem. */
+  private keyRow(keys: string[], text: string) {
+    return el('div', { class: 'fk' },
+      el('span', { class: 'kk' }, ...keys.map(k => el('kbd', { textContent: k }))),
+      el('span', { textContent: text }))
+  }
+
+  private portraitCanvas() {
+    return el('canvas', { class: 'portrait' }) as HTMLCanvasElement
+  }
+
+  /** O retrato é o mesmo desenho do jogo, então mexer na cor se vê na hora. */
+  private runPortrait(cv: HTMLCanvasElement, k = 0.44) {
+    const start = performance.now()
+    let raf = 0
+    const paint = () => {
+      const dpr = Math.min(2, devicePixelRatio || 1)
+      const w = cv.clientWidth || 200, h = cv.clientHeight || 200
+      if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr) }
+      const c = cv.getContext('2d')
+      if (!c) return
+      c.setTransform(dpr, 0, 0, dpr, 0, 0)
+      c.clearRect(0, 0, w, h)
+      drawPortrait(c, w / 2, h * 0.58, Math.min(w, h) * k, this.cfg.look, (performance.now() - start) / 1000)
+      raf = requestAnimationFrame(paint)
+    }
+    raf = requestAnimationFrame(paint)
+    this.cleanup = () => cancelAnimationFrame(raf)
   }
 
   private back(to: () => void) {
@@ -236,58 +333,59 @@ export class Menu {
     return this.tipEl
   }
 
-  private refresh() { this.currentScreen() }
+  /** Remontar a tela perdia o foco: quem estava mexendo na opção com seta ou
+   * controle voltava pro começo da lista a cada passo. */
+  private refresh() {
+    const i = this.focusables().indexOf(document.activeElement as HTMLElement)
+    this.currentScreen()
+    if (i < 0) return
+    const back = this.focusables()[i]
+    if (back) back.focus()
+  }
 
   // ---------- screens ----------
 
   main() {
     this.currentScreen = () => this.main()
     const cfg = this.cfg
+    const cv = this.portraitCanvas()
     this.panel(
-      this.brand(),
-      el('div', { class: 'list' },
-        this.item('1 JOGADOR', 'contra o computador, na dificuldade dos ajustes',
-          () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'lead'),
-        this.item('ONLINE', 'sala direta entre vocês, sem servidor no meio',
-          () => this.online(), 'lead'),
-        this.item('2 JOGADORES', 'os dois no mesmo teclado',
-          () => { cfg.mode = 'local'; this.handlers.onStart(cfg) }),
-        this.item('MEU BLOBBY', 'cor, cabelo e cor do cabelo', () => this.blobby()),
-        this.item('RANKING', 'só partida online pontua', () => this.ranking()),
-        this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays()),
-        this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings())),
-      this.tipLine('A D W S · P1      ← → ↑ ↓ · P2      ESC pausa'),
-      el('div', { class: 'keys' },
-        el('div', {}, el('kbd', { textContent: 'S' }), ' toque = manchete, segurar = agachar'),
-        el('div', {}, el('kbd', { textContent: '↓' }), '+', el('kbd', { textContent: '←' }),
-          '/', el('kbd', { textContent: '→' }), ' no chão = mergulho'),
-        el('div', {}, 'bate correndo pro lado e a bola curva pra lá'),
-        el('div', {}, el('kbd', { textContent: '1' }), '–', el('kbd', { textContent: '5' }), ' emotes')),
+      el('div', { class: 'home' },
+        el('div', { class: 'home-id' }, this.brand(), cv),
+        el('div', { class: 'home-act' },
+          this.act('1 JOGADOR', 'contra o computador, na dificuldade dos ajustes',
+            () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'go'),
+          this.act('ONLINE', 'sala direta entre vocês, sem servidor no meio',
+            () => this.online()),
+          this.act('2 JOGADORES', 'os dois no mesmo teclado',
+            () => { cfg.mode = 'local'; this.handlers.onStart(cfg) }),
+          el('div', { class: 'minor' },
+            this.item('MEU BLOBBY', 'cor, cabelo e cor do cabelo', () => this.blobby()),
+            this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings()),
+            this.item('RANKING', 'só partida online pontua', () => this.ranking()),
+            this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays())),
+          this.tipLine('passa o cursor numa opção pra ver o que ela faz'))),
+      el('div', { class: 'homefoot' },
+        this.keyRow(['A', 'D', 'W', 'S'], 'jogador 1'),
+        this.keyRow(['←', '→', '↑', '↓'], 'jogador 2'),
+        this.keyRow(['S'], 'toque = manchete, segurar = agachar'),
+        this.keyRow(['↓', '←'], 'no chão = mergulho'),
+        this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
+        this.keyRow(['1', '5'], 'emotes'),
+        this.keyRow(['ESC'], 'pausa e volta'),
+        this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X corta, ☰ pausa')),
     )
+    this.runPortrait(cv)
   }
 
   /** Escolher olhando pro bicho: o retrato ao lado é o mesmo desenho do jogo. */
   blobby() {
     this.currentScreen = () => this.blobby()
     const look = this.cfg.look
-    const cv = el('canvas', { class: 'portrait' }) as HTMLCanvasElement
+    const cv = this.portraitCanvas()
     const pick = (list: { name: string }[]) =>
       list.map((x, i) => [String(i), x.name, ''] as [string, string, string])
     const commit = () => { saveLook(look); this.handlers.onLook(look) }
-
-    let raf = 0
-    const start = performance.now()
-    const paint = () => {
-      const dpr = Math.min(2, devicePixelRatio || 1)
-      const w = cv.clientWidth || 200, h = cv.clientHeight || 200
-      if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr) }
-      const c = cv.getContext('2d')
-      if (!c) return
-      c.setTransform(dpr, 0, 0, dpr, 0, 0)
-      c.clearRect(0, 0, w, h)
-      drawPortrait(c, w / 2, h * 0.58, Math.min(w, h) * 0.44, look, (performance.now() - start) / 1000)
-      raf = requestAnimationFrame(paint)
-    }
 
     this.panel(
       this.title('MEU BLOBBY'),
@@ -303,8 +401,7 @@ export class Menu {
       this.tipLine('vale contra o computador, no 2 jogadores e no online'),
       this.back(() => this.main()),
     )
-    raf = requestAnimationFrame(paint)
-    this.cleanup = () => cancelAnimationFrame(raf)
+    this.runPortrait(cv)
   }
 
   /** Partida inteira cabe em ~3 KB de input: dá pra guardar tudo e reproduzir exato. */
@@ -383,24 +480,31 @@ export class Menu {
     nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby' })
     this.panel(
       this.title('AJUSTES'),
-      el('div', { class: 'opts' },
-        el('div', { class: 'opt' }, el('span', { class: 'lab', textContent: 'Nome' }), nameIn),
-        this.opt('Bot', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
-        this.opt(
-          'Regras',
-          RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
-          cfg.ruleId,
-          v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin }),
-        this.opt('Arena', ARENAS, cfg.arena, v => { cfg.arena = v }),
-        this.opt('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
-          v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }),
-        this.opt('Cenário', SCENE_LIST, cfg.scene,
-          v => { cfg.scene = v; this.handlers.onScene(v) }),
-        this.opt('Gráficos', QUALITIES, cfg.quality,
-          v => { cfg.quality = v; this.handlers.onQuality(v) }),
-        this.opt('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
-          v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) }),
-        ...this.volumeRows()),
+      el('div', { class: 'cols' },
+        el('div', {},
+          el('h2', { class: 'sec', textContent: 'Partida' }),
+          el('div', { class: 'opts' },
+            el('div', { class: 'opt' }, el('span', { class: 'lab', textContent: 'Nome' }), nameIn),
+            this.opt('Bot', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
+            this.opt(
+              'Regras',
+              RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
+              cfg.ruleId,
+              v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin }),
+            this.opt('Arena', ARENAS, cfg.arena, v => { cfg.arena = v }),
+            this.opt('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
+              v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }))),
+        el('div', {},
+          el('h2', { class: 'sec', textContent: 'Apresentação' }),
+          el('div', { class: 'opts' },
+            this.opt('Cenário', SCENE_LIST, cfg.scene,
+              v => { cfg.scene = v; this.handlers.onScene(v) }),
+            this.opt('Gráficos', QUALITIES, cfg.quality,
+              v => { cfg.quality = v; this.handlers.onQuality(v) }),
+            this.opt('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
+              v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) })),
+          el('h2', { class: 'sec', textContent: 'Som' }),
+          el('div', { class: 'opts' }, ...this.volumeRows()))),
       this.tipLine('trilha e efeitos são sintetizados pelo próprio jogo'),
       this.back(() => this.main()),
     )
@@ -414,12 +518,13 @@ export class Menu {
     nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby' })
     this.panel(
       this.title('ONLINE'),
-      el('h2', { class: 'sec', textContent: 'Seu nome' }),
-      nameIn,
-      el('div', { class: 'grid', style: 'margin-top:18px' },
-        el('button', { class: 'primary', onclick: () => this.createRoom() }, 'CRIAR SALA'),
-        el('button', { class: 'primary alt', onclick: () => this.joinRoom() }, 'ENTRAR NUMA SALA'),
-        el('button', { class: 'center', onclick: () => this.watchList() }, '📺 ASSISTIR AO VIVO')),
+      el('div', { class: 'onl' },
+        el('h2', { class: 'sec', textContent: 'Seu nome' }),
+        nameIn,
+        el('div', { class: 'cards', style: 'margin-top:16px' },
+          this.card('Criar sala', 'você abre e manda o código pro outro', () => this.createRoom(), 'go'),
+          this.card('Entrar', 'lista de salas abertas, ou pelo código', () => this.joinRoom()),
+          this.card('Assistir', 'partidas rolando agora, ao vivo', () => this.watchList()))),
       this.netLine(),
       el('div', { class: 'hint foot' }, 'Sem servidor: WebRTC direto entre vocês.'),
       el('div', { class: 'grid' },
