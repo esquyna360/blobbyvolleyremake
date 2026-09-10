@@ -72,7 +72,7 @@ export const PARRY_CHAIN_MAX = 4
 /**
  * Agachar. `crouch` é 0..1: sobe enquanto o botão está apertado, desce sozinho.
  * Ele afunda a esfera de cima e engorda a de baixo — dá pra passar bola por cima
- * de quem está agachado, e é isso que faz segurar a cortada custar alguma coisa.
+ * de quem está agachado, e é isso que faz ficar agachado custar alguma coisa.
  */
 export const CROUCH_RATE = 0.16
 export const CROUCH_RATE_AIR = 0.09
@@ -94,27 +94,6 @@ export const DIG_TIME_MIN = 34
 export const DIG_TIME_STEP = 3
 export const DIG_TIME_STEPS = 26
 export const DIG_GAIN = 0.03
-
-/**
- * Cortada: segurar agachado carrega, soltar dá um salto mais alto com janela de
- * ataque. Sai rápida e mira fundo, mas não atordoa, não vira fatality e não
- * passa de ~1.85x a velocidade normal — o especial (2.45x + gravidade 4.2x)
- * continua sendo a arma da casa.
- */
-export const SPIKE_MIN_HOLD = 18
-export const SPIKE_MAX_HOLD = 48
-export const SPIKE_JUMP_BOOST = 0.15
-export const SPIKE_WINDOW = 40
-export const SPIKE_VELOCITY = BALL_COLLISION_VELOCITY * 1.85
-export const SPIKE_WEAK = 0.78
-export const SPIKE_FLOOR = 1.25
-export const SPIKE_FLOOR_GAIN = 0.5
-export const SPIKE_TARGET_DEPTH = 0.62
-export const SPIKE_NET_CLEARANCE = 8
-export const SPIKE_TIME_MIN = 12
-export const SPIKE_TIME_STEP = 1.5
-export const SPIKE_TIME_STEPS = 26
-export const SPIKE_GAIN = 0.075
 
 /**
  * Spin. A velocidade horizontal do blob no instante do toque vira rotação, e

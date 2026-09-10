@@ -10,6 +10,7 @@ export interface LiveMeta {
   rule: string
   stw: number
   arena: ArenaId
+  wl?: boolean
   nl: string
   nr: string
 }
@@ -153,9 +154,9 @@ export class Spectator {
     if (!decodeState(p.s, this.scratch)) return
     const fresh = !this.match || p.j === 1 || p.f < this.match.frame - 4
     if (!this.match) {
-      this.meta = { rule: p.rule, stw: p.stw, arena: p.arena, nl: p.nl, nr: p.nr }
+      this.meta = { rule: p.rule, stw: p.stw, arena: p.arena, wl: p.wl, nl: p.nl, nr: p.nr }
       this.opts.onArena(p.arena)
-      this.match = new Match(p.rule, p.stw || undefined, 0)
+      this.match = new Match(p.rule, p.stw || undefined, 0, p.wl !== false)
     } else if (fresh) {
       if (this.meta && this.meta.arena !== p.arena) { this.meta.arena = p.arena; this.opts.onArena(p.arena) }
     }

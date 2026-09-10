@@ -34,8 +34,8 @@ export const DEFAULT_CONFIG: GameConfig = {
 }
 
 const WALL_OPTS: ['on' | 'off', string, string][] = [
-  ['on', 'Mostrar', 'dá pra ver onde a bola quica'],
-  ['off', 'Ocultar', 'quadra aberta, sem moldura'],
+  ['on', 'Com parede', 'a bola quica de volta e o rally segue'],
+  ['off', 'Quadra aberta', 'bola fora é ponto de quem tocou por último'],
 ]
 
 const DIFFS: [Difficulty, string, string][] = [
@@ -194,7 +194,7 @@ export class Menu {
           ' P1  ·  ',
           el('kbd', { textContent: '←' }), el('kbd', { textContent: '→' }),
           el('kbd', { textContent: '↑' }), el('kbd', { textContent: '↓' }), ' P2'),
-        el('div', {}, el('kbd', { textContent: 'S' }), ' toque = manchete  ·  segurar = cortada'),
+        el('div', {}, el('kbd', { textContent: 'S' }), ' toque = manchete  ·  segurar = agachar'),
         el('div', {}, el('kbd', { textContent: '↓' }), ' + ', el('kbd', { textContent: '←' }),
           '/', el('kbd', { textContent: '→' }), ' no chão: mergulho, último recurso pra bola longe'),
         el('div', {}, 'a direção da bola vem do efeito: bate correndo pro lado e ela curva pra lá'),
@@ -568,6 +568,12 @@ export class Menu {
       el('div', { class: 'grid' },
         el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'CONTINUAR'),
         el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair para o menu')),
+      el('h2', { class: 'sec', textContent: 'Cenário' }),
+      this.selector(SCENE_LIST, this.cfg.scene,
+        v => { this.cfg.scene = v; this.handlers.onScene(v) }, 'grid three'),
+      el('h2', { class: 'sec', textContent: 'Paredes da quadra' }),
+      this.selector(WALL_OPTS, this.cfg.walls ? 'on' : 'off',
+        v => this.handlers.onWalls(v === 'on'), 'grid two'),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
       this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
       el('h2', { class: 'sec', textContent: 'Som' }),

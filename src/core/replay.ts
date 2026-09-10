@@ -6,7 +6,7 @@ import type { ArenaId, SideOrNone } from './constants.ts'
  * Sobe sempre que física, regra ou ordem de eventos mudar. Replay gravado com
  * outra versão não reproduz o mesmo jogo — melhor não mostrar do que mentir.
  */
-export const SIM_VERSION = 4
+export const SIM_VERSION = 5
 
 export type ReplayMode = 'bot' | 'local' | 'online'
 
@@ -14,6 +14,8 @@ export interface ReplayMeta {
   rule: string
   stw: number
   arena: ArenaId
+  /** Paredes laterais ligadas. Ausente em gravação antiga: era sempre ligado. */
+  walls?: boolean
   serve: SideOrNone
   nl: string
   nr: string
@@ -133,7 +135,7 @@ export class ReplayPlayer {
   private zero = allocState()
 
   constructor(readonly meta: ReplayMeta, private l: Uint8Array, private r: Uint8Array) {
-    this.match = new Match(meta.rule, meta.stw || undefined, meta.serve)
+    this.match = new Match(meta.rule, meta.stw || undefined, meta.serve, meta.walls !== false)
     this.match.save(this.zero)
   }
 

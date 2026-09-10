@@ -32,10 +32,16 @@ export class Match {
   events: MatchEvent[] = []
   frame = 0
 
-  constructor(rules: RuleSet | string = 'default', scoreToWin?: number, servingPlayer: SideOrNone = LEFT) {
+  constructor(
+    rules: RuleSet | string = 'default',
+    scoreToWin?: number,
+    servingPlayer: SideOrNone = LEFT,
+    walls = true,
+  ) {
     const r = typeof rules === 'string' ? getRules(rules) : rules
     this.logic = new GameLogic(r, scoreToWin)
     this.logic.servingPlayer = servingPlayer
+    this.world.walls = walls
     this.world.resetBall(servingPlayer)
   }
 
@@ -69,7 +75,6 @@ export class Match {
         case Ev.BALL_HIT_BLOB:
         case Ev.PARRY:
         case Ev.DIG:
-        case Ev.SPIKE_HIT:
         case Ev.DIVE_HIT:
         case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
@@ -79,6 +84,7 @@ export class Match {
         case Ev.BALL_HIT_NET: g.onBallHitsNet(e.side); break
         case Ev.BALL_HIT_NET_TOP: g.onBallHitsNet(NO_PLAYER); break
         case Ev.BALL_HIT_WALL: g.onBallHitsWall(e.side as Side); break
+        case Ev.BALL_OUT: g.onBallOut(); break
         case Ev.SPECIAL_HIT: this.tryFatality(e.side as Side); break
       }
     }
@@ -124,13 +130,11 @@ export class Match {
     i[29] = g.rally; i[30] = g.rallyBest
     f[22] = w.crouch[0]; f[23] = w.crouch[1]
     i[31] = w.prevDown[0]; i[32] = w.prevDown[1]
-    i[33] = w.spikeHold[0]; i[34] = w.spikeHold[1]
-    i[35] = w.spikeFrames[0]; i[36] = w.spikeFrames[1]
-    i[37] = w.spikePow[0]; i[38] = w.spikePow[1]
-    i[39] = w.digCd[0]; i[40] = w.digCd[1]
-    i[41] = w.digActive[0]; i[42] = w.digActive[1]
-    i[43] = w.diveRecover[0]; i[44] = w.diveRecover[1]
-    i[45] = w.diveDir[0]; i[46] = w.diveDir[1]
+    i[33] = w.digCd[0]; i[34] = w.digCd[1]
+    i[35] = w.digActive[0]; i[36] = w.digActive[1]
+    i[37] = w.diveRecover[0]; i[38] = w.diveRecover[1]
+    i[39] = w.diveDir[0]; i[40] = w.diveDir[1]
+    i[41] = w.ballOut
     f[24] = w.tempo; f[25] = w.ballSpin
   }
 
@@ -162,13 +166,11 @@ export class Match {
     g.lastError = NO_PLAYER
     w.crouch[0] = f[22]; w.crouch[1] = f[23]
     w.prevDown[0] = i[31]; w.prevDown[1] = i[32]
-    w.spikeHold[0] = i[33]; w.spikeHold[1] = i[34]
-    w.spikeFrames[0] = i[35]; w.spikeFrames[1] = i[36]
-    w.spikePow[0] = i[37]; w.spikePow[1] = i[38]
-    w.digCd[0] = i[39]; w.digCd[1] = i[40]
-    w.digActive[0] = i[41]; w.digActive[1] = i[42]
-    w.diveRecover[0] = i[43]; w.diveRecover[1] = i[44]
-    w.diveDir[0] = i[45]; w.diveDir[1] = i[46]
+    w.digCd[0] = i[33]; w.digCd[1] = i[34]
+    w.digActive[0] = i[35]; w.digActive[1] = i[36]
+    w.diveRecover[0] = i[37]; w.diveRecover[1] = i[38]
+    w.diveDir[0] = i[39]; w.diveDir[1] = i[40]
+    w.ballOut = i[41]
     w.tempo = f[24]; w.ballSpin = f[25]
     w.rally = g.rally
   }

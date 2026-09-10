@@ -4,8 +4,8 @@ import { Match, allocState } from '../src/core/match.ts'
 import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
 import {
-  BALL_COLLISION_VELOCITY, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, SPECIAL_CAP, SPECIAL_FULL,
-  SPECIAL_VELOCITY, SPIKE_MAX_HOLD,
+  BALL_COLLISION_VELOCITY, BALL_RADIUS, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, RIGHT_PLANE,
+  SPECIAL_CAP, SPECIAL_FULL, SPECIAL_VELOCITY,
 } from '../src/core/constants.ts'
 import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
 
@@ -199,7 +199,7 @@ test('ação de borda do remoto chega na apresentação mesmo nascendo no rollba
 
 /**
  * Agachar entrou no estado da simulação. Se ficar de fora do save/restore, o
- * rollback devolve um blob em pé com carga zerada no meio da cortada.
+ * rollback devolve um blob em pé no meio da manchete.
  */
 test('estado de agachar sobrevive ao save/restore', () => {
   const m = new Match('default', 15, LEFT)
@@ -207,7 +207,6 @@ test('estado de agachar sobrevive ao save/restore', () => {
   for (let f = 0; f < 24; f++) m.step(DOWN, NO_INPUT)
 
   assert.ok(m.world.crouch[LEFT] > 0.9, `não agachou: ${m.world.crouch[LEFT]}`)
-  assert.ok(m.world.spikeHold[LEFT] >= 18, `não carregou: ${m.world.spikeHold[LEFT]}`)
 
   const snap = allocState()
   m.save(snap)
@@ -217,7 +216,7 @@ test('estado de agachar sobrevive ao save/restore', () => {
   m.restore(snap)
   assert.equal(m.checksum(), before, 'checksum não voltou depois do restore')
   assert.ok(m.world.crouch[LEFT] > 0.9)
-  assert.equal(m.world.spikeHold[LEFT], snap.i[33])
+  assert.equal(m.world.crouch[LEFT], snap.f[22])
 })
 
 /**
@@ -248,8 +247,8 @@ test('mergulho estica o alcance e sobrevive ao save/restore', () => {
   assert.ok(w.diveFrames[LEFT] > 0)
 })
 
-/** Manchete devolve a bola pro outro lado e conta como toque; cortada não passa do especial. */
-test('manchete cruza a rede e cortada continua mais fraca que o especial', () => {
+/** Manchete devolve a bola pro outro lado e conta como toque. */
+test('manchete cruza a rede e conta no rally', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world
   m.logic.isBallValid = true
@@ -263,15 +262,42 @@ test('manchete cruza a rede e cortada continua mais fraca que o especial', () =>
   assert.ok(w.ballVX > 0, `manchete não foi pro outro lado: vx ${w.ballVX}`)
   assert.equal(m.logic.rally, rally + 1, 'manchete não contou no rally')
 
-  w.spikeFrames[LEFT] = 20
-  w.spikePow[LEFT] = SPIKE_MAX_HOLD
-  w.blobX[LEFT] = 300; w.blobY[LEFT] = 200
-  w.ballX = 306; w.ballY = 140; w.ballVX = 0; w.ballVY = 0
-  m.step(NO_INPUT, NO_INPUT)
+  const speed = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY)
+  assert.ok(speed > BALL_COLLISION_VELOCITY * 0.8, `manchete fraca demais: ${speed}`)
+  assert.ok(speed < SPECIAL_VELOCITY * 0.8, `manchete perto demais do especial: ${speed}`)
+  assert.equal(w.superFrames, 0, 'manchete não pode virar bola de especial')
+})
 
-  assert.ok(m.events.some(e => e.event === Ev.SPIKE_HIT), 'cortada não saiu')
-  const speed = Math.hypot(w.ballVX, w.ballVY)
-  assert.ok(speed > BALL_COLLISION_VELOCITY, `cortada mais lenta que um toque: ${speed}`)
-  assert.ok(speed < SPECIAL_VELOCITY * 0.8, `cortada perto demais do especial: ${speed}`)
-  assert.equal(w.superFrames, 0, 'cortada não pode virar bola de especial')
+/**
+ * Quadra aberta é regra, não pintura: sem parede a bola sai e o ponto é de
+ * quem não mandou pra fora. Com parede, o mesmo lance é só um quique.
+ */
+test('quadra aberta pontua a bola fora; com parede ela quica', () => {
+  const open = new Match('default', 15, LEFT, false)
+  open.logic.isBallValid = true
+  open.logic.isGameRunning = true
+  open.logic.touches[LEFT] = 1
+  open.world.ballX = RIGHT_PLANE - BALL_RADIUS - 2
+  open.world.ballY = 300
+  open.world.ballVX = 18
+  open.world.ballVY = 0
+  let out = false
+  for (let f = 0; f < 6; f++) {
+    open.step(NO_INPUT, NO_INPUT)
+    if (open.events.some(e => e.event === Ev.BALL_OUT)) out = true
+  }
+  assert.ok(out, 'bola não saiu com a quadra aberta')
+  assert.equal(open.logic.scores[RIGHT], 1, 'quem mandou pra fora não perdeu o ponto')
+
+  const walled = new Match('default', 15, LEFT, true)
+  walled.logic.isBallValid = true
+  walled.logic.isGameRunning = true
+  walled.logic.touches[LEFT] = 1
+  walled.world.ballX = RIGHT_PLANE - BALL_RADIUS - 2
+  walled.world.ballY = 300
+  walled.world.ballVX = 18
+  walled.world.ballVY = 0
+  for (let f = 0; f < 6; f++) walled.step(NO_INPUT, NO_INPUT)
+  assert.ok(walled.world.ballVX < 0, 'não quicou na parede')
+  assert.equal(walled.logic.scores[RIGHT], 0, 'quique não pode virar ponto')
 })

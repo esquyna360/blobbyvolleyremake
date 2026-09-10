@@ -4,7 +4,7 @@ import {
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
   DIVE_SPEED, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
-  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, SPIKE_MAX_HOLD, SPIKE_MIN_HOLD, other,
+  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -23,7 +23,7 @@ interface Params {
   shotErr: number
   /** fração dos frames em que realmente anda */
   speed: number
-  /** apetite por ataque aéreo, especial e cortada */
+  /** apetite por ataque aéreo e especial */
   attack: number
   /** chance de tentar o parry dentro da janela */
   parry: number
@@ -203,7 +203,6 @@ export class Bot {
   private spHeld = false
   private diveHeld = false
   private digLock = 0
-  private spikeHold = 0
 
   constructor(side: Side, diff: Difficulty = 'normal', seed = 12345) {
     this.side = side
@@ -231,7 +230,7 @@ export class Bot {
     if (this.digLock > 0) this.digLock--
 
     if (w.stun[me] > 0) {
-      this.upHeld = false; this.spHeld = false; this.diveHeld = false; this.spikeHold = 0
+      this.upHeld = false; this.spHeld = false; this.diveHeld = false
       return { left: false, right: false, up: false, special: false, down: false }
     }
 
@@ -248,7 +247,7 @@ export class Bot {
     const diveDir = this.wantDive(w, me, onGround)
     if (diveDir !== 0) {
       this.diveHeld = true
-      this.upHeld = false; this.spHeld = false; this.spikeHold = 0
+      this.upHeld = false; this.spHeld = false
       return {
         left: diveDir < 0, right: diveDir > 0, up: false, special: false, down: true,
       }
@@ -445,31 +444,12 @@ export class Bot {
     this.plan = { standX: bStand, hitT: bT, jumpAt: bJump, dig, diveDir, diveT, score: best }
   }
 
-  /**
-   * Agachar cobre manchete e cortada. A manchete é um toque só, na chegada da
-   * bola; a cortada é carga longa e só compensa quando sobra tempo de rally.
-   */
-  private wantDown(w: Match['world'], me: Side, onGround: boolean, p: Params) {
-    if (w.superFrames > 0 && w.superOwner !== me) { this.spikeHold = 0; return false }
-
-    if (this.spikeHold > 0) {
-      this.spikeHold--
-      if (this.plan.hitT <= 20 || !onGround) { this.spikeHold = 0; return false }
-      return true
-    }
-
+  /** Baixo é manchete: um toque só, na chegada da bola. */
+  private wantDown(w: Match['world'], me: Side, onGround: boolean, _p: Params) {
+    if (w.superFrames > 0 && w.superOwner !== me) return false
     if (this.plan.dig && this.plan.hitT <= 3 && onGround && w.digCd[me] === 0 && this.digLock === 0) {
       this.digLock = 14
       return true
-    }
-
-    // a cortada mira sozinha e trava o deslocamento: só compensa quando a
-    // devolução normal planejada já não valia grande coisa
-    if (onGround && !this.plan.dig && this.plan.hitT > 48 && this.plan.hitT < 130 &&
-        this.plan.score < 80 && Math.abs(this.plan.standX - w.blobX[me]) < 46 &&
-        w.charge[me] < SPECIAL_FULL && this.rng() < p.attack * 0.05) {
-      this.spikeHold = Math.min(SPIKE_MAX_HOLD, this.plan.hitT - 22)
-      return this.spikeHold >= SPIKE_MIN_HOLD
     }
     return false
   }

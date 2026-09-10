@@ -101,6 +101,18 @@ export class GameLogic {
     this.touches[other(side)] = 0
   }
 
+  /**
+   * Quadra aberta: quem encostou por último mandou pra fora. Sem toque nenhum
+   * na conta, o saque é que saiu.
+   */
+  onBallOut() {
+    if (!this.isBallValid) return
+    const last: Side = this.touches[LEFT] > 0 ? LEFT
+      : this.touches[RIGHT] > 0 ? RIGHT
+      : (this.servingPlayer === RIGHT ? RIGHT : LEFT)
+    this.mistake(last, other(last), 1)
+  }
+
   onBallHitsWall(side: Side) {
     if (!(this.squishWall <= 0 && this.isBallValid)) return
     this.squishWall = SQUISH_TOLERANCE

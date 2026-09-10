@@ -88,7 +88,8 @@ class App {
   get phase(): Phase { return this.phaseV }
   set phase(v: Phase) {
     this.phaseV = v
-    this.audio.setPlaying(v === 'playing' || v === 'over')
+    this.audio.setPlaying(v !== 'menu')
+    this.audio.setPaused(v === 'paused')
   }
   match: Match | null = null
   bot: Bot | null = null
@@ -141,9 +142,8 @@ class App {
       onStart: c => this.startLocal(c),
       onScene: id => this.applyScene(id),
       onWalls: on => {
-        this.cfg.walls = on
         localStorage.setItem('bv.walls', on ? '1' : '0')
-        this.stage.setWalls(on)
+        this.applyWalls(on)
       },
       onCreateRoom: (code, pass, c) => void this.openRoom(code, pass, c),
       onJoinRoom: (code, pass, c) => void this.joinRoom(code, pass, c),
@@ -342,7 +342,7 @@ class App {
   private get viewing() { return !!this.spectator || !!this.replay }
 
   private newMatch(cfg: GameConfig, serving: Side = LEFT) {
-    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving)
+    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls)
     this.rec.reset()
     this.recUpTo = -1
     this.recBroken = false
@@ -368,6 +368,20 @@ class App {
     setArena(id)
     syncArena()
     this.applyQuality(this.cfg.quality, false)
+  }
+
+  /**
+   * Paredes são regra da simulação. Trocar no meio de uma partida local vale na
+   * hora, mas invalida a gravação: o replay só guarda inputs.
+   */
+  private applyWalls(on: boolean) {
+    this.cfg.walls = on
+    this.stage.setWalls(on)
+    const m = this.match
+    if (m && !this.viewing && !this.session && m.world.walls !== on) {
+      m.world.walls = on
+      this.recBroken = true
+    }
   }
 
   /** Cenário troca na hora, inclusive no meio da partida: é só pintura e trilha. */
@@ -438,6 +452,7 @@ class App {
     this.hud.root.style.opacity = '0'
     this.hud.showNet(null)
     this.setTouchVisible(false)
+    this.applyWalls(localStorage.getItem('bv.walls') !== '0')
     this.startDemo()
     this.menu.show()
     this.menu.main()
@@ -473,6 +488,7 @@ class App {
         rule: this.cfg.ruleId,
         stw: this.match?.logic.scoreToWin ?? 0,
         arena: this.cfg.arena,
+        wl: this.cfg.walls,
         nl: s.localSide === LEFT ? this.cfg.name : s.peerName,
         nr: s.localSide === LEFT ? s.peerName : this.cfg.name,
       }))
@@ -507,6 +523,7 @@ class App {
       onArena: id => this.applyArena(id),
       onReady: (m, meta) => {
         this.match = m
+        this.stage.setWalls(meta.wl !== false)
         this.hud.setRule(getRules(meta.rule).name, m.logic.scoreToWin)
         this.hud.setNames(meta.nl.toUpperCase(), meta.nr.toUpperCase())
         this.stage.capture(m)
@@ -600,7 +617,9 @@ class App {
     this.session = new NetSession(transport, {
       ruleId: cfg.ruleId,
       arena: cfg.arena,
+      walls: cfg.walls,
       onArena: id => this.applyArena(id),
+      onWalls: on => this.applyWalls(on),
       scoreToWin: cfg.scoreToWin,
       name: cfg.name,
       host,
@@ -744,6 +763,7 @@ class App {
       rule: setup?.ruleId ?? this.cfg.ruleId,
       stw: m.logic.scoreToWin,
       arena: setup?.arena ?? this.cfg.arena,
+      walls: setup?.walls ?? this.cfg.walls,
       serve: setup?.serving ?? LEFT,
       nl: nameL.slice(0, 16),
       nr: nameR.slice(0, 16),
@@ -773,6 +793,7 @@ class App {
     this.bot = null
     this.demoBot = null
     this.applyArena(data.meta.arena)
+    this.stage.setWalls(data.meta.walls !== false)
     const rp = new ReplayPlayer(data.meta, data.l, data.r)
     this.replay = rp
     this.match = rp.match
@@ -873,6 +894,7 @@ class App {
       if (e.event === Ev.FATALITY) this.hud.fatality()
       else if (e.event === Ev.PARRY) this.hud.parry()
       else if (e.event === Ev.SCORE) this.audio.duckMusic(1.3)
+      else if (e.event === Ev.BALL_OUT) this.hud.banner('FORA!', 900, '#ff8a7a')
     }
   }
 
@@ -945,11 +967,15 @@ class App {
     const dt = Math.min((now - this.last) / 1000, 0.25)
     this.last = now
 
+    // pausa local congela a simulação de verdade; online e transmissão seguem
+    // rodando porque o relógio é do outro lado
+    const frozen = this.phase === 'paused' && !this.session && !this.spectator && !this.replay
     const rate = this.replay ? this.replay.speed : 1
-    this.acc += dt * 1000 * rate
+    if (frozen) this.acc = 0
+    else this.acc += dt * 1000 * rate
     let steps = 0
     const cap = rate > 2 ? 20 : 8
-    while (this.acc >= TICK_MS && steps < cap) {
+    while (!frozen && this.acc >= TICK_MS && steps < cap) {
       this.acc -= TICK_MS
       this.stepSim()
       steps++

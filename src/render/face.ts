@@ -1,6 +1,6 @@
 import {
   BLOBBY_UPPER_SPHERE, LEFT, RIGHT, SPECIAL_FULL, SPECIAL_REACH,
-  SPIKE_MIN_HOLD, other,
+  other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -153,14 +153,6 @@ export function faceEvents(rigs: FaceRig[], events: MatchEvent[], scores: number
       case Ev.DIG:
         rigs[s].set('focus', 0.55, 2)
         break
-      case Ev.SPIKE_LEAP:
-        rigs[s].set('angry', 0.8, 2)
-        rigs[other(s)].set('worry', 0.7, 2)
-        break
-      case Ev.SPIKE_HIT:
-        rigs[s].set('smug', 0.9, 3)
-        rigs[other(s)].set('shock', 0.7, 3)
-        break
       case Ev.DIVE:
         rigs[s].set('strain', 0.78, 3)
         break
@@ -197,10 +189,10 @@ export function faceEvents(rigs: FaceRig[], events: MatchEvent[], scores: number
  * Agachar não é evento, é estado: a cara tem que acompanhar o frame inteiro.
  * Prioridade 1 pra que qualquer reação de evento continue passando por cima.
  */
-export function crouchMoods(rigs: FaceRig[], crouch: number[], charge: number[]) {
+export function crouchMoods(rigs: FaceRig[], crouch: number[]) {
   for (const s of SIDES) {
     if (crouch[s] < 0.45) continue
-    rigs[s].set(charge[s] >= SPIKE_MIN_HOLD ? 'angry' : 'focus', 0.06, 1)
+    rigs[s].set('focus', 0.06, 1)
   }
 }
 

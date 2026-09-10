@@ -20,10 +20,9 @@ export const enum Ev {
   PARRY = 16,
   PARRY_TRY = 17,
   DIG = 18,
-  SPIKE_LEAP = 19,
-  SPIKE_HIT = 20,
-  SPECIAL_WASTED = 21,
-  APEX_HIT = 22,
+  SPECIAL_WASTED = 19,
+  APEX_HIT = 20,
+  BALL_OUT = 21,
 }
 
 /** O rollback marca eventos vistos com `1 << ev` num Int32Array: nada acima de 30. */

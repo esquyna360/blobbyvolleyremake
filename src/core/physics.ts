@@ -21,9 +21,6 @@ import {
   CROUCH_SPREAD, CROUCH_SPEED_MUL, CROUCH_FALL_MUL,
   DIG_REACH, DIG_CD, DIG_WINDOW, DIG_VELOCITY, DIG_TARGET_DEPTH, DIG_NET_CLEARANCE,
   DIG_TIME_MIN, DIG_TIME_STEP, DIG_TIME_STEPS, DIG_GAIN,
-  SPIKE_MIN_HOLD, SPIKE_MAX_HOLD, SPIKE_JUMP_BOOST, SPIKE_WINDOW, SPIKE_VELOCITY,
-  SPIKE_WEAK, SPIKE_FLOOR, SPIKE_FLOOR_GAIN, SPIKE_TARGET_DEPTH, SPIKE_NET_CLEARANCE,
-  SPIKE_TIME_MIN, SPIKE_TIME_STEP, SPIKE_TIME_STEPS, SPIKE_GAIN,
 } from './constants.ts'
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
@@ -70,11 +67,16 @@ export class PhysicWorld {
 
   crouch = [0, 0]
   prevDown = [0, 0]
-  spikeHold = [0, 0]
-  spikeFrames = [0, 0]
-  spikePow = [0, 0]
   digCd = [0, 0]
   digActive = [0, 0]
+
+  /**
+   * Paredes laterais. Ligadas, a bola quica e o rally continua. Desligadas, a
+   * quadra fica aberta e sair pelo lado é ponto de quem não tocou por último.
+   */
+  walls = true
+  /** Trava pra não pontuar duas vezes na mesma bola fora. */
+  ballOut = 0
 
   blobHitGround(p: Side) { return this.blobY[p] >= GROUND_PLANE_HEIGHT }
 
@@ -88,9 +90,6 @@ export class PhysicWorld {
     return 1 + this.crouch[p] * CROUCH_WIDE + dive * DIVE_WIDE
   }
   diving(p: Side) { return this.diveFrames[p] > 0 }
-  spikeK(p: Side) {
-    return Math.max(0, Math.min(1, (this.spikePow[p] - SPIKE_MIN_HOLD) / (SPIKE_MAX_HOLD - SPIKE_MIN_HOLD)))
-  }
 
   /** Quem está perdendo enche mais rápido — é a chance de virar o jogo. */
   private comeback(p: Side) {
@@ -207,8 +206,7 @@ export class PhysicWorld {
   /**
    * Mira dos golpes de agachar: alvo no chão do outro lado e o primeiro tempo de
    * voo que passa da rede dentro do teto de velocidade. Gravidade é a normal — a
-   * pesada é privilégio do especial. Manchete pede tempo longo (arco alto e
-   * lento), cortada pede tempo curto (linha rápida); só mudam os números.
+   * pesada é privilégio do especial.
    */
   /** Mira em tempo base e devolve a velocidade já no ritmo do rally. */
   private aimShotScaled(p: Side, vmax: number, vmin: number, depth: number, clearance: number,
@@ -256,33 +254,14 @@ export class PhysicWorld {
   }
 
   /**
-   * Agachar, manchete e cortada saem do mesmo botão: tocar arma a manchete,
-   * segurar no chão carrega o salto de ataque, soltar dispara.
+   * Agachar e manchete saem do mesmo botão: tocar arma a manchete, segurar
+   * agacha. Soltar não faz nada — pular é com o botão de pular.
    */
-  private tryCrouch(p: Side, raw: PlayerInput, out: MatchEvent[]) {
+  private tryCrouch(p: Side, raw: PlayerInput) {
     const ground = this.blobHitGround(p)
-    if (this.spikeFrames[p] > 0 && ground && this.blobVY[p] >= 0) this.spikeFrames[p] = 0
-
     const held = raw.down && this.stun[p] <= 0
     if (held) this.crouch[p] = Math.min(1, this.crouch[p] + (ground ? CROUCH_RATE : CROUCH_RATE_AIR))
     else this.crouch[p] = Math.max(0, this.crouch[p] - CROUCH_RELEASE)
-
-    if (held && ground) {
-      if (this.spikeHold[p] < SPIKE_MAX_HOLD) this.spikeHold[p]++
-    } else if (held) {
-      // saiu do chão segurando: a carga não viaja pelo ar
-      this.spikeHold[p] = 0
-    } else {
-      const pow = this.spikeHold[p]
-      this.spikeHold[p] = 0
-      if (pow >= SPIKE_MIN_HOLD && ground && this.stun[p] <= 0) {
-        this.spikePow[p] = pow
-        this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * (1 + SPIKE_JUMP_BOOST * this.spikeK(p))
-        this.spikeFrames[p] = SPIKE_WINDOW
-        this.startAnim(p)
-        out.push({ event: Ev.SPIKE_LEAP, side: p, intensity: this.spikeK(p) })
-      }
-    }
 
     // baixo + lado no chão é mergulho, não manchete: sem esse corte a manchete
     // pega a bola de 128px de distância e o mergulho nunca serve pra nada
@@ -343,8 +322,6 @@ export class PhysicWorld {
     this.diveFrames[p] = DIVE_FRAMES
     this.diveDir[p] = dir
     this.diveCd[p] = DIVE_CD
-    this.spikeHold[p] = 0
-    this.spikeFrames[p] = 0
     this.blobVX[p] = dir * DIVE_SPEED * this.tempo
     this.blobVY[p] = DIVE_HOP * this.tempo
     out.push({ event: Ev.DIVE, side: p, intensity: 0 })
@@ -435,7 +412,7 @@ export class PhysicWorld {
     const T2 = T * T
     let g = GRAVITATION
     if (input.up && !input.down) {
-      if (ground && this.spikeFrames[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
+      if (ground) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
       g -= BLOBBY_JUMP_BUFFER
     }
     // no ar, pra baixo é queda rápida
@@ -510,21 +487,6 @@ export class PhysicWorld {
       return true
     }
 
-    // cortada: janela do salto carregado manda a bola no lugar em vez de refletir
-    if (this.spikeFrames[p] > 0 && this.superFrames === 0) {
-      const k = this.spikeK(p)
-      this.spikeFrames[p] = 0
-      const dx = this.ballX - this.blobX[p]
-      const dy = this.ballY - cy
-      this.aimShotScaled(p, SPIKE_VELOCITY * (SPIKE_WEAK + (1 - SPIKE_WEAK) * k),
-        BALL_COLLISION_VELOCITY * (SPIKE_FLOOR + SPIKE_FLOOR_GAIN * k), SPIKE_TARGET_DEPTH,
-        SPIKE_NET_CLEARANCE, SPIKE_TIME_MIN, SPIKE_TIME_STEP, SPIKE_TIME_STEPS, 3)
-      this.pushOut(p, cy, dx, dy, Math.sqrt(dx * dx + dy * dy), cr)
-      this.addCharge(p, SPIKE_GAIN, out)
-      out.push({ event: Ev.SPIKE_HIT, side: p, intensity: 0.55 + k * 0.45 })
-      return true
-    }
-
     const rx = this.ballVX - this.blobVX[p]
     const ry = this.ballVY - this.blobVY[p]
     const intensity = Math.min(1, Math.sqrt(rx * rx + ry * ry) / 25)
@@ -581,12 +543,22 @@ export class PhysicWorld {
       out.push({ event: Ev.BALL_HIT_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 0 })
     }
 
-    if (this.ballX - BALL_RADIUS <= LEFT_PLANE && this.ballVX < 0) {
+    const onLeft = this.ballX - BALL_RADIUS <= LEFT_PLANE && this.ballVX < 0
+    const onRight = this.ballX + BALL_RADIUS >= RIGHT_PLANE && this.ballVX > 0
+
+    // quadra aberta: a bola não volta, ela sai — e sair é ponto de quem não
+    // encostou por último. Um evento só por saída, o resto do voo é enfeite.
+    if (!this.walls && (onLeft || onRight)) {
+      if (!this.ballOut) {
+        this.ballOut = 1
+        out.push({ event: Ev.BALL_OUT, side: onLeft ? LEFT : RIGHT, intensity: 0 })
+      }
+    } else if (this.walls && onLeft) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = LEFT_PLANE + BALL_RADIUS
       out.push({ event: Ev.BALL_HIT_WALL, side: LEFT, intensity: 0 })
-    } else if (this.ballX + BALL_RADIUS >= RIGHT_PLANE && this.ballVX > 0) {
+    } else if (this.walls && onRight) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = RIGHT_PLANE - BALL_RADIUS
@@ -638,16 +610,14 @@ export class PhysicWorld {
     if (this.digCd[RIGHT] > 0) this.digCd[RIGHT]--
     if (this.digActive[LEFT] > 0) this.digActive[LEFT]--
     if (this.digActive[RIGHT] > 0) this.digActive[RIGHT]--
-    if (this.spikeFrames[LEFT] > 0) this.spikeFrames[LEFT]--
-    if (this.spikeFrames[RIGHT] > 0) this.spikeFrames[RIGHT]--
 
     const el = this.stun[LEFT] > 0 ? NO_INPUT : li
     const er = this.stun[RIGHT] > 0 ? NO_INPUT : ri
     const groundL = this.blobHitGround(LEFT)
     const groundR = this.blobHitGround(RIGHT)
 
-    this.tryCrouch(LEFT, li, out)
-    this.tryCrouch(RIGHT, ri, out)
+    this.tryCrouch(LEFT, li)
+    this.tryCrouch(RIGHT, ri)
     this.handleBlob(LEFT, el)
     this.handleBlob(RIGHT, er)
 
@@ -725,9 +695,8 @@ export class PhysicWorld {
     this.parryCd[LEFT] = 0; this.parryCd[RIGHT] = 0
     this.stun[LEFT] = 0; this.stun[RIGHT] = 0
     this.digActive[LEFT] = 0; this.digActive[RIGHT] = 0
+    this.ballOut = 0
     this.digCd[LEFT] = 0; this.digCd[RIGHT] = 0
-    this.spikeFrames[LEFT] = 0; this.spikeFrames[RIGHT] = 0
-    this.spikeHold[LEFT] = 0; this.spikeHold[RIGHT] = 0
     this.diveFrames[LEFT] = 0; this.diveFrames[RIGHT] = 0
     this.diveRecover[LEFT] = 0; this.diveRecover[RIGHT] = 0
     this.diveCd[LEFT] = 0; this.diveCd[RIGHT] = 0

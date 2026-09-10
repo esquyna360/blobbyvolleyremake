@@ -1,13 +1,14 @@
 import * as THREE from 'three'
 import {
   LEFT, RIGHT, GROUND_PLANE_HEIGHT, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_SPHERE, CROUCH_DUCK,
-  DIVE_RECOVER, SPECIAL_FULL, SPECIAL_REACH, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD,
+  DIVE_RECOVER, SPECIAL_FULL, SPECIAL_REACH,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
 import { COURT_DEPTH, COURT_HALF_W, S, gx, gy, gr } from './mapping.ts'
+
 import { createSky, SUN_DIR } from './sky.ts'
 import { createTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
@@ -34,6 +35,34 @@ import { createPost } from './post.ts'
 import type { Post } from './post.ts'
 import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
+
+/** Onde o brilho do anel é mais forte, em fração do raio do plano. */
+const REACH_PEAK = 0.88
+
+/** Anel de alcance macio: sem borda, só um halo que some pros dois lados. */
+function softRingTexture() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const x = c.getContext('2d')!
+  const g = x.createRadialGradient(128, 128, 0, 128, 128, 128)
+  g.addColorStop(0, 'rgba(255,255,255,0)')
+  g.addColorStop(0.76, 'rgba(255,255,255,0)')
+  g.addColorStop(REACH_PEAK, 'rgba(255,255,255,0.5)')
+  g.addColorStop(0.99, 'rgba(255,255,255,0)')
+  x.fillStyle = g
+  x.fillRect(0, 0, 256, 256)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+
+const CAM_Z = 20.4
+const CAM_Z_MAX = 34
+const CAM_MARGIN = 1.4
+/** Quanto o alvo do lookAt corre atrás da bola, em fração da meia-quadra. */
+const CAM_LOOK = 0.14
+/** O fov encolhe com a bola rápida; o enquadramento tem que caber no menor. */
+const CAM_FOV_MIN = 36.9
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
@@ -253,6 +282,8 @@ export class Stage implements GameRenderer {
   slowmo = 1
   camTargetX = 0
   camShakeSeed = Math.random() * 100
+  private camZ = CAM_Z
+  private camSpan = 0
 
   private prev: Snapshot = { bx: 0, by: 0, brot: 0, px: [0, 0], py: [0, 0], state: [0, 0] }
   private cur: Snapshot = { bx: 0, by: 0, brot: 0, px: [0, 0], py: [0, 0], state: [0, 0] }
@@ -276,7 +307,7 @@ export class Stage implements GameRenderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
     this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000)
-    this.camera.position.set(0, 5.9, 20.4)
+    this.camera.position.set(0, 5.9, CAM_Z)
     this.camera.lookAt(0, 2.8, 0)
 
     this.build()
@@ -360,11 +391,13 @@ export class Stage implements GameRenderer {
     this.ball = createBall()
     scene.add(this.ball.group)
 
+    const reachTex = softRingTexture()
     for (let i = 0; i < 2; i++) {
-      const rad = gr(SPECIAL_REACH)
-      const g = new THREE.RingGeometry(rad * 0.985, rad, 96)
+      const rad = gr(SPECIAL_REACH) / REACH_PEAK
+      const g = new THREE.PlaneGeometry(rad * 2, rad * 2)
       const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
-        color: 0xffd257, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+        map: reachTex, color: 0xffd257, transparent: true, opacity: 0,
+        depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
       }))
       m.renderOrder = 6
       m.visible = false
@@ -485,8 +518,22 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   setSize(w: number, h: number) {
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
+    this.fitArena()
     this.camera.updateProjectionMatrix()
     this.post?.setSize(w, h)
+  }
+
+  /**
+   * A arena larga não cabe no enquadramento fixo: afasta a câmera até as duas
+   * paredes entrarem na tela. O que sobrar de folga é o quanto ela ainda pode
+   * acompanhar a bola de lado — em tela estreita, nada, e ela fica no centro.
+   */
+  private fitArena() {
+    // o lookAt segue a bola e gira a câmera: essa folga entra na conta junto
+    const need = COURT_HALF_W * (1 + CAM_LOOK) + CAM_MARGIN
+    const ht = Math.tan((CAM_FOV_MIN * Math.PI) / 360) * Math.max(0.5, this.camera.aspect)
+    this.camZ = Math.min(CAM_Z_MAX, Math.max(CAM_Z, need / ht))
+    this.camSpan = Math.max(0, this.camZ * ht - need)
   }
 
   /** Capture the simulation state for interpolation. Call right after each fixed step. */
@@ -759,50 +806,14 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           this.ball.flash(1.0)
           break
         }
-        case Ev.SPIKE_LEAP: {
-          const p = e.side as Side
-          const k = e.intensity
-          const px = gx(w.blobX[p])
-          this.trauma = Math.min(1, this.trauma + 0.14 + 0.16 * k)
-          this.terrain.addCrater(px, 0, 0.5 + 0.3 * k, 0.22 + 0.3 * k)
-          this.addShock(px, 0.06, { from: 0.4, to: 3.4 + 2.6 * k, life: 0.42, color: new THREE.Color(1.5, 1.1, 0.4), flat: true, opacity: 0.9 })
-          this.particles.burst({
-            x: px, y: 0.05, z: 0, count: Math.floor(120 + 220 * k), speed: 3.2 + 4 * k, spread: 2.5, up: 0.85,
-            life: 1.0, size: 0.019, color: new THREE.Color(0.86, 0.75, 0.56), drag: 2.2, colorJitter: 0.22,
-          })
-          this.particles.burst({
-            x: px, y: 0.4, z: 0, count: Math.floor(30 + 50 * k), speed: 5.5, spread: 0.5, up: 1.6,
-            life: 0.5, size: 0.03, color: new THREE.Color(1.4, 1.05, 0.4), drag: 2.8,
-          })
-          const b = this.blobs[p]
-          b.squashVel += 5.0 * (0.6 + 0.4 * k)
-          b.wobble = Math.max(b.wobble, 1.0)
-          break
-        }
-        case Ev.SPIKE_HIT: {
-          const p = e.side as Side
-          const k = e.intensity
+        case Ev.BALL_OUT: {
           const bx = gx(w.ballX), by = gy(w.ballY)
-          this.trauma = Math.min(1, this.trauma + 0.34 * k)
-          this.hitstop = Math.max(this.hitstop, 0.055 * k)
-          this.aberration = Math.max(this.aberration, 1.5 * k)
-          this.flash = Math.max(this.flash, 0.12 * k)
-          this.addShock(bx, by, { from: 0.35, to: 4.0 + 2.2 * k, life: 0.34, color: new THREE.Color(1.6, 1.15, 0.42) })
+          this.trauma = Math.min(1, this.trauma + 0.08)
+          this.addShock(bx, by, { from: 0.3, to: 2.6, life: 0.4, color: new THREE.Color(1.2, 0.5, 0.5) })
           this.particles.burst({
-            x: bx, y: by, z: 0, count: Math.floor(120 + 160 * k), speed: 9 + 9 * k, spread: 1.5, up: 0.25,
-            life: 0.55, size: 0.038, color: new THREE.Color(1.5, 1.1, 0.35), drag: 2.8,
-            dirX: p === LEFT ? 1 : -1, colorJitter: 0.28,
+            x: bx, y: by, z: 0, count: 40, speed: 4.5, spread: 1.4, up: 0.4,
+            life: 0.6, size: 0.03, color: new THREE.Color(1.3, 0.6, 0.55), drag: 3.0,
           })
-          this.particles.burst({
-            x: bx, y: by, z: 0, count: 50, speed: 16, spread: 0.55, up: 0.1,
-            life: 0.3, size: 0.055, color: new THREE.Color(1.0, 0.98, 0.9), drag: 3.6,
-          })
-          this.ball.flash(2.2 + 1.4 * k)
-          const b = this.blobs[p]
-          b.wobble = Math.max(b.wobble, 1.3)
-          b.flash = 0.7 * k
-          b.mouth = 1
-          b.squashVel -= 3.2 * k
           break
         }
         case Ev.FATALITY: {
@@ -880,7 +891,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       const on = !hidden && w.charge[i] >= SPECIAL_FULL
       const m = this.reachRings[i]
       const mat = m.material as THREE.MeshBasicMaterial
-      const want = on ? 0.26 + Math.sin(this.time * 4) * 0.06 : 0
+      const want = on ? 0.34 + Math.sin(this.time * 2.6) * 0.07 : 0
       mat.opacity += (want - mat.opacity) * Math.min(1, dt * 9)
       m.visible = mat.opacity > 0.004
       m.position.set(x, y, 0)
@@ -1006,22 +1017,6 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     b.mouth = Math.max(0, b.mouth - dt * 3.2)
     u.uMouth.value = Math.max(b.mouth, f.open)
 
-    // cortada carregando: brasas subindo dos pés, mais densas quanto mais cheia
-    const hold = world.spikeHold[i]
-    if (hold >= SPIKE_MIN_HOLD) {
-      const k = Math.min(1, (hold - SPIKE_MIN_HOLD) / (SPIKE_MAX_HOLD - SPIKE_MIN_HOLD))
-      if (Math.random() < dt * (30 + 60 * k)) {
-        const a = Math.random() * 6.283
-        this.particles.burst({
-          x: wx + Math.cos(a) * 0.55, y: 0.1, z: Math.sin(a) * 0.4,
-          count: 2, speed: 1.5 + 1.2 * k, spread: 0.35, up: 1.7 + k, life: 0.6,
-          size: 0.04 + 0.025 * k, color: new THREE.Color(1.7, 0.9 + 0.5 * k, 0.3), drag: 1.2,
-        })
-      }
-      // pulso curto, não banho de luz: o blob não pode ficar lavado o carregamento inteiro
-      b.flash = Math.max(b.flash, (0.05 + 0.1 * k) * (0.5 + 0.5 * Math.sin(this.time * 21)))
-    }
-
     b.flash = Math.max(0, b.flash - dt * 3.5)
     u.uHitFlash.value = b.flash
 
@@ -1066,8 +1061,9 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const shy = (Math.sin(t * 1.7 + 2) + Math.sin(t * 3.1)) * 0.5 * sh * 0.30
     const shr = Math.sin(t * 1.3) * sh * 0.022
 
-    this.camera.position.set(this.camTargetX + sway + shx, 5.9 + swayY + shy, 20.4 - this.trauma * 0.5)
-    this.camera.lookAt(bx * 0.14, 2.7 + by * 0.07, 0)
+    const px = Math.max(-this.camSpan, Math.min(this.camSpan, this.camTargetX))
+    this.camera.position.set(px + sway + shx, 5.9 + swayY + shy, this.camZ - this.trauma * 0.5)
+    this.camera.lookAt(bx * CAM_LOOK, 2.7 + by * 0.07, 0)
     this.camera.rotation.z += shr
     this.camera.fov = 38 - Math.min(this.ballSpeed, 22) * 0.05
     this.camera.updateProjectionMatrix()
@@ -1107,7 +1103,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.ball.squash(this.ballSquash.k, this.ballSquash.ang)
     this.updateReach(match, alpha, dt)
 
-    crouchMoods([this.blobs[0].face, this.blobs[1].face], match.world.crouch, match.world.spikeHold)
+    crouchMoods([this.blobs[0].face, this.blobs[1].face], match.world.crouch)
     reachMoods([this.blobs[0].face, this.blobs[1].face], match.world, match.logic.isBallValid)
     this.updateBlob(LEFT, alpha, dt, match)
     this.updateBlob(RIGHT, alpha, dt, match)
