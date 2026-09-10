@@ -23,6 +23,47 @@ interface Ring {
   w?: number; flat?: boolean
 }
 interface Pop { side: Side; glyph: string; life: number; max: number; seed: number }
+interface Band { c: string; y: number; h: number }
+
+/**
+ * Gradiente no Canvas2D é sombreado pixel a pixel: preencher a tela inteira com
+ * um custa ~3.1 ms, contra 0.12 ms da mesma área em cor chapada. Faixa sólida
+ * fina resolve — com passo de ~9 px ninguém distingue de um degradê.
+ */
+const mixHex = (a: string, b: string, t: number) => {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16)
+  const ch = (sh: number) => Math.round(((pa >> sh) & 255) + ((((pb >> sh) & 255) - ((pa >> sh) & 255)) * t))
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`
+}
+
+function ramp(out: Band[], y0: number, y1: number, stops: string[], step: number) {
+  const h = y1 - y0
+  if (h <= 0) return
+  const n = Math.max(2, Math.min(96, Math.ceil(h / step)))
+  const seg = stops.length - 1
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n
+    const f = Math.min(seg - 0.0001, t * seg)
+    const k = f | 0
+    out.push({ c: mixHex(stops[k], stops[k + 1], f - k), y: y0 + (h * i) / n, h: h / n + 1 })
+  }
+}
+
+/** Um disco de brilho desenhado uma vez. drawImage escalado no lugar de um gradiente radial por partícula. */
+function makeGlow(): HTMLCanvasElement {
+  const S = 128
+  const cv = document.createElement('canvas')
+  cv.width = S; cv.height = S
+  const g = cv.getContext('2d')!
+  const rg = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2)
+  rg.addColorStop(0, 'rgba(255,255,220,1)')
+  rg.addColorStop(0.32, 'rgba(255,196,60,0.85)')
+  rg.addColorStop(0.68, 'rgba(255,84,10,0.5)')
+  rg.addColorStop(1, 'rgba(120,20,0,0)')
+  g.fillStyle = rg
+  g.fillRect(0, 0, S, S)
+  return cv
+}
 
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
 
@@ -48,18 +89,23 @@ export class Stage2D implements GameRenderer {
   private faces: FaceRig[] = [new FaceRig(), new FaceRig()]
   private trauma = 0
   private flash = 0
-  private sky: CanvasGradient | null = null
+  private bands: Band[] = []
+  private glow: HTMLCanvasElement
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, private lite = false) {
     this.canvas = canvas
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })
     if (!ctx) throw new Error('canvas 2d indisponível')
     this.ctx = ctx
+    this.glow = makeGlow()
     this.setSize(innerWidth, innerHeight)
   }
 
+  private get dustCap() { return this.lite ? 110 : 340 }
+  private get trailCap() { return this.lite ? 12 : 34 }
+
   setSize(w: number, h: number) {
-    const dpr = Math.min(devicePixelRatio, 1.5)
+    const dpr = this.lite ? Math.min(devicePixelRatio, 1) * 0.8 : Math.min(devicePixelRatio, 1.5)
     this.cw = Math.max(1, Math.round(w * dpr))
     this.ch = Math.max(1, Math.round(h * dpr))
     this.canvas.width = this.cw
@@ -69,11 +115,15 @@ export class Stage2D implements GameRenderer {
     this.scale = Math.min(this.cw / 880, this.ch / 640)
     this.ox = (this.cw - RIGHT_PLANE * this.scale) / 2
     this.oy = this.ch * 0.86 - (GROUND + 44) * this.scale
-    const g = this.ctx.createLinearGradient(0, 0, 0, this.oy + HORIZON * this.scale)
-    g.addColorStop(0, '#0d4a9c')
-    g.addColorStop(0.5, '#4d9dd8')
-    g.addColorStop(1, '#c6e6f4')
-    this.sky = g
+    const horizon = this.oy + HORIZON * this.scale
+    const seaBottom = this.oy + 470 * this.scale
+    // faixa fina não custa nada: o gasto é o total de pixels, não o número de retângulos
+    const step = 8
+    const b: Band[] = []
+    ramp(b, 0, horizon, ['#0d4a9c', '#4d9dd8', '#c6e6f4'], step)
+    ramp(b, horizon, seaBottom, ['#1c7f92', '#41cbbe'], step)
+    ramp(b, seaBottom, this.ch, ['#e6d0a2', '#c9a771'], step)
+    this.bands = b
   }
 
   capture(match: Match) {
@@ -91,7 +141,7 @@ export class Stage2D implements GameRenderer {
   }
 
   private burst(x: number, y: number, n: number, speed: number, color: string, up = 0.5, size = 4) {
-    const room = 340 - this.dust.length
+    const room = this.dustCap - this.dust.length
     const count = Math.min(n, Math.max(0, room))
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2
@@ -322,15 +372,15 @@ export class Stage2D implements GameRenderer {
   private background() {
     const c = this.ctx
     const horizon = this.oy + HORIZON * this.scale
-    c.fillStyle = this.sky!
-    c.fillRect(0, 0, this.cw, horizon)
+    for (const b of this.bands) { c.fillStyle = b.c; c.fillRect(0, b.y, this.cw, b.h) }
 
     const sunX = this.cw * 0.78, sunY = horizon - 250 * this.scale
     c.beginPath(); c.arc(sunX, sunY, 34 * this.scale, 0, Math.PI * 2)
     c.fillStyle = 'rgba(255,242,205,0.95)'; c.fill()
 
     c.fillStyle = 'rgba(255,255,255,0.55)'
-    for (let i = 0; i < 4; i++) {
+    const clouds = this.lite ? 2 : 4
+    for (let i = 0; i < clouds; i++) {
       const cx = ((i * 0.31 + this.time * 0.004) % 1.25 - 0.12) * this.cw
       const cy = horizon - (150 + i * 46) * this.scale
       const r = (26 + i * 7) * this.scale
@@ -350,14 +400,10 @@ export class Stage2D implements GameRenderer {
     }
 
     const seaBottom = this.oy + 470 * this.scale
-    const sea = c.createLinearGradient(0, horizon, 0, seaBottom)
-    sea.addColorStop(0, '#1c7f92')
-    sea.addColorStop(1, '#41cbbe')
-    c.fillStyle = sea
-    c.fillRect(0, horizon, this.cw, seaBottom - horizon)
 
     c.fillStyle = 'rgba(255,255,255,0.30)'
-    for (let i = 0; i < 4; i++) {
+    const rows = this.lite ? 2 : 4
+    for (let i = 0; i < rows; i++) {
       const y = horizon + (i + 1) * ((seaBottom - horizon) / 5.5)
       const w = (70 + i * 40) * this.scale
       const gap = w * 2.4
@@ -367,18 +413,14 @@ export class Stage2D implements GameRenderer {
       }
     }
 
-    const foam = c.createLinearGradient(0, seaBottom - 7 * this.scale, 0, seaBottom + 5 * this.scale)
-    foam.addColorStop(0, 'rgba(255,255,255,0)')
-    foam.addColorStop(0.6, 'rgba(255,255,255,0.85)')
-    foam.addColorStop(1, 'rgba(255,255,255,0)')
-    c.fillStyle = foam
-    c.fillRect(0, seaBottom - 7 * this.scale, this.cw, 12 * this.scale)
-
-    const sand = c.createLinearGradient(0, seaBottom, 0, this.ch)
-    sand.addColorStop(0, '#e6d0a2')
-    sand.addColorStop(1, '#c9a771')
-    c.fillStyle = sand
-    c.fillRect(0, seaBottom, this.cw, this.ch - seaBottom)
+    // espuma: três tiras chapadas no lugar do degradê, mesma leitura
+    const fs = this.scale
+    c.fillStyle = 'rgba(255,255,255,0.28)'
+    c.fillRect(0, seaBottom - 6 * fs, this.cw, 3 * fs)
+    c.fillStyle = 'rgba(255,255,255,0.80)'
+    c.fillRect(0, seaBottom - 3 * fs, this.cw, 3.5 * fs)
+    c.fillStyle = 'rgba(255,255,255,0.30)'
+    c.fillRect(0, seaBottom + 0.5 * fs, this.cw, 2.5 * fs)
   }
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number }, stunned = false) {
@@ -575,7 +617,7 @@ export class Stage2D implements GameRenderer {
     const superOn = w.superFrames > 0
     if (superOn) {
       this.trail.push({ x: bx, y: by, life: 0, seed: Math.random() * 6.28 })
-      if (this.trail.length > 34) this.trail.shift()
+      while (this.trail.length > this.trailCap) this.trail.shift()
     }
 
     c.setTransform(1, 0, 0, 1, 0, 0)
@@ -609,11 +651,8 @@ export class Stage2D implements GameRenderer {
       if (glow > 0) {
         c.globalCompositeOperation = 'lighter'
         c.globalAlpha = glow * 0.8
-        const eg = c.createRadialGradient(sc.x, GROUND + 8, 2, sc.x, GROUND + 8, sc.r * 1.3)
-        eg.addColorStop(0, 'rgba(255,190,60,1)')
-        eg.addColorStop(1, 'rgba(255,60,0,0)')
-        c.fillStyle = eg
-        c.beginPath(); c.ellipse(sc.x, GROUND + 8, sc.r * 1.3, sc.r * 0.55, 0, 0, Math.PI * 2); c.fill()
+        const gw = sc.r * 1.3, gh = sc.r * 0.55
+        c.drawImage(this.glow, sc.x - gw, GROUND + 8 - gh, gw * 2, gh * 2)
         c.globalCompositeOperation = 'source-over'
       }
       c.globalAlpha = 1
@@ -642,13 +681,8 @@ export class Stage2D implements GameRenderer {
         const r = BALL_RADIUS * (0.22 + k * 0.95) * flick
         const drift = (1 - k) * 26
         const fy = f.y - drift
-        const fg = c.createRadialGradient(f.x, fy, 0, f.x, fy, r)
-        fg.addColorStop(0, `rgba(255,255,220,${0.85 * k})`)
-        fg.addColorStop(0.32, `rgba(255,196,60,${0.72 * k})`)
-        fg.addColorStop(0.68, `rgba(255,84,10,${0.42 * k})`)
-        fg.addColorStop(1, 'rgba(120,20,0,0)')
-        c.fillStyle = fg
-        c.beginPath(); c.arc(f.x, fy, r, 0, Math.PI * 2); c.fill()
+        c.globalAlpha = 0.85 * k
+        c.drawImage(this.glow, f.x - r, fy - r, r * 2, r * 2)
       }
       c.globalCompositeOperation = 'source-over'
       c.globalAlpha = 1
@@ -661,21 +695,16 @@ export class Stage2D implements GameRenderer {
         const rr = BALL_RADIUS * (0.9 + Math.sin(a * 1.7) * 0.22)
         const fx = bx + Math.cos(a) * BALL_RADIUS * 0.55
         const fy = by + Math.sin(a * 1.3) * BALL_RADIUS * 0.45 - 6
-        const fg = c.createRadialGradient(fx, fy, 0, fx, fy, rr)
-        fg.addColorStop(0, 'rgba(255,255,210,0.8)')
-        fg.addColorStop(0.5, 'rgba(255,150,30,0.45)')
-        fg.addColorStop(1, 'rgba(255,60,0,0)')
-        c.fillStyle = fg
-        c.beginPath(); c.arc(fx, fy, rr, 0, Math.PI * 2); c.fill()
+        c.globalAlpha = 0.8
+        c.drawImage(this.glow, fx - rr, fy - rr, rr * 2, rr * 2)
       }
+      c.globalAlpha = 1
       c.globalCompositeOperation = 'source-over'
       const pulse = 1 + Math.sin(this.time * 26) * 0.12
-      const g = c.createRadialGradient(bx, by, BALL_RADIUS * 0.4, bx, by, BALL_RADIUS * 2.4 * pulse)
-      g.addColorStop(0, 'rgba(255,246,200,0.75)')
-      g.addColorStop(0.5, 'rgba(255,170,40,0.35)')
-      g.addColorStop(1, 'rgba(255,140,0,0)')
-      c.fillStyle = g
-      c.beginPath(); c.arc(bx, by, BALL_RADIUS * 2.4 * pulse, 0, Math.PI * 2); c.fill()
+      const gr = BALL_RADIUS * 2.4 * pulse
+      c.globalAlpha = 0.75
+      c.drawImage(this.glow, bx - gr, by - gr, gr * 2, gr * 2)
+      c.globalAlpha = 1
     }
 
     for (const r of this.rings) {

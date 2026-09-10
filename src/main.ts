@@ -37,7 +37,8 @@ type Phase = 'menu' | 'playing' | 'paused' | 'over'
 const isTouch = matchMedia('(pointer: coarse)').matches
 const NO_EVENTS: readonly MatchEvent[] = []
 
-const QUALITY_ORDER: GameConfig['quality'][] = ['cpu', 'low', 'medium', 'high', 'ultra']
+const QUALITY_ORDER: GameConfig['quality'][] = ['min', 'cpu', 'low', 'medium', 'high', 'ultra']
+const IS_2D = (q: GameConfig['quality']) => q === 'min' || q === 'cpu'
 
 function gpuName(): string {
   try {
@@ -50,11 +51,11 @@ function gpuName(): string {
 }
 
 function makeRenderer(canvas: HTMLCanvasElement, q: GameConfig['quality']): GameRenderer {
-  if (q !== 'cpu') {
+  if (!IS_2D(q)) {
     // máquina sem WebGL utilizável não pode ficar na tela preta: cai pro 2D
     try { return new Stage(canvas, QUALITY_PRESETS[q]) } catch (e) { console.warn('sem WebGL, indo pro 2D', e) }
   }
-  return new Stage2D(canvas)
+  return new Stage2D(canvas, q === 'min')
 }
 
 /** Nunca escolhe acima de medium sozinho: high custa ~24ms/frame até em Apple M. */
@@ -62,7 +63,7 @@ function detectQuality(): GameConfig['quality'] {
   const gpu = gpuName()
   const cores = navigator.hardwareConcurrency || 4
   const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
-  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return 'cpu'
+  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return cores <= 4 ? 'min' : 'cpu'
   if (cores <= 4 || mem <= 4) return 'low'
   if (isTouch) return cores >= 8 ? 'medium' : 'low'
   if (/intel|uhd graphics|hd graphics|iris|mali|adreno|vega 3|vega 6/.test(gpu)) return 'low'
@@ -106,13 +107,14 @@ class App {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
     const savedName = localStorage.getItem('bv.name')
     this.cfg = { ...DEFAULT_CONFIG }
-    if (savedQ && (savedQ === 'cpu' || QUALITY_PRESETS[savedQ])) { this.cfg.quality = savedQ; this.userPickedQuality = true }
+    if (savedQ && (IS_2D(savedQ) || QUALITY_PRESETS[savedQ])) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
     const savedArena = localStorage.getItem('bv.arena')
     if (savedArena === 'wide' || savedArena === 'default') this.cfg.arena = savedArena
     setArena(this.cfg.arena)
     syncArena()
+    document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
 
     void ensureIce()
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
@@ -166,7 +168,9 @@ class App {
   }
 
   applyQuality(q: GameConfig['quality'], byUser: boolean) {
-    if (q !== 'cpu' && !QUALITY_PRESETS[q]) return
+    if (!IS_2D(q) && !QUALITY_PRESETS[q]) return
+    // no 2D o HUD não pode ter blur nem animação infinita por cima do canvas
+    document.body.classList.toggle('lite', IS_2D(q))
     this.cfg.quality = q
     if (byUser) { this.userPickedQuality = true; localStorage.setItem('bv.quality', q) }
     const old = this.canvas
@@ -203,12 +207,13 @@ class App {
     if (fps >= 52) return
     const i = QUALITY_ORDER.indexOf(this.cfg.quality)
     if (i <= 0) return
-    // cair pro 2D é troca de renderer inteira: só quando nem o low segura
-    if (i === 1 && fps >= 38) return
     const q = QUALITY_ORDER[i - 1]
+    // cair pro 2D é troca de renderer inteira: só quando nem o low segura
+    if (q === 'cpu' && fps >= 38) return
     this.autoDrops++
     this.applyQuality(q, false)
-    this.hud.banner(q === 'cpu' ? 'GRÁFICOS → 2D (CPU)' : `GRÁFICOS → ${q.toUpperCase()}`, 1600, '#8fd8ff')
+    const label = q === 'cpu' ? '2D (CPU)' : q === 'min' ? '2D MÍNIMO' : q.toUpperCase()
+    this.hud.banner(`GRÁFICOS → ${label}`, 1600, '#8fd8ff')
   }
 
   private bindAudio() {

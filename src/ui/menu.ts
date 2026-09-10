@@ -17,7 +17,7 @@ export interface GameConfig {
   difficulty: Difficulty
   ruleId: string
   scoreToWin: number
-  quality: 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
+  quality: 'min' | 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
   name: string
   arena: ArenaId
 }
@@ -35,7 +35,8 @@ const DIFFS: [Difficulty, string, string][] = [
 ]
 
 const QUALITIES: [GameConfig['quality'], string, string][] = [
-  ['cpu', '2D (CPU)', 'sem GPU · roda em qualquer máquina'],
+  ['min', '2D mínimo', 'máquina antiga'],
+  ['cpu', '2D (CPU)', 'sem GPU'],
   ['low', 'Baixa', ''],
   ['medium', 'Média', ''],
   ['high', 'Alta', ''],
@@ -266,7 +267,7 @@ export class Menu {
       el('h2', { class: 'sec', textContent: 'Arena' }),
       this.selector(ARENAS, cfg.arena, v => { cfg.arena = v }, 'grid two'),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, cfg.quality, v => { cfg.quality = v; this.handlers.onQuality(v) }, 'grid five'),
+      this.selector(QUALITIES, cfg.quality, v => { cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
       el('h2', { class: 'sec', textContent: 'Som' }),
       this.selector(VOLUMES as [VolumeId, string, string][], this.handlers.getVolume(),
         v => this.handlers.onVolume(v)),
@@ -483,7 +484,7 @@ export class Menu {
         el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'VOLTAR PRO JOGO'),
         el('button', { class: 'center', onclick: () => this.handlers.onStopWatch() }, 'Parar de assistir')),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid five'),
+      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
     )
   }
 
@@ -533,7 +534,7 @@ export class Menu {
         el('button', { class: 'primary', onclick: () => this.handlers.onResume?.() }, 'CONTINUAR'),
         el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair para o menu')),
       el('h2', { class: 'sec', textContent: 'Gráficos' }),
-      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid five'),
+      this.selector(QUALITIES, this.cfg.quality, v => { this.cfg.quality = v; this.handlers.onQuality(v) }, 'grid six'),
       el('h2', { class: 'sec', textContent: 'Som' }),
       this.selector(VOLUMES as [VolumeId, string, string][], this.handlers.getVolume(),
         v => this.handlers.onVolume(v)),
