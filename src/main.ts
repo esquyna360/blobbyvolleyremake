@@ -27,6 +27,7 @@ import { GameAudio } from './audio/audio.ts'
 import { MENU_SONG, SCENES, getScene } from './render/scenes.ts'
 import type { SceneId } from './render/scenes.ts'
 import type { SceneRuleId } from './core/scene-rules.ts'
+import { defaultLook, loadLook } from './core/looks.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
@@ -127,6 +128,7 @@ class App {
     const savedScene = localStorage.getItem('bv.scene')
     if (savedScene && savedScene in SCENES) this.cfg.scene = savedScene as SceneId
     this.cfg.walls = localStorage.getItem('bv.walls') !== '0'
+    this.cfg.look = loadLook()
     setArena(this.cfg.arena)
     syncArena()
     document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
@@ -135,6 +137,7 @@ class App {
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
     this.stage.setScene(this.cfg.scene)
     this.stage.setWalls(this.cfg.walls)
+    this.applyLooks()
     this.audio.setScene(!getScene(this.cfg.scene).d3.indoor)
     this.audio.setSong(MENU_SONG)
     this.audio.preload(getScene(this.cfg.scene).music)
@@ -145,6 +148,7 @@ class App {
     this.menu = new Menu(this.ui, this.cfg, {
       onStart: c => this.startLocal(c),
       onScene: id => this.applyScene(id),
+      onLook: look => { this.cfg.look = look; this.applyLooks() },
       onWalls: on => {
         localStorage.setItem('bv.walls', on ? '1' : '0')
         this.applyWalls(on)
@@ -194,6 +198,20 @@ class App {
     this.stage.setSize(innerWidth, innerHeight)
   }
 
+  /**
+   * Aparência é do jogador, não do lado: quem eu controlo usa a minha, o outro
+   * usa a que veio pela rede ou a de fábrica. Nada disso chega na simulação.
+   */
+  private applyLooks() {
+    const me = this.session ? this.localSide : LEFT
+    const foe = me === LEFT ? RIGHT : LEFT
+    const theirs = this.session?.peerLook ?? defaultLook(foe)
+    // sem rede o outro é genérico: se calhar da minha cor, ele troca pra outra
+    if (!this.session && theirs.body === this.cfg.look.body) theirs.body = theirs.body === 0 ? 1 : 0
+    this.stage.setLook(me, this.cfg.look)
+    this.stage.setLook(foe, theirs)
+  }
+
   applyQuality(q: GameConfig['quality'], byUser: boolean) {
     if (!IS_2D(q) && !QUALITY_PRESETS[q]) return
     // no 2D o HUD não pode ter blur nem animação infinita por cima do canvas
@@ -219,6 +237,7 @@ class App {
     old.remove()
     this.stage.setScene(this.cfg.scene)
     this.stage.setWalls(this.cfg.walls)
+    this.applyLooks()
     this.resize()
     if (this.match) { this.stage.capture(this.match); this.stage.capture(this.match) }
     this.fpsAcc = 0
@@ -424,6 +443,7 @@ class App {
     this.localSide = LEFT
     this.bot = cfg.mode === 'bot' ? new Bot(RIGHT, cfg.difficulty, (Math.random() * 1e9) | 0) : null
     this.recMode = cfg.mode === 'bot' ? 'bot' : 'local'
+    this.applyLooks()
     this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
     this.hud.showNet(null)
     this.begin()
@@ -639,6 +659,7 @@ class App {
       arena: cfg.arena,
       walls: cfg.walls,
       sceneRule: getScene(cfg.scene).rule,
+      look: cfg.look,
       onArena: id => this.applyArena(id),
       onWalls: on => this.applyWalls(on),
       // o host manda o cenário junto: regra diferente nos dois lados desincroniza
@@ -684,6 +705,7 @@ class App {
         this.localSide = s.localSide
         this.bot = null
         this.demoBot = null
+        this.applyLooks()
         this.stage.capture(this.match)
         this.stage.capture(this.match)
         this.hud.setNames(

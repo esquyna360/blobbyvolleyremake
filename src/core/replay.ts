@@ -7,7 +7,7 @@ import type { SceneRuleId } from './scene-rules.ts'
  * Sobe sempre que física, regra ou ordem de eventos mudar. Replay gravado com
  * outra versão não reproduz o mesmo jogo — melhor não mostrar do que mentir.
  */
-export const SIM_VERSION = 6
+export const SIM_VERSION = 7
 
 export type ReplayMode = 'bot' | 'local' | 'online'
 

@@ -5,7 +5,7 @@ import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
 import {
   BALL_COLLISION_VELOCITY, BALL_RADIUS, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, RIGHT_PLANE,
-  SPECIAL_CAP, SPECIAL_FULL, SPECIAL_VELOCITY, BLOBBY_UPPER_SPHERE,
+  SPECIAL_CAP, SPECIAL_FULL, SPECIAL_VELOCITY, BLOBBY_UPPER_SPHERE, LEFT_PLANE, OPEN_MARGIN,
 } from '../src/core/constants.ts'
 import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
 import { GB_SPEEDS, cloudTop, cloudX } from '../src/core/scene-rules.ts'
@@ -273,22 +273,45 @@ test('manchete cruza a rede e conta no rally', () => {
  * Quadra aberta é regra, não pintura: sem parede a bola sai e o ponto é de
  * quem não mandou pra fora. Com parede, o mesmo lance é só um quique.
  */
-test('quadra aberta pontua a bola fora; com parede ela quica', () => {
+test('quadra aberta: fora é cair fora, não cruzar a linha', () => {
   const open = new Match('default', 15, LEFT, false)
   open.logic.isBallValid = true
   open.logic.isGameRunning = true
   open.logic.touches[LEFT] = 1
-  open.world.ballX = RIGHT_PLANE - BALL_RADIUS - 2
-  open.world.ballY = 300
-  open.world.ballVX = 18
+  open.world.ballX = RIGHT_PLANE - 5
+  open.world.ballY = 380
+  open.world.ballVX = 2
   open.world.ballVY = 0
+
   let out = false
-  for (let f = 0; f < 6; f++) {
+  for (let f = 0; f < 8; f++) {
     open.step(NO_INPUT, NO_INPUT)
     if (open.events.some(e => e.event === Ev.BALL_OUT)) out = true
   }
-  assert.ok(out, 'bola não saiu com a quadra aberta')
+  assert.ok(open.world.ballX > RIGHT_PLANE, 'a bola nem passou da linha')
+  assert.ok(!out, 'cruzar a linha no ar não pode ser fora')
+
+  for (let f = 0; f < 60 && !out; f++) {
+    open.step(NO_INPUT, NO_INPUT)
+    if (open.events.some(e => e.event === Ev.BALL_OUT)) out = true
+  }
+  assert.ok(out, 'bola caiu fora e não foi marcada')
   assert.equal(open.logic.scores[RIGHT], 1, 'quem mandou pra fora não perdeu o ponto')
+
+  const inside = new Match('default', 15, LEFT, false)
+  inside.logic.isBallValid = true
+  inside.logic.isGameRunning = true
+  inside.logic.touches[LEFT] = 1
+  inside.world.ballX = RIGHT_PLANE - 200
+  inside.world.ballY = 380
+  inside.world.ballVX = 0
+  inside.world.ballVY = 0
+  let wrong = false
+  for (let f = 0; f < 60; f++) {
+    inside.step(NO_INPUT, NO_INPUT)
+    if (inside.events.some(e => e.event === Ev.BALL_OUT)) wrong = true
+  }
+  assert.ok(!wrong, 'bola que caiu dentro foi marcada como fora')
 
   const walled = new Match('default', 15, LEFT, true)
   walled.logic.isBallValid = true
@@ -301,6 +324,17 @@ test('quadra aberta pontua a bola fora; com parede ela quica', () => {
   for (let f = 0; f < 6; f++) walled.step(NO_INPUT, NO_INPUT)
   assert.ok(walled.world.ballVX < 0, 'não quicou na parede')
   assert.equal(walled.logic.scores[RIGHT], 0, 'quique não pode virar ponto')
+})
+
+test('quadra aberta deixa o blob sair da linha; com parede ele para nela', () => {
+  const go = (walls: boolean) => {
+    const m = new Match('default', 15, LEFT, walls)
+    const left = packInput({ left: true, right: false, up: false, special: false, down: false })
+    for (let f = 0; f < 220; f++) m.step(unpackInput(left), NO_INPUT)
+    return m.world.blobX[LEFT]
+  }
+  assert.equal(go(true), LEFT_PLANE, 'com parede o blob passou da linha')
+  assert.equal(go(false), LEFT_PLANE - OPEN_MARGIN, 'sem parede o blob não usou a margem inteira')
 })
 
 /** Cenário que é regra: a nuvem segura a bola e o estado dela volta no rollback. */

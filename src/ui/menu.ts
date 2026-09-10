@@ -12,6 +12,9 @@ import { leaderboard } from '../net/rank.ts'
 import { localReplays, onlineReplays } from '../net/replays.ts'
 import type { ReplayCard } from '../net/replays.ts'
 import type { RankRow } from '../net/rank.ts'
+import { BODY_COLORS, HAIR_COLORS, HAIR_STYLES, defaultLook, saveLook } from '../core/looks.ts'
+import type { PlayerLook } from '../core/looks.ts'
+import { drawPortrait } from '../render/portrait.ts'
 
 export interface GameConfig {
   mode: 'bot' | 'local' | 'online'
@@ -24,17 +27,19 @@ export interface GameConfig {
   showFps: boolean
   scene: SceneId
   walls: boolean
+  /** aparência do jogador local: vale no treino, no 2 jogadores e no online */
+  look: PlayerLook
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
   scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default', showFps: false,
-  scene: 'praia', walls: true,
+  scene: 'praia', walls: true, look: defaultLook(0),
 }
 
 const WALL_OPTS: ['on' | 'off', string, string][] = [
   ['on', 'Com parede', 'a bola quica de volta e o rally segue'],
-  ['off', 'Quadra aberta', 'bola fora é ponto de quem tocou por último'],
+  ['off', 'Quadra aberta', 'dá pra sair da linha; fora é só quando a bola cai fora'],
 ]
 
 const DIFFS: [Difficulty, string, string][] = [
@@ -68,6 +73,7 @@ export interface MenuHandlers {
   onCreateRoom(code: string, pass: string, cfg: GameConfig): void
   onJoinRoom(code: string, pass: string, cfg: GameConfig): void
   onScene(id: SceneId): void
+  onLook(look: PlayerLook): void
   onWalls(on: boolean): void
   onManual(asHost: boolean, cfg: GameConfig): {
     local: Promise<string>
@@ -246,6 +252,7 @@ export class Menu {
           () => this.online(), 'lead'),
         this.item('2 JOGADORES', 'os dois no mesmo teclado',
           () => { cfg.mode = 'local'; this.handlers.onStart(cfg) }),
+        this.item('MEU BLOBBY', 'cor, cabelo e cor do cabelo', () => this.blobby()),
         this.item('RANKING', 'só partida online pontua', () => this.ranking()),
         this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays()),
         this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings())),
@@ -257,6 +264,47 @@ export class Menu {
         el('div', {}, 'bate correndo pro lado e a bola curva pra lá'),
         el('div', {}, el('kbd', { textContent: '1' }), '–', el('kbd', { textContent: '5' }), ' emotes')),
     )
+  }
+
+  /** Escolher olhando pro bicho: o retrato ao lado é o mesmo desenho do jogo. */
+  blobby() {
+    this.currentScreen = () => this.blobby()
+    const look = this.cfg.look
+    const cv = el('canvas', { class: 'portrait' }) as HTMLCanvasElement
+    const pick = (list: { name: string }[]) =>
+      list.map((x, i) => [String(i), x.name, ''] as [string, string, string])
+    const commit = () => { saveLook(look); this.handlers.onLook(look) }
+
+    let raf = 0
+    const start = performance.now()
+    const paint = () => {
+      const dpr = Math.min(2, devicePixelRatio || 1)
+      const w = cv.clientWidth || 200, h = cv.clientHeight || 200
+      if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr) }
+      const c = cv.getContext('2d')
+      if (!c) return
+      c.setTransform(dpr, 0, 0, dpr, 0, 0)
+      c.clearRect(0, 0, w, h)
+      drawPortrait(c, w / 2, h * 0.58, Math.min(w, h) * 0.44, look, (performance.now() - start) / 1000)
+      raf = requestAnimationFrame(paint)
+    }
+
+    this.panel(
+      this.title('MEU BLOBBY'),
+      el('div', { class: 'dress' },
+        cv,
+        el('div', { class: 'opts' },
+          this.opt('Cor', pick(BODY_COLORS), String(look.body),
+            v => { look.body = Number(v); commit() }),
+          this.opt('Cabelo', pick(HAIR_STYLES), String(look.hair),
+            v => { look.hair = Number(v); commit() }),
+          this.opt('Cor do cabelo', pick(HAIR_COLORS), String(look.hairColor),
+            v => { look.hairColor = Number(v); commit() }))),
+      this.tipLine('vale contra o computador, no 2 jogadores e no online'),
+      this.back(() => this.main()),
+    )
+    raf = requestAnimationFrame(paint)
+    this.cleanup = () => cancelAnimationFrame(raf)
   }
 
   /** Partida inteira cabe em ~3 KB de input: dá pra guardar tudo e reproduzir exato. */

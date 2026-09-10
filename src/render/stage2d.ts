@@ -3,7 +3,7 @@ import {
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
-  DIVE_RECOVER, SPECIAL_FULL, SPECIAL_REACH,
+  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_REACH,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -18,10 +18,12 @@ import {
   CLOUD_HALF_W, CLOUD_THICK, FX_BUBBLE, FX_GUST, FX_GUST_WARN, FX_INVERT, FX_TUNNEL,
   cloudX, cloudY,
 } from '../core/scene-rules.ts'
+import { drawHair2D } from './hair2d.ts'
+import { bodyHex, defaultLook, shade } from '../core/looks.ts'
+import type { PlayerLook } from '../core/looks.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
-const BLOB_FILL = ['#ec2f3f', '#2f7ff0']
-const BLOB_DARK = ['#8e0f20', '#123f96']
+
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
 interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string }
@@ -112,6 +114,11 @@ export class Stage2D implements GameRenderer {
   private audioBar = 0
   private audioBeat = 0
   private wallsOn = true
+  /** quanto de fora-da-linha o enquadramento está abrindo agora, em unidades da física */
+  private frameExtra = 0
+  private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
+  private fills = [bodyHex(defaultLook(LEFT)), bodyHex(defaultLook(RIGHT))]
+  private darks = [shade(bodyHex(defaultLook(LEFT)), 0.55), shade(bodyHex(defaultLook(RIGHT)), 0.55)]
   /** estrelas e bichinhos da frente: sorteados uma vez, animados por relógio */
   private specks: { x: number; y: number; r: number; seed: number }[] = []
   private fg: { x: number; y: number; vx: number; vy: number; s: number; seed: number }[] = []
@@ -136,11 +143,20 @@ export class Stage2D implements GameRenderer {
     this.canvas.height = this.ch
     this.canvas.style.width = `${w}px`
     this.canvas.style.height = `${h}px`
-    // margem de 45px de cada lado: sem ela a parede cai exatamente na borda do
-    // canvas e some, ainda mais na arena estendida, que é mais larga que 880
-    this.scale = Math.min(this.cw / (RIGHT_PLANE + 90), this.ch / 640)
-    this.ox = (this.cw - RIGHT_PLANE * this.scale) / 2
-    this.oy = this.ch * 0.86 - (GROUND + 44) * this.scale
+    this.applyFrame(true)
+  }
+
+  /**
+   * Margem de 45px de cada lado: sem ela a parede cai exatamente na borda do
+   * canvas e some, ainda mais na arena estendida, que é mais larga que 880.
+   * Na quadra aberta a margem cresce só enquanto alguém está fora da linha.
+   */
+  private applyFrame(force = false) {
+    const s = Math.min(this.cw / (RIGHT_PLANE + 90 + this.frameExtra * 2), this.ch / 640)
+    if (!force && Math.abs(s - this.scale) < 1e-4) return
+    this.scale = s
+    this.ox = (this.cw - RIGHT_PLANE * s) / 2
+    this.oy = this.ch * 0.86 - (GROUND + 44) * s
     this.buildBands()
   }
 
@@ -274,7 +290,7 @@ export class Stage2D implements GameRenderer {
         case Ev.BALL_HIT_BLOB: {
           const inten = 0.35 + e.intensity * 0.65
           this.trauma = Math.min(1, this.trauma + 0.16 * inten)
-          this.burst(w.ballX, w.ballY, Math.floor(14 + 22 * inten), 190 * inten, BLOB_FILL[e.side as Side], 0.4, 5)
+          this.burst(w.ballX, w.ballY, Math.floor(14 + 22 * inten), 190 * inten, this.fill(e.side as Side), 0.4, 5)
           this.squashBall(w, 0.10 + 0.07 * inten)
           break
         }
@@ -331,10 +347,10 @@ export class Stage2D implements GameRenderer {
           const p = e.side as Side
           this.trauma = Math.min(1, this.trauma + 0.7)
           this.flash = Math.max(this.flash, 0.34)
-          this.burst(w.ballX, w.ballY, 90, 520, BLOB_FILL[p], 0.3, 7)
+          this.burst(w.ballX, w.ballY, 90, 520, this.fill(p), 0.3, 7)
           this.burst(w.ballX, w.ballY, 50, 700, '#fff6d8', 0.15, 5)
           this.rings.push({ x: w.ballX, y: w.ballY, r: 10, max: 260, life: 0, color: '#ffe9a8' })
-          this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 170, life: -0.08, color: BLOB_FILL[p] })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 170, life: -0.08, color: this.fill(p) })
           break
         }
         case Ev.SPECIAL_HIT: {
@@ -434,8 +450,8 @@ export class Stage2D implements GameRenderer {
             this.burst(w.blobX[o], w.blobY[o] - 20 - i * 8, 90, 520 + i * 90, i % 2 ? '#8e0b0b' : '#d81111', 2.4, 10)
           }
           this.burst(w.blobX[o], w.blobY[o] - 20, 60, 240, '#ffd0d0', 2.0, 7)
-          this.burst(w.blobX[o], w.blobY[o] - 20, 70, 360, BLOB_FILL[o], 1.6, 9)
-          this.burst(w.blobX[o], w.blobY[o] - 4, 40, 280, BLOB_FILL[o], 1.1, 12)
+          this.burst(w.blobX[o], w.blobY[o] - 20, 70, 360, this.fill(o), 1.6, 9)
+          this.burst(w.blobX[o], w.blobY[o] - 4, 40, 280, this.fill(o), 1.1, 12)
           this.rings.push({ x: w.blobX[o], y: w.blobY[o] - 20, r: 10, max: 420, life: 0, color: '#ff2d2d' })
           this.scorch.push({ x: w.blobX[o], r: 60, life: 0 })
           this.gib[o] = 1
@@ -967,6 +983,15 @@ export class Stage2D implements GameRenderer {
     this.audioBeat = beat
   }
 
+  setLook(side: Side, look: PlayerLook) {
+    this.looks[side] = look
+    this.fills[side] = bodyHex(look)
+    this.darks[side] = shade(this.fills[side], 0.55)
+  }
+
+  private fill(p: Side) { return this.fills[p] }
+  private dark(p: Side) { return this.darks[p] }
+
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
                stunned: boolean, cr: number, dive = 0, dvDir = 0) {
     if (this.gib[p] > 0) return
@@ -1002,7 +1027,7 @@ export class Stage2D implements GameRenderer {
     // corpo
     c.beginPath()
     c.ellipse(bkx, bky, brx, bry, d * 0.22 * dk, 0, Math.PI * 2)
-    c.fillStyle = BLOB_FILL[p]
+    c.fillStyle = this.fill(p)
     c.fill()
 
     // tronco ligando corpo e cabeça: sem isso viram duas bolas soltas no ar
@@ -1030,20 +1055,23 @@ export class Stage2D implements GameRenderer {
       c.rotate(d * 0.34)
       c.beginPath()
       c.ellipse(d * len * 0.5, 0, len * 0.62, ru * 0.34, 0, 0, Math.PI * 2)
-      c.fillStyle = BLOB_FILL[p]
+      c.fillStyle = this.fill(p)
       c.fill()
       c.beginPath()
       c.ellipse(d * len, 0, ru * 0.3, ru * 0.3, 0, 0, Math.PI * 2)
-      c.fillStyle = BLOB_DARK[p]
+      c.fillStyle = this.dark(p)
       c.globalAlpha = 0.85
       c.fill()
       c.globalAlpha = 1
       c.restore()
     }
 
+    const fac = p === LEFT ? 1 : -1
+    drawHair2D(c, x, uy, ru, this.looks[p], fac, true)
+
     c.beginPath()
     c.arc(x, uy, ru, 0, Math.PI * 2)
-    c.fillStyle = BLOB_FILL[p]
+    c.fillStyle = this.fill(p)
     c.fill()
 
     c.beginPath()
@@ -1054,7 +1082,6 @@ export class Stage2D implements GameRenderer {
     const rig = this.faces[p]
     const f = rig.cur
     const lid = Math.max(0.05, Math.min(1.6, f.lid * (0.08 + rig.blink * 0.92)))
-    const fac = p === LEFT ? 1 : -1
     const line = '#171420'
 
     let ax = ball.x - x, ay = ball.y - uy
@@ -1143,6 +1170,8 @@ export class Stage2D implements GameRenderer {
       c.globalAlpha = 1
     }
 
+    drawHair2D(c, x, uy, ru, this.looks[p], fac, false)
+
     c.restore()
     if (stunned) c.restore()
   }
@@ -1154,7 +1183,7 @@ export class Stage2D implements GameRenderer {
   private diveGhosts(p: Side, hx: number, hy: number, ru: number,
                      bx: number, by: number, brx: number, bry: number, d: number, k: number) {
     const c = this.ctx
-    c.fillStyle = BLOB_FILL[p]
+    c.fillStyle = this.fill(p)
     for (let i = 1; i <= 2; i++) {
       const back = i * 26 * k
       c.globalAlpha = 0.2 / i
@@ -1381,6 +1410,13 @@ export class Stage2D implements GameRenderer {
     const lerp = (a: number, b: number) => a + (b - a) * alpha
     const bx = lerp(p.bx, q.bx), by = lerp(p.by, q.by), rot = lerp(p.rot, q.rot)
     const w = match.world
+    const half = RIGHT_PLANE / 2
+    const far = this.wallsOn ? 0 : Math.max(
+      Math.abs(w.ballX - NET_POSITION_X), Math.abs(w.blobX[LEFT] - NET_POSITION_X),
+      Math.abs(w.blobX[RIGHT] - NET_POSITION_X)) - half
+    const want = Math.max(0, Math.min(OPEN_MARGIN, far + 24))
+    this.frameExtra += (want - this.frameExtra) * (1 - Math.exp(-dt * (want > this.frameExtra ? 5.5 : 1.4)))
+    this.applyFrame()
     const superOn = w.superFrames > 0
     if (superOn) {
       this.trail.push({ x: bx, y: by, life: 0, seed: Math.random() * 6.28 })

@@ -5,10 +5,12 @@ import { LEFT, RIGHT } from '../core/constants.ts'
 import { setArena, arenaId } from '../core/constants.ts'
 import { sceneRuleCode, sceneRuleFromCode } from '../core/scene-rules.ts'
 import type { SceneRuleId } from '../core/scene-rules.ts'
+import { defaultLook, packLook, unpackLook } from '../core/looks.ts'
+import type { PlayerLook } from '../core/looks.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 14
+const PROTO = 15
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8, REMATCH = 9,
@@ -50,6 +52,8 @@ export interface SessionOpts {
   walls: boolean
   /** cenário do host: os que são regra mudam a física dos dois lados */
   sceneRule: SceneRuleId
+  /** aparência local: viaja junto no aperto de mão, não entra na simulação */
+  look: PlayerLook
   onArena?: (id: ArenaId) => void
   onWalls?: (on: boolean) => void
   onSceneRule?: (r: SceneRuleId) => void
@@ -71,6 +75,7 @@ export class NetSession {
   match: Match | null = null
   localSide: Side = 0
   peerName = 'Player'
+  peerLook: PlayerLook = defaultLook(1)
   phase: SessionPhase = 'connecting'
 
   private seed = (Math.random() * 0xffffffff) >>> 0
@@ -123,12 +128,14 @@ export class NetSession {
 
   private sendHello() {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
-    const buf = new Uint8Array(1 + 1 + 4 + 1 + nameBytes.length)
+    const look = packLook(this.opts.look)
+    const buf = new Uint8Array(1 + 1 + 4 + 3 + 1 + nameBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.HELLO)
     dv.setUint8(o++, PROTO)
     dv.setUint32(o, this.opts.pass ?? 0); o += 4
+    for (const b of look) dv.setUint8(o++, b)
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o)
     this.transport.send(buf)
   }
@@ -149,8 +156,9 @@ export class NetSession {
     if (this.pending === from) return
     if (this.pending !== null) { this.deny(from, Deny.FULL); return }
 
-    const nl = dv.getUint8(6)
-    this.peerName = new TextDecoder().decode(buf.subarray(7, 7 + nl)) || 'Player'
+    this.peerLook = unpackLook(dv.getUint8(6), dv.getUint8(7), dv.getUint8(8))
+    const nl = dv.getUint8(9)
+    this.peerName = new TextDecoder().decode(buf.subarray(10, 10 + nl)) || 'Player'
     this.pending = from
     this.setPhase('approval', this.peerName)
 
@@ -172,7 +180,8 @@ export class NetSession {
   private sendWelcome(to: PeerId) {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
     const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
-    const buf = new Uint8Array(1 + 1 + 1 + 1 + 1 + 2 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const look = packLook(this.opts.look)
+    const buf = new Uint8Array(1 + 1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.WELCOME)
@@ -181,6 +190,7 @@ export class NetSession {
     dv.setUint8(o++, (this.opts.arena === 'wide' ? 1 : 0) | (this.opts.walls ? 0 : 2))
     dv.setUint8(o++, sceneRuleCode(this.opts.sceneRule))
     dv.setUint16(o, this.scoreToWin()); o += 2
+    for (const b of look) dv.setUint8(o++, b)
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
     dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o)
     this.transport.send(buf, to)
@@ -196,6 +206,7 @@ export class NetSession {
     const walls = (arenaByte & 2) === 0
     const sceneRule = sceneRuleFromCode(dv.getUint8(o++))
     const stw = dv.getUint16(o); o += 2
+    this.peerLook = unpackLook(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2)); o += 3
     const nl = dv.getUint8(o++)
     this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)) || 'Player'; o += nl
     const rl = dv.getUint8(o++)

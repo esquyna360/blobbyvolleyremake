@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import {
-  LEFT, RIGHT, GROUND_PLANE_HEIGHT, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_SPHERE, CROUCH_DUCK,
-  DIVE_RECOVER, SPECIAL_FULL, SPECIAL_REACH,
+  LEFT, RIGHT, GROUND_PLANE_HEIGHT, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
+  BLOBBY_UPPER_SPHERE, CROUCH_DUCK,
+  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_REACH,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -19,6 +20,10 @@ import { createBall, BALL_R } from './ball.ts'
 import type { Ball } from './ball.ts'
 import { createBlob } from './blob.ts'
 import type { BlobVisual } from './blob.ts'
+import { createHair3D } from './hair3d.ts'
+import type { Hair3D } from './hair3d.ts'
+import { bodyHex, defaultLook } from '../core/looks.ts'
+import type { PlayerLook } from '../core/looks.ts'
 import { createParticles } from './particles.ts'
 import type { Particles } from './particles.ts'
 import { createScenery } from './scenery.ts'
@@ -75,6 +80,8 @@ export interface GameRenderer {
   setScene(id: SceneId): void
   /** Fase do compasso e do tempo da música: o cenário pulsa com ela. */
   setBeat(bar: number, beat: number): void
+  /** Cor e penteado de um lado. Só aparência: a física não vê nada disso. */
+  setLook(side: Side, look: PlayerLook): void
   /** Paredes da quadra: existem sempre na física, aqui só some o desenho. */
   setWalls(on: boolean): void
   capture(match: Match): void
@@ -136,6 +143,11 @@ export const QUALITY_PRESETS: Record<string, Quality> = {
   },
 }
 
+/** Cabeça em unidades de mundo: o cabelo é descrito em raios dela. */
+const OPEN_HALF = gr(OPEN_MARGIN)
+const HEAD_R = gr(BLOBBY_UPPER_RADIUS)
+const HEAD_OFF = gr(BLOBBY_UPPER_SPHERE)
+
 const BLOB_COLORS: [THREE.Color, THREE.Color][] = [
   [new THREE.Color(0.95, 0.22, 0.28), new THREE.Color(0.62, 0.05, 0.14)],
   [new THREE.Color(0.20, 0.55, 0.98), new THREE.Color(0.05, 0.18, 0.62)],
@@ -143,6 +155,7 @@ const BLOB_COLORS: [THREE.Color, THREE.Color][] = [
 
 interface BlobAnim {
   visual: BlobVisual
+  hair: Hair3D
   wobble: number
   squashSpring: number
   squashVel: number
@@ -276,6 +289,10 @@ export class Stage implements GameRenderer {
   private pmrem!: THREE.PMREMGenerator
   private envRT: THREE.WebGLRenderTarget | null = null
   blobs: BlobAnim[] = []
+  private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
+  private wallsOn = true
+  /** quanto de fora-da-linha a câmera está abrindo agora, em unidades de mundo */
+  private openExtra = 0
   walls: THREE.Mesh[] = []
   /** [lado][0 especial, 1 mão] — anel discreto de alcance perto da cabeça. */
   private reachRings: THREE.Mesh[] = []
@@ -473,17 +490,32 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       const v = createBlob(main.clone(), this.envCube, this.quality.blob)
       ;(v.uniforms.uColorDeep.value as THREE.Color).copy(deep)
       v.uniforms.uFacing.value = i === 0 ? 1 : -1
+      const hair = createHair3D(this.quality.shadows)
+      hair.group.rotation.y = i === 0 ? 0 : Math.PI
+      v.group.add(hair.group)
       scene.add(v.group)
       this.blobs.push({
-        visual: v, wobble: 0, squashSpring: 0, squashVel: 0, mouth: 0,
+        visual: v, hair, wobble: 0, squashSpring: 0, squashVel: 0, mouth: 0,
         face: new FaceRig(), lastVY: 0, wasGrounded: true, flash: 0, dive: 0,
       })
+      this.setLook(i as Side, this.looks[i])
     }
 
     if (this.quality.post) {
       this.post = createPost(this.renderer, this.scene, this.camera,
         { bloom: this.quality.bloom, smaa: this.quality.smaa })
     }
+  }
+
+  /** Cor do corpo e penteado. Nada disso chega na física — é pintura e só. */
+  setLook(side: Side, look: PlayerLook) {
+    this.looks[side] = look
+    const b = this.blobs[side]
+    if (!b) return
+    const main = new THREE.Color(bodyHex(look))
+    const deep = main.clone().multiplyScalar(0.55).offsetHSL(0.02, 0.15, -0.05)
+    b.visual.setColor(main, deep)
+    b.hair.set(look)
   }
 
   /** Cenário é pintura: troca céu, luz, chão e o que passa na frente. */
@@ -534,6 +566,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   setWalls(on: boolean) {
+    this.wallsOn = on
     for (const w of this.walls) w.visible = on
   }
 
@@ -601,7 +634,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
    */
   private fitArena() {
     // o lookAt segue a bola e gira a câmera: essa folga entra na conta junto
-    const need = COURT_HALF_W * (1 + CAM_LOOK) + CAM_MARGIN
+    const need = COURT_HALF_W * (1 + CAM_LOOK) + CAM_MARGIN + this.openExtra
     const ht = Math.tan((CAM_FOV_MIN * Math.PI) / 360) * Math.max(0.5, this.camera.aspect)
     this.camZ = Math.min(CAM_Z_MAX, Math.max(CAM_Z, need / ht))
     this.camSpan = Math.max(0, this.camZ * ht - need)
@@ -1067,6 +1100,11 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const sxz = 1 - (b.squashSpring + airStretch) * 0.55 + anim * 0.45 + cr * 0.26
     ;(u.uSquash.value as THREE.Vector3).set(sxz + dive * 0.46, sy, sxz - dive * 0.1)
 
+    // o cabelo mora na cabeça: mesma altura e mesma deformação que ela
+    const hg = b.hair.group
+    hg.position.y = HEAD_OFF * sy
+    hg.scale.set((sxz + dive * 0.46) * HEAD_R, sy * HEAD_R, (sxz - dive * 0.1) * HEAD_R)
+
     // o squash encolhe em volta da origem do grupo: sem baixar, o blob agachado
     // descola do chão em vez de afundar nele
     b.visual.group.position.set(
@@ -1159,6 +1197,18 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const brot = THREE.MathUtils.lerp(p.brot, c.brot, alpha)
 
     // ---- camera rig ----
+    // quadra aberta: a câmera só abre quando alguém realmente sai da linha, e
+    // fecha de volta sozinha. Enquadrar o fora inteiro o tempo todo encolhia
+    // a quadra num jogo em que quase ninguém sai.
+    const w0 = match.world
+    const far = this.wallsOn ? 0 : Math.max(
+      Math.abs(gx(w0.ballX)), Math.abs(gx(w0.blobX[LEFT])), Math.abs(gx(w0.blobX[RIGHT])),
+    ) - COURT_HALF_W
+    const wantOpen = Math.max(0, Math.min(OPEN_HALF, far + 0.5))
+    const openRate = wantOpen > this.openExtra ? 5.5 : 1.4
+    this.openExtra += (wantOpen - this.openExtra) * (1 - Math.exp(-dt * openRate))
+    this.fitArena()
+
     this.camTargetX = THREE.MathUtils.lerp(this.camTargetX, bx * 0.30, 1 - Math.exp(-dt * 3.2))
     const sway = Math.sin(this.time * 0.31) * 0.20 + Math.sin(this.time * 0.17) * 0.11
     const swayY = Math.sin(this.time * 0.23 + 1.7) * 0.10

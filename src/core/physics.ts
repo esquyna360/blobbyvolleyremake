@@ -2,7 +2,7 @@ import {
   BALL_COLLISION_VELOCITY, BALL_GRAVITATION, BALL_RADIUS, BLOBBY_ANIMATION_SPEED,
   BLOBBY_JUMP_ACCELERATION, BLOBBY_JUMP_BUFFER, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE,
   BLOBBY_SPEED, BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, GRAVITATION,
-  GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X,
+  GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, OPEN_MARGIN,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
@@ -661,7 +661,14 @@ export class PhysicWorld {
   }
 
   private handleBallWorldCollisions(out: MatchEvent[]) {
+    const walls = this.wallsOn
     if (this.ballY + BALL_RADIUS > GROUND_PLANE_HEIGHT_MAX) {
+      // quadra aberta: fora é cair no chão fora da linha. No ar não é nada —
+      // passar da lateral e voltar pro rally é jogada, não erro.
+      if (!walls && !this.ballOut && (this.ballX < LEFT_PLANE || this.ballX > RIGHT_PLANE)) {
+        this.ballOut = 1
+        out.push({ event: Ev.BALL_OUT, side: this.ballX < LEFT_PLANE ? LEFT : RIGHT, intensity: 0 })
+      }
       if (this.superFrames > 0) {
         this.superFrames = 0
         this.superOwner = -1
@@ -678,15 +685,14 @@ export class PhysicWorld {
     const onLeft = this.ballX - BALL_RADIUS <= LEFT_PLANE && this.ballVX < 0
     const onRight = this.ballX + BALL_RADIUS >= RIGHT_PLANE && this.ballVX > 0
 
-    // quadra aberta: a bola não volta, ela sai — e sair é ponto de quem não
-    // encostou por último. Um evento só por saída, o resto do voo é enfeite.
-    const walls = this.wallsOn
-    if (!walls && (onLeft || onRight)) {
-      if (!this.ballOut) {
-        this.ballOut = 1
-        out.push({ event: Ev.BALL_OUT, side: onLeft ? LEFT : RIGHT, intensity: 0 })
-      }
-    } else if (walls && onLeft) {
+    // longe demais não existe: sem isso a bola sai do enquadramento e o rally
+    // fica esperando ela cair num chão que ninguém vê.
+    if (!walls && !this.ballOut
+        && (this.ballX < LEFT_PLANE - OPEN_MARGIN || this.ballX > RIGHT_PLANE + OPEN_MARGIN)) {
+      this.ballOut = 1
+      out.push({ event: Ev.BALL_OUT, side: this.ballX < LEFT_PLANE ? LEFT : RIGHT, intensity: 0 })
+    }
+    if (walls && onLeft) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
       this.ballX = LEFT_PLANE + BALL_RADIUS
@@ -809,8 +815,10 @@ export class PhysicWorld {
       this.blobX[LEFT] = NET_POSITION_X - NET_RADIUS - BLOBBY_LOWER_RADIUS
     if (this.blobX[RIGHT] - BLOBBY_LOWER_RADIUS < NET_POSITION_X + NET_RADIUS)
       this.blobX[RIGHT] = NET_POSITION_X + NET_RADIUS + BLOBBY_LOWER_RADIUS
-    if (this.blobX[LEFT] < LEFT_PLANE) this.blobX[LEFT] = LEFT_PLANE
-    if (this.blobX[RIGHT] > RIGHT_PLANE) this.blobX[RIGHT] = RIGHT_PLANE
+    // com a quadra aberta dá pra ir buscar a bola fora da linha
+    const outer = this.wallsOn ? 0 : OPEN_MARGIN
+    if (this.blobX[LEFT] < LEFT_PLANE - outer) this.blobX[LEFT] = LEFT_PLANE - outer
+    if (this.blobX[RIGHT] > RIGHT_PLANE + outer) this.blobX[RIGHT] = RIGHT_PLANE + outer
 
     const speed = Math.sqrt(this.ballVX * this.ballVX + this.ballVY * this.ballVY)
     if (!isGameRunning) this.ballRot -= this.ballAngVel

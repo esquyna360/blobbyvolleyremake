@@ -7,6 +7,13 @@ export type SideOrNone = -1 | 0 | 1
 export const LEFT_PLANE = 0
 export let RIGHT_PLANE = 880
 
+/**
+ * Quadra aberta: quanto dá pra sair da linha lateral, pra bola e pro blob. A
+ * bola só é fora quando cai no chão fora da quadra; passar da linha no ar não
+ * é nada. Daqui pra fora não existe mundo — bola que chega aqui é fora na hora.
+ */
+export const OPEN_MARGIN = 200
+
 export const BLOBBY_HEIGHT = 89
 export const BLOBBY_UPPER_SPHERE = 19
 export const BLOBBY_UPPER_RADIUS = 25

@@ -3,7 +3,7 @@ import {
   BLOBBY_JUMP_BUFFER, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_SPEED,
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
-  DIVE_SPEED, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
+  DIVE_SPEED, OPEN_MARGIN, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
   SPECIAL_GRAVITY_MUL, SPECIAL_REACH, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
@@ -96,8 +96,8 @@ function simulate(match: Match, horizon: number): number {
     y += 0.5 * g + vy
     vy += g
 
-    if (x - BALL_RADIUS <= LEFT_PLANE && vx < 0) { vx = -vx; x = LEFT_PLANE + BALL_RADIUS }
-    else if (x + BALL_RADIUS >= RIGHT_PLANE && vx > 0) { vx = -vx; x = RIGHT_PLANE - BALL_RADIUS }
+    if (CTX.walls && x - BALL_RADIUS <= LEFT_PLANE && vx < 0) { vx = -vx; x = LEFT_PLANE + BALL_RADIUS }
+    else if (CTX.walls && x + BALL_RADIUS >= RIGHT_PLANE && vx > 0) { vx = -vx; x = RIGHT_PLANE - BALL_RADIUS }
     else if (y > NET_SPHERE_POSITION && Math.abs(x - NET_POSITION_X) < BALL_RADIUS + NET_RADIUS) {
       const right = x - NET_POSITION_X > 0
       vx = -vx
@@ -140,7 +140,7 @@ function contactNormal(bx: number, by: number, ballx: number, bally: number) {
   return true
 }
 
-const CTX = { dir: 1, foeX: 0, clear: 24 }
+const CTX = { dir: 1, foeX: 0, clear: 24, walls: true }
 
 /**
  * Nota da devolução. O que decide um ponto é a bola cair onde o adversário não
@@ -165,7 +165,9 @@ function shotScore(x0: number, y0: number, vx: number, vy: number) {
   }
 
   const raw = x0 + vx * tf
-  const land = foldX(raw)
+  // quadra aberta: cair fora da linha é ponto do outro, não quique de parede
+  if (!CTX.walls && (raw < LEFT_PLANE || raw > RIGHT_PLANE)) return -800
+  const land = CTX.walls ? foldX(raw) : raw
   // bola que bate na parede antes de cair volta pro outro lado no cálculo mas
   // não na prática: sem esse corte o bot escolhe tiro pra trás achando que cruza
   const bounced = Math.abs(land - raw) > 0.5
@@ -214,8 +216,10 @@ export class Bot {
   private get dir() { return this.side === LEFT ? 1 : -1 }
 
   private clampX(x: number) {
-    const lo = this.side === LEFT ? LEFT_PLANE + 8 : NET_POSITION_X + NET_RADIUS + BLOBBY_LOWER_RADIUS + 2
-    const hi = this.side === LEFT ? NET_POSITION_X - NET_RADIUS - BLOBBY_LOWER_RADIUS - 2 : RIGHT_PLANE - 8
+    // sem parede o bot também pode ir buscar a bola fora da linha
+    const out = CTX.walls ? 0 : OPEN_MARGIN
+    const lo = this.side === LEFT ? LEFT_PLANE + 8 - out : NET_POSITION_X + NET_RADIUS + BLOBBY_LOWER_RADIUS + 2
+    const hi = this.side === LEFT ? NET_POSITION_X - NET_RADIUS - BLOBBY_LOWER_RADIUS - 2 : RIGHT_PLANE - 8 + out
     return Math.max(lo, Math.min(hi, x))
   }
 
@@ -223,6 +227,8 @@ export class Bot {
     const p = PARAMS[this.diff]
     const w = match.world
     const g = match.logic
+    // quadra aberta muda previsão e limite de corrida: vale pro plano inteiro
+    CTX.walls = w.wallsOn
     const me = this.side
     const bx = w.blobX[me]
     const onGround = w.blobY[me] >= GROUND_PLANE_HEIGHT - 0.001
