@@ -117,7 +117,9 @@ export class Stage2D implements GameRenderer {
     this.canvas.height = this.ch
     this.canvas.style.width = `${w}px`
     this.canvas.style.height = `${h}px`
-    this.scale = Math.min(this.cw / 880, this.ch / 640)
+    // margem de 45px de cada lado: sem ela a parede cai exatamente na borda do
+    // canvas e some, ainda mais na arena estendida, que é mais larga que 880
+    this.scale = Math.min(this.cw / (RIGHT_PLANE + 90), this.ch / 640)
     this.ox = (this.cw - RIGHT_PLANE * this.scale) / 2
     this.oy = this.ch * 0.86 - (GROUND + 44) * this.scale
     const horizon = this.oy + HORIZON * this.scale
@@ -618,18 +620,43 @@ export class Stage2D implements GameRenderer {
    */
   private walls() {
     const c = this.ctx
-    const top = 150
+    const top = 108
     const bot = GROUND + 44
     for (const x of [LEFT_PLANE, RIGHT_PLANE]) {
       const inner = x === LEFT_PLANE ? 1 : -1
-      const g = c.createLinearGradient(x, top, x + inner * 26, top)
-      g.addColorStop(0, 'rgba(214,232,255,0.16)')
-      g.addColorStop(1, 'rgba(214,232,255,0)')
+      const face = x + inner * 34
+
+      const g = c.createLinearGradient(x, top, face, top)
+      g.addColorStop(0, 'rgba(176,216,255,0.34)')
+      g.addColorStop(0.45, 'rgba(176,216,255,0.10)')
+      g.addColorStop(1, 'rgba(176,216,255,0)')
       c.fillStyle = g
-      c.fillRect(Math.min(x, x + inner * 26), top, 26, bot - top)
-      c.strokeStyle = 'rgba(226,238,255,0.30)'
-      c.lineWidth = 2
-      c.beginPath(); c.moveTo(x + inner, top); c.lineTo(x + inner, bot); c.stroke()
+      c.fillRect(Math.min(x, face), top, 34, bot - top)
+
+      // travessas: sem elas a faixa vira só um degradê e some contra o céu
+      c.strokeStyle = 'rgba(214,238,255,0.34)'
+      c.lineWidth = 1.6
+      c.beginPath()
+      for (let y = top + 14; y < bot; y += 34) {
+        c.moveTo(x + inner * 2, y); c.lineTo(x + inner * 19, y)
+      }
+      c.stroke()
+
+      // a aresta é o que a bola bate: é a linha que tem que ler de longe
+      c.strokeStyle = 'rgba(238,248,255,0.80)'
+      c.lineWidth = 3
+      c.beginPath(); c.moveTo(x + inner * 1.5, top); c.lineTo(x + inner * 1.5, bot); c.stroke()
+
+      c.fillStyle = 'rgba(238,248,255,0.55)'
+      c.beginPath()
+      c.ellipse(x + inner * 1.5, top, 5, 5, 0, 0, Math.PI * 2)
+      c.fill()
+
+      // pé na areia: fecha a quadra no chão
+      c.fillStyle = 'rgba(58,78,104,0.40)'
+      c.beginPath()
+      c.ellipse(x + inner * 3, bot, 15, 5, 0, 0, Math.PI * 2)
+      c.fill()
     }
 
     for (const h of this.wallHits) {
@@ -637,15 +664,15 @@ export class Stage2D implements GameRenderer {
       if (k <= 0) continue
       const inner = h.x === LEFT_PLANE ? 1 : -1
       const half = 34 + (1 - k) * 46
-      c.globalAlpha = k * 0.55
-      const g = c.createLinearGradient(h.x, h.y, h.x + inner * 46, h.y)
+      c.globalAlpha = k * 0.7
+      const g = c.createLinearGradient(h.x, h.y, h.x + inner * 58, h.y)
       g.addColorStop(0, 'rgba(255,240,200,0.95)')
       g.addColorStop(1, 'rgba(255,240,200,0)')
       c.fillStyle = g
-      c.fillRect(Math.min(h.x, h.x + inner * 46), h.y - half, 46, half * 2)
+      c.fillRect(Math.min(h.x, h.x + inner * 58), h.y - half, 58, half * 2)
       c.strokeStyle = '#fff3c8'
-      c.lineWidth = 3 * k + 1
-      c.beginPath(); c.moveTo(h.x + inner, h.y - half); c.lineTo(h.x + inner, h.y + half); c.stroke()
+      c.lineWidth = 5 * k + 1.5
+      c.beginPath(); c.moveTo(h.x + inner * 1.5, h.y - half); c.lineTo(h.x + inner * 1.5, h.y + half); c.stroke()
       c.globalAlpha = 1
     }
   }

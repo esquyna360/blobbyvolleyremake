@@ -356,10 +356,13 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
             1.0 - smoothstep(0.0, 0.02, abs(fract(vUv.x * 14.0) - 0.5) * 0.14),
             1.0 - smoothstep(0.0, 0.02, abs(fract(vUv.y * 9.0) - 0.5) * 0.14));
           float edge = 1.0 - smoothstep(0.85, 1.0, abs(vUv.y * 2.0 - 1.0));
+          // faixa forte no plano da bola e no pé: é por onde o olho lê o limite
+          float play = 1.0 - smoothstep(0.02, 0.17, abs(vUv.x - 0.5));
+          float base = exp(-vP.y * 0.8);
           float ripple = exp(-abs(vP.y - uHitY) * 1.6) * uHit;
-          float a = (grid * 0.10 + ripple * 0.75) * edge;
+          float a = (grid * 0.24 + base * 0.26 + play * 0.34 + ripple * 0.85) * edge;
           if (a < 0.004) discard;
-          fragColor = vec4(uColor * (0.6 + ripple * 2.2), a);
+          fragColor = vec4(uColor * (0.6 + ripple * 2.2 + play * 0.5), a);
         }`,
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
       glslVersion: THREE.GLSL3,
