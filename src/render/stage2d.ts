@@ -22,6 +22,8 @@ import type { PlayerLook } from '../core/looks.ts'
 import type { TargetMark } from '../core/drill.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
+/** A cratera some: marca que fica pra sempre vira cenário e confunde a sombra. */
+const CRATER_LIFE = 7
 
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
@@ -119,7 +121,7 @@ export class Stage2D implements GameRenderer {
   private trail: { x: number; y: number; life: number; seed: number }[] = []
   private pops: Pop[] = []
   private bigs: Big[] = []
-  private craters: { x: number; r: number }[] = []
+  private craters: { x: number; r: number; life: number }[] = []
   private scorch: { x: number; r: number; life: number }[] = []
   /** Rastro de corpo arrastado na areia: some devagar, igual marca de verdade. */
   private skids: { x: number; dir: number; life: number }[] = []
@@ -355,7 +357,7 @@ export class Stage2D implements GameRenderer {
           this.trauma = Math.min(1, this.trauma + 0.26 * power + 0.06)
           this.burst(w.ballX, GROUND + 6, Math.floor(26 + 40 * power), 150 + 190 * power, '#d8bd8c', 1.1, 5)
           this.squashBall(w, 0.10 + 0.08 * power)
-          this.craters.push({ x: w.ballX, r: 22 + power * 26 })
+          this.craters.push({ x: w.ballX, r: 22 + power * 26, life: 0 })
           if (this.craters.length > 14) this.craters.shift()
           break
         }
@@ -672,6 +674,11 @@ export class Stage2D implements GameRenderer {
       const live: typeof this.wallHits = []
       for (const h of this.wallHits) { h.life += dt; if (h.life < 0.5) live.push(h) }
       this.wallHits = live
+    }
+    if (this.craters.length) {
+      const live: typeof this.craters = []
+      for (const cr of this.craters) { cr.life += dt; if (cr.life < CRATER_LIFE) live.push(cr) }
+      this.craters = live
     }
     if (this.scorch.length) {
       const live: { x: number; r: number; life: number }[] = []
@@ -1434,6 +1441,26 @@ export class Stage2D implements GameRenderer {
     c.fill()
   }
 
+  /**
+   * A sombra da bola é a única pista de onde ela vai cair, então não pode ser
+   * mais uma elipse marrom no meio das marcas da areia. Miolo frio e duro que
+   * aperta quando a bola desce, dentro de um halo que abre quando ela sobe.
+   */
+  private ballShadow(x: number, y: number, r: number) {
+    const c = this.ctx
+    const h = Math.max(0, GROUND - y)
+    const k = Math.max(0.22, 1 - h / 420)
+    const rx = r * (1.34 - k * 0.24)
+    c.beginPath()
+    c.ellipse(x, GROUND + 8, rx, rx * 0.3, 0, 0, Math.PI * 2)
+    c.fillStyle = `rgba(28,22,38,${0.14 + 0.10 * k})`
+    c.fill()
+    c.beginPath()
+    c.ellipse(x, GROUND + 8, r * k * 0.9, r * k * 0.28, 0, 0, Math.PI * 2)
+    c.fillStyle = `rgba(12,9,20,${0.28 + 0.38 * k})`
+    c.fill()
+  }
+
   render(match: Match, alpha: number, dt: number) {
     crouchMoods(this.faces, match.world.crouch)
     reachMoods(this.faces, match.world, match.logic.isBallValid)
@@ -1478,10 +1505,21 @@ export class Stage2D implements GameRenderer {
 
     this.walls()
 
-    c.fillStyle = 'rgba(150,116,64,0.30)'
+    /*
+     * Aro, não mancha. Elipse escura cheia no chão é a mesma forma da sombra da
+     * bola — quem olhava não sabia mais qual das duas dizia onde a bola está.
+     */
+    c.lineWidth = 2
     for (const cr of this.craters) {
-      c.beginPath(); c.ellipse(cr.x, GROUND + 10, cr.r, cr.r * 0.34, 0, 0, Math.PI * 2); c.fill()
+      const fade = Math.min(1, (CRATER_LIFE - cr.life) / 2.2)
+      c.globalAlpha = 0.46 * fade
+      c.strokeStyle = 'rgba(120,88,46,1)'
+      c.beginPath(); c.ellipse(cr.x, GROUND + 10, cr.r, cr.r * 0.34, 0, 0, Math.PI * 2); c.stroke()
+      c.globalAlpha = 0.30 * fade
+      c.strokeStyle = 'rgba(255,238,200,1)'
+      c.beginPath(); c.ellipse(cr.x, GROUND + 7, cr.r * 0.94, cr.r * 0.32, 0, Math.PI, Math.PI * 2); c.stroke()
     }
+    c.globalAlpha = 1
 
     for (const sc of this.scorch) {
       const fade = Math.max(0, 1 - sc.life / 14)
@@ -1505,7 +1543,7 @@ export class Stage2D implements GameRenderer {
     this.skidMarks()
     this.targetMark()
 
-    this.shadow(bx, by, BALL_RADIUS)
+    this.ballShadow(bx, by, BALL_RADIUS)
     for (const s of [0, 1] as Side[]) {
       if (this.off(s)) continue
       this.shadow(lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
