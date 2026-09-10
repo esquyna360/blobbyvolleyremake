@@ -1,11 +1,11 @@
 import type { PlayerInput } from '../core/input.ts'
 
-export interface Binding { left: string[]; right: string[]; up: string[]; special: string[]; push: string[] }
+export interface Binding { left: string[]; right: string[]; up: string[]; special: string[]; push: string[]; down: string[] }
 
-export const P1: Binding = { left: ['KeyA'], right: ['KeyD'], up: ['KeyW', 'Space'], special: ['Space'], push: ['KeyF'] }
+export const P1: Binding = { left: ['KeyA'], right: ['KeyD'], up: ['KeyW', 'Space'], special: ['Space'], push: ['KeyF'], down: ['KeyS'] }
 export const P2: Binding = {
   left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'],
-  special: ['ShiftRight', 'Numpad0'], push: ['Slash', 'Numpad1'],
+  special: ['ShiftRight', 'Numpad0'], push: ['Slash', 'Numpad1'], down: ['ArrowDown'],
 }
 export const SOLO: Binding = {
   left: ['KeyA', 'ArrowLeft'],
@@ -13,12 +13,13 @@ export const SOLO: Binding = {
   up: ['KeyW', 'ArrowUp', 'Space'],
   special: ['Space'],
   push: ['KeyF'],
+  down: ['KeyS', 'ArrowDown'],
 }
 
 export class InputManager {
   private keys = new Set<string>()
-  touch: { left: boolean; right: boolean; up: boolean; special: boolean; push: boolean } =
-    { left: false, right: false, up: false, special: false, push: false }
+  touch: { left: boolean; right: boolean; up: boolean; special: boolean; push: boolean; down: boolean } =
+    { left: false, right: false, up: false, special: false, push: false, down: false }
   onPause?: () => void
 
   constructor() {
@@ -43,7 +44,9 @@ export class InputManager {
     const special = (gp.buttons[2]?.pressed ?? false) || (gp.buttons[3]?.pressed ?? false) ||
       (gp.buttons[5]?.pressed ?? false)
     const push = (gp.buttons[4]?.pressed ?? false) || (gp.buttons[6]?.pressed ?? false)
-    return { left: dpadL || ax < -0.35, right: dpadR || ax > 0.35, up: jump, special, push }
+    const ay = gp.axes[1] ?? 0
+    const down = (gp.buttons[13]?.pressed ?? false) || ay > 0.4
+    return { left: dpadL || ax < -0.35, right: dpadR || ax > 0.35, up: jump, special, push, down }
   }
 
   read(binding: Binding, padIndex = -1, useTouch = false): PlayerInput {
@@ -52,11 +55,12 @@ export class InputManager {
     let up = binding.up.some(k => this.keys.has(k))
     let special = binding.special.some(k => this.keys.has(k))
     let push = binding.push.some(k => this.keys.has(k))
+    let down = binding.down.some(k => this.keys.has(k))
     if (padIndex >= 0) {
       const p = this.pad(padIndex)
       if (p) {
         left = left || p.left; right = right || p.right; up = up || p.up
-        special = special || p.special; push = push || p.push
+        special = special || p.special; push = push || p.push; down = down || p.down
       }
     }
     if (useTouch) {
@@ -65,7 +69,8 @@ export class InputManager {
       up = up || this.touch.up
       special = special || this.touch.special
       push = push || this.touch.push
+      down = down || this.touch.down
     }
-    return { left, right, up, special, push }
+    return { left, right, up, special, push, down }
   }
 }

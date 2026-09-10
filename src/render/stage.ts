@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { LEFT, RIGHT, GROUND_PLANE_HEIGHT } from '../core/constants.ts'
+import { LEFT, RIGHT, GROUND_PLANE_HEIGHT, BLOBBY_LOWER_SPHERE, CROUCH_DUCK, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
@@ -22,7 +22,7 @@ import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
 import { emoteAt } from '../core/emote.ts'
-import { FaceRig, faceEvents, rallyTension } from './face.ts'
+import { FaceRig, crouchMoods, faceEvents, rallyTension } from './face.ts'
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
@@ -612,6 +612,73 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           bp.squashVel -= 3.0
           break
         }
+        case Ev.DIG: {
+          const p = e.side as Side
+          const dir = p === LEFT ? 1 : -1
+          const px = gx(w.blobX[p]), py = gy(w.blobY[p] + BLOBBY_LOWER_SPHERE)
+          this.trauma = Math.min(1, this.trauma + 0.12)
+          this.addShock(px + dir * 0.5, py, { from: 0.3, to: 2.6, life: 0.3, color: new THREE.Color(0.82, 0.94, 1.2) })
+          this.particles.burst({
+            x: px + dir * 0.4, y: 0.05, z: 0, count: 90, speed: 3.4, spread: 1.6, up: 0.9,
+            life: 0.8, size: 0.018, color: new THREE.Color(0.84, 0.74, 0.56), drag: 2.6,
+            dirX: dir, colorJitter: 0.2,
+          })
+          this.particles.burst({
+            x: gx(w.ballX), y: gy(w.ballY), z: 0, count: 40, speed: 4.2, spread: 2.4, up: 0.5,
+            life: 0.45, size: 0.03, color: new THREE.Color(0.9, 0.96, 1.1), drag: 3.2,
+          })
+          const b = this.blobs[p]
+          b.wobble = Math.max(b.wobble, 0.8)
+          b.squashVel -= 1.2
+          this.ball.flash(1.0)
+          break
+        }
+        case Ev.SPIKE_LEAP: {
+          const p = e.side as Side
+          const k = e.intensity
+          const px = gx(w.blobX[p])
+          this.trauma = Math.min(1, this.trauma + 0.14 + 0.16 * k)
+          this.terrain.addCrater(px, 0, 0.5 + 0.3 * k, 0.22 + 0.3 * k)
+          this.addShock(px, 0.06, { from: 0.4, to: 3.4 + 2.6 * k, life: 0.42, color: new THREE.Color(1.5, 1.1, 0.4), flat: true, opacity: 0.9 })
+          this.particles.burst({
+            x: px, y: 0.05, z: 0, count: Math.floor(120 + 220 * k), speed: 3.2 + 4 * k, spread: 2.5, up: 0.85,
+            life: 1.0, size: 0.019, color: new THREE.Color(0.86, 0.75, 0.56), drag: 2.2, colorJitter: 0.22,
+          })
+          this.particles.burst({
+            x: px, y: 0.4, z: 0, count: Math.floor(30 + 50 * k), speed: 5.5, spread: 0.5, up: 1.6,
+            life: 0.5, size: 0.03, color: new THREE.Color(1.4, 1.05, 0.4), drag: 2.8,
+          })
+          const b = this.blobs[p]
+          b.squashVel += 5.0 * (0.6 + 0.4 * k)
+          b.wobble = Math.max(b.wobble, 1.0)
+          break
+        }
+        case Ev.SPIKE_HIT: {
+          const p = e.side as Side
+          const k = e.intensity
+          const bx = gx(w.ballX), by = gy(w.ballY)
+          this.trauma = Math.min(1, this.trauma + 0.34 * k)
+          this.hitstop = Math.max(this.hitstop, 0.055 * k)
+          this.aberration = Math.max(this.aberration, 1.5 * k)
+          this.flash = Math.max(this.flash, 0.12 * k)
+          this.addShock(bx, by, { from: 0.35, to: 4.0 + 2.2 * k, life: 0.34, color: new THREE.Color(1.6, 1.15, 0.42) })
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: Math.floor(120 + 160 * k), speed: 9 + 9 * k, spread: 1.5, up: 0.25,
+            life: 0.55, size: 0.038, color: new THREE.Color(1.5, 1.1, 0.35), drag: 2.8,
+            dirX: p === LEFT ? 1 : -1, colorJitter: 0.28,
+          })
+          this.particles.burst({
+            x: bx, y: by, z: 0, count: 50, speed: 16, spread: 0.55, up: 0.1,
+            life: 0.3, size: 0.055, color: new THREE.Color(1.0, 0.98, 0.9), drag: 3.6,
+          })
+          this.ball.flash(2.2 + 1.4 * k)
+          const b = this.blobs[p]
+          b.wobble = Math.max(b.wobble, 1.3)
+          b.flash = 0.7 * k
+          b.mouth = 1
+          b.squashVel -= 3.2 * k
+          break
+        }
         case Ev.FATALITY: {
           const p = e.side as Side
           const o: Side = p === LEFT ? RIGHT : LEFT
@@ -686,10 +753,9 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const gyp = THREE.MathUtils.lerp(p.py[i], c.py[i], alpha)
     const st = THREE.MathUtils.lerp(p.state[i], c.state[i], alpha)
 
-    const wx = gx(gxp), wy = gy(gyp)
-    b.visual.group.position.set(wx, wy, 0)
-
     const world = match.world
+    const cr = world.crouch[i]
+    const wx = gx(gxp), wy = gy(gyp)
     const vy = world.blobVY[i]
     const vx = world.blobVX[i]
     const grounded = world.blobY[i] >= GROUND_PLANE_HEIGHT - 0.001
@@ -728,9 +794,13 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const anim = Math.sin((st / 5) * Math.PI) * 0.16
     const airStretch = THREE.MathUtils.clamp(-vy / 34, -0.16, 0.22)
 
-    const sy = 1 + b.squashSpring + airStretch - anim * 0.5
-    const sxz = 1 - (b.squashSpring + airStretch) * 0.55 + anim * 0.45
+    const sy = 1 + b.squashSpring + airStretch - anim * 0.5 - cr * 0.34
+    const sxz = 1 - (b.squashSpring + airStretch) * 0.55 + anim * 0.45 + cr * 0.26
     ;(u.uSquash.value as THREE.Vector3).set(sxz, sy, sxz)
+
+    // o squash encolhe em volta da origem do grupo: sem baixar, o blob agachado
+    // descola do chão em vez de afundar nele
+    b.visual.group.position.set(wx, wy - cr * CROUCH_DUCK * S * (grounded ? 1.05 : 0.4), 0)
 
     b.wobble = Math.max(0, b.wobble - dt * 2.4)
     u.uWobbleAmp.value = b.wobble
@@ -772,6 +842,22 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
 
     b.mouth = Math.max(0, b.mouth - dt * 3.2)
     u.uMouth.value = Math.max(b.mouth, f.open)
+
+    // cortada carregando: brasas subindo dos pés, mais densas quanto mais cheia
+    const hold = world.spikeHold[i]
+    if (hold >= SPIKE_MIN_HOLD) {
+      const k = Math.min(1, (hold - SPIKE_MIN_HOLD) / (SPIKE_MAX_HOLD - SPIKE_MIN_HOLD))
+      if (Math.random() < dt * (30 + 60 * k)) {
+        const a = Math.random() * 6.283
+        this.particles.burst({
+          x: wx + Math.cos(a) * 0.55, y: 0.1, z: Math.sin(a) * 0.4,
+          count: 2, speed: 1.5 + 1.2 * k, spread: 0.35, up: 1.7 + k, life: 0.6,
+          size: 0.04 + 0.025 * k, color: new THREE.Color(1.7, 0.9 + 0.5 * k, 0.3), drag: 1.2,
+        })
+      }
+      // pulso curto, não banho de luz: o blob não pode ficar lavado o carregamento inteiro
+      b.flash = Math.max(b.flash, (0.05 + 0.1 * k) * (0.5 + 0.5 * Math.sin(this.time * 21)))
+    }
 
     b.flash = Math.max(0, b.flash - dt * 3.5)
     u.uHitFlash.value = b.flash
@@ -854,6 +940,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       })
     }
 
+    crouchMoods([this.blobs[0].face, this.blobs[1].face], match.world.crouch, match.world.spikeHold)
     this.updateBlob(LEFT, alpha, dt, match)
     this.updateBlob(RIGHT, alpha, dt, match)
 

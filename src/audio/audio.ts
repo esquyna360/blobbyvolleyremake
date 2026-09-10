@@ -400,6 +400,28 @@ export class GameAudio {
     this.burst(0.16, 0.16, 'highpass', 4200, 1.1, pan)
   }
 
+  /** Manchete: pancada seca e abafada, som de antebraço. */
+  dig(pan = 0) {
+    if (!this.ctx) return
+    this.thump(210, 0.5, 0.09, 0.16, 'triangle')
+    this.burst(0.09, 0.06, 'lowpass', 1500, 0.9, pan)
+  }
+
+  /** Cortada: o salto range, a batida estala. */
+  spike(kind: 'leap' | 'hit', power = 1, pan = 0) {
+    if (!this.ctx) return
+    const k = Math.min(1, Math.max(0, power))
+    if (kind === 'leap') {
+      this.thump(120 + k * 60, 0.28, 0.16, 0.13 + k * 0.1, 'sawtooth')
+      this.burst(0.12, 0.07 + k * 0.05, 'highpass', 2200, 0.8, pan)
+      this.bell(880 + k * 320, 0.03, 0.35, 0.045)
+    } else {
+      this.thump(120, 0.4, 0.2, 0.26 + k * 0.14, 'square')
+      this.burst(0.10, 0.11 + k * 0.08, 'bandpass', 1400 + k * 900, 1.3, pan)
+      this.bell(1046.5, 0.01, 0.35, 0.07 + k * 0.05)
+    }
+  }
+
   parryWhiff(pan = 0) {
     if (!this.ctx) return
     this.burst(0.09, 0.05, 'bandpass', 1800, 2.2, pan)
@@ -475,6 +497,9 @@ export class GameAudio {
         case Ev.PUSH_HIT: this.push(panOf(world.blobX[e.side as Side])); break
         case Ev.PARRY: this.parry(panOf(world.blobX[e.side as Side])); break
         case Ev.PARRY_TRY: this.parryWhiff(panOf(world.blobX[e.side as Side])); break
+        case Ev.DIG: this.dig(panOf(world.blobX[e.side as Side])); break
+        case Ev.SPIKE_LEAP: this.spike('leap', e.intensity, panOf(world.blobX[e.side as Side])); break
+        case Ev.SPIKE_HIT: this.spike('hit', e.intensity, ballPan); break
         case Ev.FATALITY: this.fatality(panOf(world.blobX[e.side as Side])); break
       }
     }

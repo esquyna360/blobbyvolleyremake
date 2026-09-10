@@ -19,6 +19,9 @@ export const enum Ev {
   FATALITY = 15,
   PARRY = 16,
   PARRY_TRY = 17,
+  DIG = 18,
+  SPIKE_LEAP = 19,
+  SPIKE_HIT = 20,
 }
 
 export interface MatchEvent { event: Ev; side: SideOrNone; intensity: number }

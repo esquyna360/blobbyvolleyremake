@@ -1,4 +1,4 @@
-import { LEFT, RIGHT, other } from '../core/constants.ts'
+import { LEFT, RIGHT, SPIKE_MIN_HOLD, other } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
 import type { MatchEvent } from '../core/events.ts'
@@ -136,6 +136,17 @@ export function faceEvents(rigs: FaceRig[], events: MatchEvent[], scores: number
         rigs[s].set('laugh', 1.3, 3)
         rigs[other(s)].set('hurt', 1.5, 4)
         break
+      case Ev.DIG:
+        rigs[s].set('focus', 0.55, 2)
+        break
+      case Ev.SPIKE_LEAP:
+        rigs[s].set('angry', 0.8, 2)
+        rigs[other(s)].set('worry', 0.7, 2)
+        break
+      case Ev.SPIKE_HIT:
+        rigs[s].set('smug', 0.9, 3)
+        rigs[other(s)].set('shock', 0.7, 3)
+        break
       case Ev.PUSH_HIT:
         rigs[s].set('smug', 0.8, 2)
         rigs[other(s)].set('shock', 0.8, 3)
@@ -155,6 +166,17 @@ export function faceEvents(rigs: FaceRig[], events: MatchEvent[], scores: number
         break
       }
     }
+  }
+}
+
+/**
+ * Agachar não é evento, é estado: a cara tem que acompanhar o frame inteiro.
+ * Prioridade 1 pra que qualquer reação de evento continue passando por cima.
+ */
+export function crouchMoods(rigs: FaceRig[], crouch: number[], charge: number[]) {
+  for (const s of SIDES) {
+    if (crouch[s] < 0.45) continue
+    rigs[s].set(charge[s] >= SPIKE_MIN_HOLD ? 'angry' : 'focus', 0.06, 1)
   }
 }
 

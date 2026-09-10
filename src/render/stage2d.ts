@@ -2,6 +2,7 @@ import {
   BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
+  CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW, SPIKE_MIN_HOLD, SPIKE_MAX_HOLD,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -9,7 +10,7 @@ import type { MatchEvent } from '../core/events.ts'
 import type { Match } from '../core/match.ts'
 import type { GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
-import { FaceRig, faceEvents, rallyTension } from './face.ts'
+import { FaceRig, crouchMoods, faceEvents, rallyTension } from './face.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const HORIZON = 418
@@ -262,6 +263,38 @@ export class Stage2D implements GameRenderer {
           this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 160, life: -0.04, color: '#bff0ff' })
           break
         }
+        case Ev.DIG: {
+          const p = e.side as Side
+          const dir = p === LEFT ? 1 : -1
+          const bx = w.blobX[p], by = w.blobY[p] + BLOBBY_LOWER_SPHERE
+          this.trauma = Math.min(1, this.trauma + 0.10)
+          this.rings.push({ x: bx + dir * 26, y: by, r: 8, max: 128, life: 0, color: '#cfe9ff', w: 7 })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 92, life: -0.04, color: '#ffffff', w: 5 })
+          this.rings.push({ x: bx, y: GROUND + 4, r: 12, max: 150, life: 0, color: '#e9dcc0', w: 6, flat: true })
+          this.burst(bx + dir * 24, by + 10, 20, 190, '#e6d6b4', 0.85, 4)
+          break
+        }
+        case Ev.SPIKE_LEAP: {
+          const p = e.side as Side
+          const k = e.intensity
+          this.trauma = Math.min(1, this.trauma + 0.14 + 0.16 * k)
+          this.burst(w.blobX[p], GROUND - 6, Math.floor(24 + 46 * k), 250 + 220 * k, '#e0cda6', 0.9, 5)
+          this.rings.push({ x: w.blobX[p], y: GROUND + 4, r: 14, max: 190 + 130 * k, life: 0, color: '#ffd257', w: 9, flat: true })
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p], r: 8, max: 110, life: -0.05, color: '#fff0b0', w: 6 })
+          break
+        }
+        case Ev.SPIKE_HIT: {
+          const p = e.side as Side
+          const k = e.intensity
+          this.trauma = Math.min(1, this.trauma + 0.34 * k)
+          this.flash = Math.max(this.flash, 0.26 * k)
+          this.burst(w.ballX, w.ballY, Math.floor(30 + 34 * k), 380 + 260 * k, '#ffd257', 0.4, 5)
+          this.burst(w.ballX, w.ballY, 18, 220, '#ffffff', 0.4, 4)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 8, max: 190 + 120 * k, life: 0, color: '#ffb347', w: 10 })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 120, life: -0.06, color: '#fff6d8', w: 6 })
+          this.rings.push({ x: w.blobX[p], y: w.upperY(p), r: 6, max: 90, life: -0.02, color: '#ffe9a8', w: 5 })
+          break
+        }
         case Ev.FATALITY: {
           const p = e.side as Side
           const o: Side = p === LEFT ? 1 : 0
@@ -423,7 +456,8 @@ export class Stage2D implements GameRenderer {
     c.fillRect(0, seaBottom + 0.5 * fs, this.cw, 2.5 * fs)
   }
 
-  private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number }, stunned = false) {
+  private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
+               stunned: boolean, cr: number, hold: number) {
     if (this.gib[p] > 0) return
     const c = this.ctx
     if (stunned) {
@@ -432,11 +466,14 @@ export class Stage2D implements GameRenderer {
       c.rotate(Math.sin(this.time * 9.5) * 0.16)
       c.translate(-x, -y)
     }
-    const squash = 1 + Math.sin(state * 1.6) * 0.045
-    const ru = BLOBBY_UPPER_RADIUS * squash
-    const rl = BLOBBY_LOWER_RADIUS / squash
-    const uy = y - BLOBBY_UPPER_SPHERE * squash
+    // mesma geometria do hitbox: agachado a cabeça afunda e o corpo espalha
+    const squash = (1 + Math.sin(state * 1.6) * 0.045) * (1 - cr * 0.12)
+    const ru = (BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
+    const rl = (BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) / squash
+    const uy = y - (BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
     const ly = y + BLOBBY_LOWER_SPHERE
+
+    if (hold >= SPIKE_MIN_HOLD) this.chargeAura(x, ly, rl, hold)
 
     c.beginPath()
     c.arc(x, uy, ru, 0, Math.PI * 2)
@@ -596,6 +633,57 @@ export class Stage2D implements GameRenderer {
     }
   }
 
+  /** Cortada carregando: anel apertando sob o blob e faíscas subindo. */
+  private chargeAura(x: number, ly: number, rl: number, hold: number) {
+    const c = this.ctx
+    const k = Math.min(1, (hold - SPIKE_MIN_HOLD) / (SPIKE_MAX_HOLD - SPIKE_MIN_HOLD))
+    const puls = 0.72 + 0.28 * Math.sin(this.time * 22)
+    const cy = ly + rl * 0.5
+    const full = k >= 0.97
+    c.save()
+    c.globalCompositeOperation = 'lighter'
+    const r = rl * (1.95 - 0.6 * k)
+    c.beginPath()
+    c.ellipse(x, cy, r, r * 0.3, 0, 0, Math.PI * 2)
+    c.strokeStyle = full ? '#fff0b0' : '#ffb347'
+    c.lineWidth = 2 + 4 * k
+    c.globalAlpha = (0.22 + 0.5 * k) * puls
+    c.stroke()
+    const gw = rl * (1.4 + k)
+    c.globalAlpha = (0.10 + 0.26 * k) * puls
+    c.drawImage(this.glow, x - gw, cy - gw * 0.5, gw * 2, gw)
+    c.restore()
+
+    if (this.dust.length < this.dustCap && Math.random() < 0.45 + k * 0.55) {
+      const a = Math.random() * Math.PI * 2
+      this.dust.push({
+        x: x + Math.cos(a) * rl, y: ly + rl * 0.35, vx: Math.cos(a) * 16, vy: -60 - 110 * k,
+        life: 0, max: 0.32, size: 2 + 2 * k, color: full ? '#fff0b0' : '#ffb347',
+      })
+    }
+  }
+
+  /** Manchete armada: riscos de velocidade varrendo pra frente, na altura do chão. */
+  private digSwipe(p: Side, x: number, y: number, k: number) {
+    const c = this.ctx
+    const cy = y + BLOBBY_LOWER_SPHERE * 0.7
+    c.save()
+    c.translate(x, cy)
+    c.scale(p === LEFT ? 1 : -1, 1)
+    c.globalCompositeOperation = 'lighter'
+    c.strokeStyle = '#dceeff'
+    c.lineCap = 'round'
+    const sweep = 0.24 + 0.34 * (1 - k)
+    for (let i = 0; i < 3; i++) {
+      c.globalAlpha = (0.55 - i * 0.14) * k
+      c.lineWidth = 6 - i * 1.5
+      c.beginPath()
+      c.arc(0, 0, 30 + i * 15, -0.34 - sweep, -0.34 + sweep)
+      c.stroke()
+    }
+    c.restore()
+  }
+
   private shadow(x: number, y: number, r: number) {
     const c = this.ctx
     const h = Math.max(0, GROUND - y)
@@ -607,6 +695,7 @@ export class Stage2D implements GameRenderer {
   }
 
   render(match: Match, alpha: number, dt: number) {
+    crouchMoods(this.faces, match.world.crouch, match.world.spikeHold)
     this.step(dt)
     this.tension += (rallyTension(match.logic.rally) - this.tension) * Math.min(1, dt * 2.2)
     const c = this.ctx
@@ -665,7 +754,9 @@ export class Stage2D implements GameRenderer {
     }
 
     for (const s of [0, 1] as Side[]) {
-      this.blob(s, lerp(p.px[s], q.px[s]), lerp(p.py[s], q.py[s]), lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0)
+      const sx = lerp(p.px[s], q.px[s]), sy = lerp(p.py[s], q.py[s])
+      if (w.digActive[s] > 0) this.digSwipe(s, sx, sy, w.digActive[s] / DIG_WINDOW)
+      this.blob(s, sx, sy, lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0, w.crouch[s], w.spikeHold[s])
     }
 
     for (const s of [0, 1] as Side[]) {

@@ -7,8 +7,8 @@ import type { RuleSet } from './logic.ts'
 import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
-export const STATE_FLOATS = 22
-export const STATE_INTS = 31
+export const STATE_FLOATS = 24
+export const STATE_INTS = 43
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -54,8 +54,8 @@ export class Match {
     if (tf) {
       const [ll, lr, lu] = tf(LEFT, li.left, li.right, li.up)
       const [rl, rr, ru] = tf(RIGHT, ri.left, ri.right, ri.up)
-      l = { left: ll, right: lr, up: lu, special: li.special, push: li.push }
-      r = { left: rl, right: rr, up: ru, special: ri.special, push: ri.push }
+      l = { left: ll, right: lr, up: lu, special: li.special, push: li.push, down: li.down }
+      r = { left: rl, right: rr, up: ru, special: ri.special, push: ri.push, down: ri.down }
     }
 
     w.scores[0] = g.scores[0]; w.scores[1] = g.scores[1]
@@ -67,6 +67,8 @@ export class Match {
       switch (e.event) {
         case Ev.BALL_HIT_BLOB:
         case Ev.PARRY:
+        case Ev.DIG:
+        case Ev.SPIKE_HIT:
         case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
           g.onBallHitsGround(e.side as Side)
@@ -117,6 +119,13 @@ export class Match {
     i[26] = w.parryCd[0]; i[27] = w.parryCd[1]
     i[28] = w.parryChain
     i[29] = g.rally; i[30] = g.rallyBest
+    f[22] = w.crouch[0]; f[23] = w.crouch[1]
+    i[31] = w.prevDown[0]; i[32] = w.prevDown[1]
+    i[33] = w.spikeHold[0]; i[34] = w.spikeHold[1]
+    i[35] = w.spikeFrames[0]; i[36] = w.spikeFrames[1]
+    i[37] = w.spikePow[0]; i[38] = w.spikePow[1]
+    i[39] = w.digCd[0]; i[40] = w.digCd[1]
+    i[41] = w.digActive[0]; i[42] = w.digActive[1]
   }
 
   restore(s: MatchState) {
@@ -145,6 +154,13 @@ export class Match {
     g.winner = i[10] as SideOrNone
     this.frame = i[11]
     g.lastError = NO_PLAYER
+    w.crouch[0] = f[22]; w.crouch[1] = f[23]
+    w.prevDown[0] = i[31]; w.prevDown[1] = i[32]
+    w.spikeHold[0] = i[33]; w.spikeHold[1] = i[34]
+    w.spikeFrames[0] = i[35]; w.spikeFrames[1] = i[36]
+    w.spikePow[0] = i[37]; w.spikePow[1] = i[38]
+    w.digCd[0] = i[39]; w.digCd[1] = i[40]
+    w.digActive[0] = i[41]; w.digActive[1] = i[42]
   }
 
   /** Especial na cara do adversário valendo o jogo: acabou. */

@@ -1,7 +1,8 @@
 import {
   BALL_GRAVITATION, BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
-  NET_SPHERE_POSITION, PARRY_REACH, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, SPECIAL_VELOCITY, other,
+  NET_SPHERE_POSITION, PARRY_REACH, PUSH_REACH_X, PUSH_REACH_Y, RIGHT_PLANE, SPECIAL_FULL, SPECIAL_REACH, SPECIAL_VELOCITY,
+  BLOBBY_LOWER_SPHERE, DIG_REACH, SPIKE_MIN_HOLD, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -124,7 +125,9 @@ export class Bot {
 
     if (!onGround && w.blobVY[me] < 0) up = true
 
-    return { left, right, up, special: this.wantSpecial(w, me, onGround), push: this.wantPush(w, me) }
+    const down = this.wantCrouch(w, me, onGround, tr)
+    if (down) up = false
+    return { left, right, up, special: this.wantSpecial(w, me, onGround), push: this.wantPush(w, me), down }
   }
 
   private specialHeld = false
@@ -168,6 +171,47 @@ export class Bot {
     if (this.pushHeld) return false
     this.pushHeld = true
     return true
+  }
+
+  private digHeld = false
+  private spikeUntil = 0
+
+  /**
+   * O bot também agacha: manchete quando a bola vem rasteira e não dá pra pular,
+   * e cortada carregada quando sobrou tempo com a bola longe. Quanto mais fácil
+   * o nível, menos usa.
+   */
+  private wantCrouch(w: Match['world'], me: Side, onGround: boolean, tr: Traj) {
+    if (w.stun[me] > 0 || (w.superFrames > 0 && w.superOwner !== me)) {
+      this.digHeld = false
+      this.spikeUntil = 0
+      return false
+    }
+    const p = PARAMS[this.diff]
+
+    if (this.spikeUntil > 0) {
+      this.spikeUntil--
+      if (onGround) return true
+    }
+
+    const dx = w.ballX - w.blobX[me]
+    const dy = w.ballY - (w.blobY[me] + BLOBBY_LOWER_SPHERE)
+    const low = w.ballY > GROUND_PLANE_HEIGHT - 120 && w.ballVY > 0
+    const near = dx * dx + dy * dy < DIG_REACH * DIG_REACH * 0.85
+    if (low && near && onGround && w.digCd[me] === 0) {
+      if (this.digHeld) return true
+      this.digHeld = this.rng() < 0.3 + p.smash * 0.6
+      return this.digHeld
+    }
+    this.digHeld = false
+
+    // sobrou tempo: carrega a cortada pra devolver o saque com força
+    if (onGround && tr.t > SPIKE_MIN_HOLD + 26 && Math.abs(dx) > 140 &&
+        this.rng() < p.smash * 0.012) {
+      this.spikeUntil = SPIKE_MIN_HOLD + Math.floor(this.rng() * 22)
+      return true
+    }
+    return false
   }
 
   private jumpNoise() { return PARAMS[this.diff].jumpErr }
