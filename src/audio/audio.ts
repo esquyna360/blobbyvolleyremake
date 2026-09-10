@@ -652,22 +652,6 @@ export class GameAudio {
   }
 
   /** Acerto no tempo da batida: estalo curto com a quinta por cima. */
-  beatHit(pan = 0) {
-    if (!this.ctx) return
-    this.thump(660, 1.8, 0.06, 0.11, 'square')
-    this.bell(1318.5, 0, 0.28, 0.12)
-    this.bell(1975.5, 0.02, 0.22, 0.08)
-    this.burst(0.05, 0.04, 'highpass', 4800, 1.2, pan)
-  }
-
-  /** Nuvem estourando: sopro sem ataque, quase só ar. */
-  cloudPop(pan = 0) {
-    if (!this.ctx) return
-    this.burst(0.42, 0.3, 'lowpass', 1100, 0.6, pan)
-    this.burst(0.2, 0.14, 'bandpass', 2600, 1.1, pan)
-    this.bell(392, 0.03, 0.4, 0.05)
-  }
-
   parryWhiff(pan = 0) {
     if (!this.ctx) return
     this.burst(0.09, 0.05, 'bandpass', 1800, 2.2, pan)
@@ -737,11 +721,7 @@ export class GameAudio {
           break
         case Ev.RESET_BALL: this.serve(); break
         case Ev.SPECIAL_READY: if (localSide === e.side) this.special('ready'); break
-        case Ev.SPECIAL_FIRED:
-          this.special('fired', ballPan)
-          // no rave o especial é o drop: a música cai pra bateria por um compasso
-          if (world.sceneRule === 'rave') this.cutToDrums(1)
-          break
+        case Ev.SPECIAL_FIRED: this.special('fired', ballPan); break
         case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break
         case Ev.SPECIAL_GROUND: this.groundBurn(ballPan); break
         case Ev.DIVE: this.dive(panOf(world.blobX[e.side as Side])); break
@@ -753,12 +733,6 @@ export class GameAudio {
         case Ev.DIG: this.dig(panOf(world.blobX[e.side as Side])); break
         case Ev.BALL_OUT: this.ballOut(ballPan); break
         case Ev.FATALITY: this.fatality(panOf(world.blobX[e.side as Side])); break
-        case Ev.SCENE_MOMENT:
-          if (e.intensity === 2) this.thunder(ballPan)
-          else this.glitch(ballPan)
-          break
-        case Ev.BEAT_HIT: this.beatHit(ballPan); break
-        case Ev.CLOUD_POP: this.cloudPop(panOf(world.blobX[e.side as Side])); break
       }
     }
 

@@ -27,7 +27,6 @@ import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
 import { MENU_SONG, SCENES, getScene } from './render/scenes.ts'
 import type { SceneId } from './render/scenes.ts'
-import type { SceneRuleId } from './core/scene-rules.ts'
 import { defaultLook, loadLook } from './core/looks.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
@@ -370,7 +369,7 @@ class App {
   private get viewing() { return !!this.spectator || !!this.replay }
 
   private newMatch(cfg: GameConfig, serving: Side = LEFT) {
-    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls, getScene(cfg.scene).rule)
+    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls)
     this.rec.reset()
     this.recUpTo = -1
     this.recBroken = false
@@ -423,17 +422,9 @@ class App {
     const sc = getScene(id)
     this.stage.setScene(id)
     this.audio.setScene(!sc.d3.indoor)
-    if (this.match) this.match.world.sceneRule = sc.rule
-    if (this.session) this.session.opts.sceneRule = sc.rule
     // no menu quem toca é o tema do menu; o do cenário só entra em partida
     if (this.phase === 'menu') this.audio.preload(sc.music)
     else this.audio.setSong(sc.music)
-  }
-
-  /** O host mandou o cenário dele: acha qual é e aplica sem devolver pela rede. */
-  private applySceneByRule(rule: SceneRuleId) {
-    const hit = (Object.keys(SCENES) as SceneId[]).find(k => SCENES[k].rule === rule)
-    if (hit && hit !== this.cfg.scene) this.applyScene(hit)
   }
 
   startLocal(cfg: GameConfig) {
@@ -533,7 +524,6 @@ class App {
         stw: this.match?.logic.scoreToWin ?? 0,
         arena: this.cfg.arena,
         wl: this.cfg.walls,
-        sr: getScene(this.cfg.scene).rule,
         nl: s.localSide === LEFT ? this.cfg.name : s.peerName,
         nr: s.localSide === LEFT ? s.peerName : this.cfg.name,
       }))
@@ -663,12 +653,9 @@ class App {
       ruleId: cfg.ruleId,
       arena: cfg.arena,
       walls: cfg.walls,
-      sceneRule: getScene(cfg.scene).rule,
       look: cfg.look,
       onArena: id => this.applyArena(id),
       onWalls: on => this.applyWalls(on),
-      // o host manda o cenário junto: regra diferente nos dois lados desincroniza
-      onSceneRule: r => this.applySceneByRule(r),
       scoreToWin: cfg.scoreToWin,
       name: cfg.name,
       host,
@@ -814,7 +801,6 @@ class App {
       stw: m.logic.scoreToWin,
       arena: setup?.arena ?? this.cfg.arena,
       walls: setup?.walls ?? this.cfg.walls,
-      srule: m.world.sceneRule,
       serve: setup?.serving ?? LEFT,
       nl: nameL.slice(0, 16),
       nr: nameR.slice(0, 16),

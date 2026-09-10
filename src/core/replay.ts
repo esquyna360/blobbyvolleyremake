@@ -1,13 +1,12 @@
 import { Match, allocState } from './match.ts'
 import { unpackInput } from './input.ts'
 import type { ArenaId, SideOrNone } from './constants.ts'
-import type { SceneRuleId } from './scene-rules.ts'
 
 /**
  * Sobe sempre que física, regra ou ordem de eventos mudar. Replay gravado com
  * outra versão não reproduz o mesmo jogo — melhor não mostrar do que mentir.
  */
-export const SIM_VERSION = 7
+export const SIM_VERSION = 8
 
 export type ReplayMode = 'bot' | 'local' | 'online'
 
@@ -18,7 +17,6 @@ export interface ReplayMeta {
   /** Paredes laterais ligadas. Ausente em gravação antiga: era sempre ligado. */
   walls?: boolean
   /** Regra do cenário. Ausente em gravação antiga: cenário era só pintura. */
-  srule?: SceneRuleId
   serve: SideOrNone
   nl: string
   nr: string
@@ -138,7 +136,7 @@ export class ReplayPlayer {
   private zero = allocState()
 
   constructor(readonly meta: ReplayMeta, private l: Uint8Array, private r: Uint8Array) {
-    this.match = new Match(meta.rule, meta.stw || undefined, meta.serve, meta.walls !== false, meta.srule ?? 'none')
+    this.match = new Match(meta.rule, meta.stw || undefined, meta.serve, meta.walls !== false)
     this.match.save(this.zero)
   }
 

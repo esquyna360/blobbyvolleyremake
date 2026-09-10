@@ -6,10 +6,9 @@ import { GameLogic, getRules } from './logic.ts'
 import type { RuleSet } from './logic.ts'
 import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
-import type { SceneRuleId } from './scene-rules.ts'
 
 export const STATE_FLOATS = 26
-export const STATE_INTS = 52
+export const STATE_INTS = 42
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -38,17 +37,15 @@ export class Match {
     scoreToWin?: number,
     servingPlayer: SideOrNone = LEFT,
     walls = true,
-    sceneRule: SceneRuleId = 'none',
   ) {
     const r = typeof rules === 'string' ? getRules(rules) : rules
     this.logic = new GameLogic(r, scoreToWin)
     this.logic.servingPlayer = servingPlayer
     this.world.walls = walls
-    this.world.sceneRule = sceneRule
     this.world.resetBall(servingPlayer)
   }
 
-  /** Match point de qualquer lado: alguns cenários mudam a física no último ponto. */
+  /** Match point de qualquer lado. */
   private atMatchPoint() {
     const g = this.logic
     return Math.max(g.scores[LEFT], g.scores[RIGHT]) >= g.scoreToWin - 1
@@ -146,8 +143,6 @@ export class Match {
     i[39] = w.diveDir[0]; i[40] = w.diveDir[1]
     i[41] = w.ballOut
     f[24] = w.tempo; f[25] = w.ballSpin
-    i[42] = w.sceneFrame; i[43] = w.cloudUp; i[44] = w.sceneTouch
-    i[45] = w.cloudRe[0]; i[46] = w.cloudRe[1]; i[47] = w.cloudRe[2]
   }
 
   restore(s: MatchState) {
@@ -184,8 +179,6 @@ export class Match {
     w.diveDir[0] = i[39]; w.diveDir[1] = i[40]
     w.ballOut = i[41]
     w.tempo = f[24]; w.ballSpin = f[25]
-    w.sceneFrame = i[42]; w.cloudUp = i[43]; w.sceneTouch = i[44]
-    w.cloudRe[0] = i[45]; w.cloudRe[1] = i[46]; w.cloudRe[2] = i[47]
     w.rally = g.rally
     w.matchPoint = this.atMatchPoint()
   }

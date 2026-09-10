@@ -1,42 +1,17 @@
 /**
- * Cenário. Os três primeiros são só pintura — céu, chão, luz, o que passa na
- * frente e a música. Os seis novos também são regra: cada um carrega um
- * `rule` que o simulador lê, então trocar de cenário no meio de uma partida
- * online muda a física dos dois lados e entra no aperto de mão.
+ * Cenário: só pintura. Céu, chão, luz, o que passa na frente e a música. Nada
+ * aqui chega na simulação — trocar de cenário no meio da partida não muda uma
+ * única trajetória.
  */
-import type { SceneRuleId } from '../core/scene-rules.ts'
+import type { DepthId } from './depth.ts'
 
-export type SceneId =
-  | 'praia' | 'luau' | 'ginasio'
-  | 'tempestade' | 'rave' | 'fundo' | 'trem' | 'gameboy' | 'nuvens'
+export type SceneId = 'praia' | 'gruta' | 'luau' | 'ginasio'
 
 /** Trilha do menu: fica fora da lista de cenários porque não é um. */
 export const MENU_SONG = 'menu'
 
-export type Foreground = 'gulls' | 'fireflies' | 'confetti' | 'rain' | 'sparks' | 'bubbles' | 'dust' | 'pixels' | 'birds'
-
-/**
- * Mobília extra do cenário. Fica separado de Scene3D porque só os cenários
- * novos usam: assim praia, luau e ginásio continuam do jeito que estavam.
- */
-export interface SceneFX {
-  /** chuva de convés, 0..1 */
-  rain?: number
-  /** tábuas, mastro no lugar do poste da rede, lampião */
-  deck?: boolean
-  /** cidade neon ao fundo e luz que pulsa na batida */
-  neon?: number
-  /** cáustica, alga, cardume e coluna de bolha */
-  water?: number
-  /** paisagem correndo, postes e o escuro do túnel */
-  train?: number
-  /** quatro tons de verde e a moldura do console */
-  lcd?: number
-  /** ilhas flutuantes e as três nuvens que servem de chão */
-  islands?: number
-  /** lua gigante subindo ao longo da partida */
-  moon?: number
-}
+export type Foreground =
+  | 'gulls' | 'fireflies' | 'confetti' | 'rain' | 'sparks' | 'bubbles' | 'dust' | 'pixels' | 'birds'
 
 export interface Scene2D {
   /** faixas do topo até o horizonte */
@@ -78,7 +53,6 @@ export interface Scene3D {
   ambient: number
   ambientIntensity: number
   sand: [number, number, number]
-  fx?: SceneFX
   ocean: boolean
   oceanTint: [number, number, number]
   palms: boolean
@@ -94,8 +68,8 @@ export interface Scene {
   hint: string
   /** id da trilha em public/music */
   music: string
-  /** regra que este cenário impõe à simulação; 'none' = cenário só de pintura */
-  rule: SceneRuleId
+  /** camadas de silhueta atrás e na frente dos personagens; sem isso, cenário chapado */
+  depth: DepthId
   fg: Foreground
   night: boolean
   d2: Scene2D
@@ -108,7 +82,7 @@ export const SCENES: Record<SceneId, Scene> = {
     name: 'Praia',
     hint: 'sol a pino, mar aberto',
     music: 'praia',
-    rule: 'none',
+    depth: 'praia',
     fg: 'gulls',
     night: false,
     d2: {
@@ -147,12 +121,55 @@ export const SCENES: Record<SceneId, Scene> = {
     },
   },
 
+  gruta: {
+    id: 'gruta',
+    name: 'Gruta',
+    hint: 'cenote aberto, agua que acende',
+    music: 'fundo',
+    depth: 'gruta',
+    fg: 'sparks',
+    night: true,
+    d2: {
+      sky: ['#04141d', '#0a2a35', '#0f4650'],
+      mid: ['#0c5f66', '#25b8a2'],
+      ground: ['#d6c39a', '#9d8358'],
+      horizon: 418,
+      shore: 470,
+      cloud: null,
+      clouds: 0,
+      star: 'rgba(178,255,236,0.85)',
+      stars: 46,
+      orb: { x: 0.5, y: 286, r: 30, color: 'rgba(226,255,246,0.92)', halo: 'rgba(120,255,222,0.26)' },
+      hills: null,
+      foam: 'rgba(180,255,240,0.24)',
+      line: 'rgba(206,255,246,0.55)',
+      wash: 'rgba(5,38,46,0.20)',
+      sand: '#d6c39a',
+      sandDark: '#7f6942',
+    },
+    d3: {
+      sun: [-0.05, 0.95, 0.30],
+      exposure: 0.40,
+      fog: [0.04, 0.16, 0.19],
+      fogDensity: 0.0030,
+      key: 0xcdf6ff,
+      keyIntensity: 1.45,
+      ambient: 0x36566a,
+      ambientIntensity: 0.45,
+      sand: [0.90, 0.82, 0.72],
+      ocean: true,
+      oceanTint: [0.34, 1.05, 1.10],
+      palms: false,
+      fire: 0,
+      indoor: false,
+    },
+  },
   luau: {
     id: 'luau',
     name: 'Luau',
     hint: 'noite, fogueira e lanterna',
     music: 'luau',
-    rule: 'none',
+    depth: 'luau',
     fg: 'fireflies',
     night: true,
     d2: {
@@ -196,7 +213,7 @@ export const SCENES: Record<SceneId, Scene> = {
     name: 'Ginásio',
     hint: 'quadra coberta, torcida no pé do ouvido',
     music: 'ginasio',
-    rule: 'none',
+    depth: 'none',
     fg: 'confetti',
     night: false,
     d2: {
@@ -235,277 +252,6 @@ export const SCENES: Record<SceneId, Scene> = {
     },
   },
 
-  // ============================ os seis que também são regra ============================
-
-  tempestade: {
-    id: 'tempestade',
-    name: 'Convés',
-    hint: 'navio na tempestade — a quadra inclina com a onda',
-    music: 'tempestade',
-    rule: 'tempestade',
-    fg: 'rain',
-    night: true,
-    d2: {
-      sky: ['#05070f', '#0d1524', '#1b2637', '#2c3a4c'],
-      mid: ['#101a26', '#1b2c3a'],
-      ground: ['#4a3a26', '#2e2419'],
-      horizon: 402,
-      shore: 462,
-      cloud: 'rgba(96,110,132,0.42)',
-      clouds: 7,
-      star: null,
-      stars: 0,
-      orb: null,
-      hills: 'rgba(12,18,28,0.9)',
-      foam: 'rgba(198,216,236,0.34)',
-      line: 'rgba(226,214,184,0.44)',
-      wash: 'rgba(10,16,28,0.3)',
-      sand: '#5a4630',
-      sandDark: '#2b2016',
-    },
-    d3: {
-      sun: [0.2, 0.34, 0.5],
-      exposure: 0.19,
-      fog: [0.07, 0.09, 0.13],
-      fogDensity: 0.0042,
-      key: 0x9fb6d8,
-      keyIntensity: 1.1,
-      ambient: 0x2c3a55,
-      ambientIntensity: 1.35,
-      sand: [0.72, 0.6, 0.46],
-      fx: { rain: 1, deck: true },
-      ocean: true,
-      oceanTint: [0.26, 0.34, 0.5],
-      palms: false,
-      fire: 0.35,
-      indoor: false,
-    },
-  },
-
-  rave: {
-    id: 'rave',
-    name: 'Cobertura',
-    hint: 'rave no telhado — bater no tempo da batida vale mais',
-    music: 'rave',
-    rule: 'rave',
-    fg: 'sparks',
-    night: true,
-    d2: {
-      sky: ['#08040f', '#160a24', '#2a0f3c', '#3d1450'],
-      mid: ['#180a28', '#26103a'],
-      ground: ['#2a2030', '#171020'],
-      horizon: 392,
-      shore: 440,
-      cloud: 'rgba(180,90,230,0.16)',
-      clouds: 2,
-      star: 'rgba(255,220,255,0.7)',
-      stars: 30,
-      orb: null,
-      hills: 'rgba(20,8,32,0.92)',
-      foam: null,
-      line: 'rgba(255,120,240,0.6)',
-      wash: 'rgba(50,0,70,0.2)',
-      sand: '#2a2030',
-      sandDark: '#120c18',
-    },
-    d3: {
-      sun: [0.1, 0.7, 0.6],
-      exposure: 0.18,
-      fog: [0.08, 0.03, 0.13],
-      fogDensity: 0.0034,
-      key: 0xff5ce0,
-      keyIntensity: 1.5,
-      ambient: 0x5a2a8c,
-      ambientIntensity: 1.5,
-      sand: [0.6, 0.52, 0.72],
-      fx: { neon: 1 },
-      ocean: false,
-      oceanTint: [1, 1, 1],
-      palms: false,
-      fire: 0,
-      indoor: false,
-    },
-  },
-
-  fundo: {
-    id: 'fundo',
-    name: 'Fundo do Mar',
-    hint: 'ruínas de Atlântida — gravidade fraca e bola com arrasto',
-    music: 'fundo',
-    rule: 'fundo',
-    fg: 'bubbles',
-    night: false,
-    d2: {
-      sky: ['#04222e', '#075063', '#0b7a8c'],
-      mid: ['#063f52', '#0a6274'],
-      ground: ['#8a9c86', '#5a6a58'],
-      horizon: 360,
-      shore: 470,
-      cloud: 'rgba(140,220,235,0.14)',
-      clouds: 3,
-      star: null,
-      stars: 0,
-      orb: { x: 0.5, y: 120, r: 60, color: 'rgba(190,255,250,0.30)', halo: 'rgba(150,240,255,0.16)' },
-      hills: 'rgba(6,52,66,0.72)',
-      foam: 'rgba(180,255,250,0.16)',
-      line: 'rgba(200,255,250,0.5)',
-      wash: 'rgba(4,60,80,0.3)',
-      sand: '#8a9c86',
-      sandDark: '#41503f',
-    },
-    d3: {
-      sun: [-0.06, 0.97, 0.22],
-      exposure: 0.12,
-      fog: [0.015, 0.10, 0.15],
-      fogDensity: 0.022,
-      key: 0x7fd6ee,
-      keyIntensity: 0.85,
-      ambient: 0x0a3c50,
-      ambientIntensity: 0.9,
-      sand: [0.42, 0.62, 0.54],
-      fx: { water: 1 },
-      ocean: false,
-      oceanTint: [1, 1, 1],
-      palms: false,
-      fire: 0,
-      indoor: false,
-    },
-  },
-
-  trem: {
-    id: 'trem',
-    name: 'Topo do Trem',
-    hint: 'vagão em movimento — vento contra e ponte sem parapeito',
-    music: 'trem',
-    rule: 'trem',
-    fg: 'dust',
-    night: false,
-    d2: {
-      sky: ['#2a4a86', '#7a90c0', '#e0b78a', '#f0cf9a'],
-      mid: ['#a4744a', '#8a5f3c'],
-      ground: ['#4a4038', '#2c2620'],
-      horizon: 410,
-      shore: 452,
-      cloud: 'rgba(255,240,220,0.4)',
-      clouds: 5,
-      star: null,
-      stars: 0,
-      orb: { x: 0.16, y: 300, r: 30, color: 'rgba(255,220,160,0.9)', halo: 'rgba(255,180,110,0.3)' },
-      hills: 'rgba(120,80,58,0.8)',
-      foam: null,
-      line: 'rgba(255,235,200,0.5)',
-      wash: 'rgba(80,40,10,0.12)',
-      sand: '#4a4038',
-      sandDark: '#241e18',
-    },
-    d3: {
-      sun: [0.7, 0.34, -0.2],
-      exposure: 0.72,
-      fog: [0.62, 0.48, 0.36],
-      fogDensity: 0.0026,
-      key: 0xffd0a0,
-      keyIntensity: 2.2,
-      ambient: 0x9ab0d8,
-      ambientIntensity: 0.7,
-      sand: [0.62, 0.56, 0.5],
-      fx: { train: 1 },
-      ocean: false,
-      oceanTint: [1, 1, 1],
-      palms: false,
-      fire: 0,
-      indoor: false,
-    },
-  },
-
-  gameboy: {
-    id: 'gameboy',
-    name: 'Game Boy',
-    hint: 'dentro do console — a bola só conhece 16 direções',
-    music: 'gameboy',
-    rule: 'gameboy',
-    fg: 'pixels',
-    night: false,
-    d2: {
-      sky: ['#9bbc0f', '#8bac0f'],
-      mid: ['#8bac0f', '#306230'],
-      ground: ['#306230', '#0f380f'],
-      horizon: 380,
-      shore: 448,
-      cloud: 'rgba(155,188,15,0.5)',
-      clouds: 3,
-      star: null,
-      stars: 0,
-      orb: null,
-      hills: 'rgba(48,98,48,0.9)',
-      foam: null,
-      line: 'rgba(15,56,15,0.75)',
-      wash: 'rgba(139,172,15,0.10)',
-      sand: '#306230',
-      sandDark: '#0f380f',
-    },
-    d3: {
-      sun: [-0.3, 0.9, 0.3],
-      exposure: 0.85,
-      fog: [0.34, 0.42, 0.06],
-      fogDensity: 0.0014,
-      key: 0xd8f068,
-      keyIntensity: 2.3,
-      ambient: 0x6b8f2a,
-      ambientIntensity: 1.0,
-      sand: [0.66, 0.86, 0.3],
-      fx: { lcd: 1 },
-      ocean: false,
-      oceanTint: [1, 1, 1],
-      palms: false,
-      fire: 0,
-      indoor: false,
-    },
-  },
-
-  nuvens: {
-    id: 'nuvens',
-    name: 'Nuvens',
-    hint: 'plataforma no céu — três nuvens são chão e a bola cai pra sempre',
-    music: 'nuvens',
-    rule: 'nuvens',
-    fg: 'birds',
-    night: true,
-    d2: {
-      sky: ['#100c2e', '#22194e', '#452a66', '#7a4470'],
-      mid: ['#2c1f52', '#472e63'],
-      ground: ['#6a6480', '#3a3450'],
-      horizon: 386,
-      shore: 448,
-      cloud: 'rgba(230,220,255,0.30)',
-      clouds: 6,
-      star: 'rgba(255,250,235,0.85)',
-      stars: 80,
-      orb: { x: 0.5, y: 226, r: 96, color: 'rgba(250,246,226,0.95)', halo: 'rgba(220,220,255,0.20)' },
-      hills: 'rgba(30,22,52,0.7)',
-      foam: null,
-      line: 'rgba(240,232,255,0.5)',
-      wash: 'rgba(30,18,60,0.2)',
-      sand: '#6a6480',
-      sandDark: '#2e2842',
-    },
-    d3: {
-      sun: [0.0, 0.5, 0.86],
-      exposure: 0.3,
-      fog: [0.14, 0.11, 0.24],
-      fogDensity: 0.0028,
-      key: 0xe4e0ff,
-      keyIntensity: 1.7,
-      ambient: 0x4a3a7c,
-      ambientIntensity: 1.4,
-      sand: [0.72, 0.7, 0.86],
-      fx: { islands: 1, moon: 1 },
-      ocean: false,
-      oceanTint: [1, 1, 1],
-      palms: false,
-      fire: 0,
-      indoor: false,
-    },
-  },
 }
 
 export const SCENE_LIST: [SceneId, string, string][] =

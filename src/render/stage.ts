@@ -29,6 +29,7 @@ import type { Particles } from './particles.ts'
 import { createScenery } from './scenery.ts'
 import { createIndoor } from './indoor.ts'
 import type { Indoor } from './indoor.ts'
+import { Depth3D } from './depth3d.ts'
 import { createForeground3D } from './foreground3d.ts'
 import type { Foreground3D } from './foreground3d.ts'
 import { createCampfire } from './campfire.ts'
@@ -38,11 +39,6 @@ import type { SceneId } from './scenes.ts'
 import type { Scenery } from './scenery.ts'
 import { createPost } from './post.ts'
 import type { Post } from './post.ts'
-import { createProps } from './props.ts'
-import type { Props } from './props.ts'
-import {
-  FX_BUBBLE, FX_GUST, FX_GUST_WARN, FX_INVERT, FX_TUNNEL, TILT, TILT_BIG, cloudX, cloudY,
-} from '../core/scene-rules.ts'
 import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 
@@ -277,8 +273,8 @@ export class Stage implements GameRenderer {
   scenery!: Scenery
   indoor!: Indoor
   campfire!: Campfire
-  props!: Props
   fg3!: Foreground3D
+  private depth3 = new Depth3D()
   oceanUniforms!: Record<string, THREE.IUniform>
   oceanMesh!: THREE.Mesh
   hemi!: THREE.HemisphereLight
@@ -311,13 +307,8 @@ export class Stage implements GameRenderer {
   camShakeSeed = Math.random() * 100
   private camZ = CAM_Z
   private camSpan = 0
-  private lcd = 0
-  private invert = 0
-  private dim = 0
-  private camRoll = 0
-  private scroll = 0
-  private audioBar = 0
-  private audioBeat = 0
+  audioBar = 0
+  audioBeat = 0
 
   private prev: Snapshot = { bx: 0, by: 0, brot: 0, px: [0, 0], py: [0, 0], state: [0, 0] }
   private cur: Snapshot = { bx: 0, by: 0, brot: 0, px: [0, 0], py: [0, 0], state: [0, 0] }
@@ -415,12 +406,10 @@ export class Stage implements GameRenderer {
     this.campfire = createCampfire()
     scene.add(this.campfire.group)
 
-    this.props = createProps()
-    scene.add(this.props.group)
 
     this.fg3 = createForeground3D()
     this.camera.add(this.fg3.group)
-    this.camera.add(this.props.camGroup)
+    this.scene.add(this.depth3.group)
     scene.add(this.camera)
 
     this.net = createNet()
@@ -556,8 +545,8 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.scenery.spectators.visible = !d.indoor
     this.indoor.group.visible = d.indoor
     this.campfire.setPower(d.fire * 90)
-    this.props.setScene(d.fx)
     this.fg3.setMode(sc.fg)
+    this.depth3.setScene(sc.depth)
 
     const wallCol = new THREE.Color(d.indoor ? 0xffc46b : (sc.night ? 0x3f7fb4 : 0x73ccff))
     for (const w of this.walls) {
@@ -568,49 +557,6 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   setWalls(on: boolean) {
     this.wallsOn = on
     for (const w of this.walls) w.visible = on
-  }
-
-  /**
-   * Traduz o campo do frame em coisa que se vê. Nada aqui volta pra física: o
-   * simulador já decidiu, isto só conta a mesma história pro olho.
-   */
-  private updateProps(match: Match, dt: number) {
-    const w = match.world
-    const f = w.field
-    const g = match.logic
-    const k = 1 - Math.exp(-dt * 9)
-
-    const wantLcd = w.sceneRule === 'gameboy' ? 1 : 0
-    const wantInvert = (f.fx & FX_INVERT) ? 1 : 0
-    const wantDim = (f.fx & FX_TUNNEL) ? 0.82 : 0
-    this.lcd += (wantLcd - this.lcd) * (1 - Math.exp(-dt * 5))
-    this.invert += (wantInvert - this.invert) * (1 - Math.exp(-dt * 22))
-    this.dim += (wantDim - this.dim) * (1 - Math.exp(-dt * 7))
-
-    // o convés balança a câmera junto: é o que faz a inclinação ser sentida
-    const tilt = f.tilt / (TILT * TILT_BIG)
-    this.camRoll += (tilt * 0.05 - this.camRoll) * k
-
-    this.scroll += dt * (w.sceneRule === 'trem' ? 26 + Math.min(24, g.rally) * 0.9 : 0)
-
-    const won = Math.max(g.scores[0], g.scores[1])
-    const progress = Math.min(1, won / Math.max(1, g.scoreToWin - 1))
-
-    this.props.update({
-      dt,
-      t: this.time,
-      tilt,
-      bar: this.audioBar,
-      beat: this.audioBeat,
-      clouds: [w.cloudAlive(0), w.cloudAlive(1), w.cloudAlive(2)],
-      progress: w.matchPoint ? 1 : progress * 0.9,
-      scroll: this.scroll,
-      tunnel: this.dim / 0.82,
-      gustWarn: (f.fx & FX_GUST_WARN) ? 1 : 0,
-      gust: (f.fx & FX_GUST) ? Math.sign(f.wind) : 0,
-      bubble: (f.fx & FX_BUBBLE) ? 1 : 0,
-      rally: g.rally,
-    })
   }
 
   /** Fase do compasso e do tempo, vinda do sequenciador; 0 se não há música. */
@@ -707,39 +653,6 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
             speed: 1.2 + 2.0 * power, spread: 3.4, up: 0.25, life: 2.4,
             size: 0.075, color: new THREE.Color(0.86, 0.78, 0.63), drag: 3.4, colorJitter: 0.1,
           })
-          break
-        }
-        case Ev.SCENE_MOMENT: {
-          if (e.intensity === 2) {
-            // raio: o frame trava e a tela lava de branco por 100 ms
-            this.hitstop = Math.max(this.hitstop, 0.1)
-            this.flash = Math.max(this.flash, 0.95)
-            this.trauma = Math.min(1, this.trauma + 0.5)
-          } else {
-            this.aberration = Math.max(this.aberration, 1.4)
-            this.flash = Math.max(this.flash, 0.18)
-            this.hitstop = Math.max(this.hitstop, 0.03)
-          }
-          break
-        }
-        case Ev.BEAT_HIT: {
-          const bx = gx(w.ballX), by = gy(w.ballY)
-          this.flash = Math.max(this.flash, 0.10)
-          this.particles.burst({
-            x: bx, y: by, z: 0, count: 60, speed: 4.5, spread: 3.14, up: 0.4,
-            life: 0.4, size: 0.045, color: new THREE.Color(1.0, 0.25, 0.72),
-            drag: 3.4, colorJitter: 0.5,
-          })
-          break
-        }
-        case Ev.CLOUD_POP: {
-          const i = Math.max(0, Math.min(2, e.intensity))
-          this.particles.burst({
-            x: gx(cloudX(i)), y: gy(cloudY(i)), z: 0, count: 200, speed: 2.4, spread: 3.14,
-            up: 0.3, life: 1.1, size: 0.09, color: new THREE.Color(0.94, 0.96, 1.0),
-            drag: 2.2, colorJitter: 0.05,
-          })
-          this.trauma = Math.min(1, this.trauma + 0.10)
           break
         }
         case Ev.BALL_HIT_NET:
@@ -1223,7 +1136,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const px = Math.max(-this.camSpan, Math.min(this.camSpan, this.camTargetX))
     this.camera.position.set(px + sway + shx, 5.9 + swayY + shy, this.camZ - this.trauma * 0.5)
     this.camera.lookAt(bx * CAM_LOOK, 2.7 + by * 0.07, 0)
-    this.camera.rotation.z += shr + this.camRoll
+    this.camera.rotation.z += shr
     this.camera.fov = 38 - Math.min(this.ballSpeed, 22) * 0.05
     this.camera.updateProjectionMatrix()
 
@@ -1275,7 +1188,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.scenery.update(this.time, dt)
     this.indoor.update(this.time, this.tension)
     this.campfire.update(this.time)
-    this.updateProps(match, dt)
+    this.depth3.update(this.camZ, this.camera.fov, this.camera.aspect, 5.9, 2.7)
     this.fg3.update(dt, this.time)
     this.particles.update(this.time)
     this.skyUniforms.uTime.value = this.time
@@ -1304,9 +1217,6 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       g.uSunVisible.value = THREE.MathUtils.lerp(
         g.uSunVisible.value as number, onScreen ? 1 : 0, 1 - Math.exp(-dt * 4))
       g.uGodRays.value = this.quality.godRays ? 0.30 : 0
-      g.uLcd.value = this.lcd
-      g.uInvert.value = this.invert
-      g.uDim.value = this.dim
       this.post.render(dt)
     } else {
       this.renderer.render(this.scene, this.camera)
@@ -1449,6 +1359,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   dispose() {
+    this.depth3.dispose()
     for (const e of this.emotes) { this.scene.remove(e.mesh); e.mesh.material.dispose() }
     this.emotes.length = 0
     for (const sc of this.scorches) { this.scene.remove(sc.mesh); sc.mesh.material.dispose() }

@@ -13,11 +13,9 @@ import type { GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 import { getScene } from './scenes.ts'
+import { getDepth, depthScale, DEPTH_CAM_Z } from './depth.ts'
+import type { DepthLayer } from './depth.ts'
 import type { Scene, SceneId } from './scenes.ts'
-import {
-  CLOUD_HALF_W, CLOUD_THICK, FX_BUBBLE, FX_GUST, FX_GUST_WARN, FX_INVERT, FX_TUNNEL,
-  cloudX, cloudY,
-} from '../core/scene-rules.ts'
 import { drawHair2D } from './hair2d.ts'
 import { bodyHex, defaultLook, shade } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
@@ -108,11 +106,11 @@ export class Stage2D implements GameRenderer {
   private wallHits: { x: number; y: number; life: number }[] = []
   private glow: HTMLCanvasElement
   private scene: Scene = getScene('praia')
-  private lcdK = 0
-  private invertK = 0
-  private dimK = 0
-  private audioBar = 0
-  private audioBeat = 0
+  private depth: DepthLayer[] = getDepth(getScene('praia').depth)
+  private pan = 0
+  private sway = 0
+  audioBar = 0
+  audioBeat = 0
   private wallsOn = true
   /** quanto de fora-da-linha o enquadramento está abrindo agora, em unidades da física */
   private frameExtra = 0
@@ -186,7 +184,35 @@ export class Stage2D implements GameRenderer {
 
   setScene(id: SceneId) {
     this.scene = getScene(id)
+    this.depth = getDepth(this.scene.depth)
     this.buildBands()
+  }
+
+  /**
+   * Silhuetas do cenário. Em unidade de quadro, não de quadra: o mesmo
+   * polígono que o 3D põe num plano. O deslocamento sai da distância — quem
+   * está na frente anda mais que a quadra, quem está atrás anda menos.
+   */
+  private paintDepth(front: boolean) {
+    const c = this.ctx
+    const hw = this.cw / 2, hh = this.ch / 2
+    const horizon = (this.oy + this.scene.d2.horizon * this.scale - hh) / hh
+    const ground = (this.oy + GROUND * this.scale - hh) / hh
+    for (const l of this.depth) {
+      if ((l.z > 0) !== front) continue
+      const dx = (this.pan + this.sway) * (1 / depthScale(l.z, DEPTH_CAM_Z) - 1)
+      const dy = l.anchor === 'horizon' ? horizon : l.anchor === 'ground' ? ground : 0
+      c.globalAlpha = l.alpha
+      c.fillStyle = l.color
+      c.beginPath()
+      for (const p of l.poly) {
+        c.moveTo(hw + (p[0] - dx) * hw, hh + (p[1] + dy) * hh)
+        for (let i = 2; i < p.length; i += 2) c.lineTo(hw + (p[i] - dx) * hw, hh + (p[i + 1] + dy) * hh)
+        c.closePath()
+      }
+      c.fill()
+    }
+    c.globalAlpha = 1
   }
 
   setWalls(on: boolean) { this.wallsOn = on }
@@ -301,24 +327,6 @@ export class Stage2D implements GameRenderer {
           this.squashBall(w, 0.10 + 0.08 * power)
           this.craters.push({ x: w.ballX, r: 22 + power * 26 })
           if (this.craters.length > 14) this.craters.shift()
-          break
-        }
-        case Ev.SCENE_MOMENT:
-          if (e.intensity === 2) {
-            this.flash = Math.max(this.flash, 0.95)
-            this.trauma = Math.min(1, this.trauma + 0.5)
-          } else {
-            this.flash = Math.max(this.flash, 0.2)
-          }
-          break
-        case Ev.BEAT_HIT:
-          this.flash = Math.max(this.flash, 0.10)
-          this.burst(w.ballX, w.ballY, 16, 240, '#ff2fa0', 0.4, 5)
-          break
-        case Ev.CLOUD_POP: {
-          const i = Math.max(0, Math.min(2, e.intensity))
-          this.burst(cloudX(i), cloudY(i), 30, 130, '#f2f7ff', 0.35, 7)
-          this.trauma = Math.min(1, this.trauma + 0.08)
           break
         }
         case Ev.BALL_HIT_NET:
@@ -620,6 +628,8 @@ export class Stage2D implements GameRenderer {
       }
     }
 
+    this.paintDepth(false)
+
     if (this.scene.id === 'ginasio') this.hall(horizon, shore)
 
     if (d.foam) {
@@ -860,121 +870,6 @@ export class Stage2D implements GameRenderer {
         c.quadraticCurveTo(x, y - 5 * s * far, x + 15 * s * far * dir, y + flap * 9 * s * far)
         c.stroke()
       }
-    }
-  }
-
-  /**
-   * O que a regra faz, desenhado. As nuvens são o caso que não pode faltar: a
-   * bola quica nelas, então elas têm que existir na tela.
-   */
-  private sceneProps(w: Match['world']) {
-    const c = this.ctx
-    const f = w.field
-    if (f.clouds) {
-      for (let i = 0; i < 3; i++) {
-        const alive = w.cloudAlive(i)
-        const k = alive ? 1 : 0
-        if (!k) continue
-        const cx = cloudX(i), cy = cloudY(i)
-        c.fillStyle = 'rgba(246,250,255,0.92)'
-        for (let b = 0; b < 6; b++) {
-          const bx = cx - CLOUD_HALF_W + (b / 5) * CLOUD_HALF_W * 2
-          const r = CLOUD_THICK * (1.5 + Math.sin(b * 1.7 + i) * 0.35)
-          c.beginPath(); c.arc(bx, cy + Math.sin(b * 2.1) * 3, r, 0, Math.PI * 2); c.fill()
-        }
-        c.fillStyle = 'rgba(198,214,238,0.6)'
-        c.fillRect(cx - CLOUD_HALF_W, cy + CLOUD_THICK * 0.6, CLOUD_HALF_W * 2, 4)
-      }
-    }
-    if (w.sceneRule === 'rave') {
-      // o chão bate junto com o kick: é o mesmo tempo da janela de acerto
-      const kick = this.audioBeat < 0
-        ? 0.25 + 0.25 * Math.sin(this.time * 3.2)
-        : Math.pow(1 - this.audioBeat, 2.4)
-      c.globalCompositeOperation = 'lighter'
-      c.globalAlpha = 0.04 + kick * 0.20
-      c.fillStyle = '#ff2fa0'
-      c.fillRect(LEFT_PLANE, GROUND - 6, RIGHT_PLANE - LEFT_PLANE, 70)
-      c.globalAlpha = 0.05 + kick * 0.16
-      c.strokeStyle = '#51e0ff'
-      c.lineWidth = 4
-      for (let i = 0; i < 5; i++) {
-        const a = Math.max(0, this.audioBar) * 6.28 + i * 1.25
-        const x = NET_POSITION_X + Math.sin(a) * (RIGHT_PLANE - LEFT_PLANE) * 0.45
-        c.beginPath(); c.moveTo(NET_POSITION_X, 0); c.lineTo(x, GROUND); c.stroke()
-      }
-      c.globalCompositeOperation = 'source-over'
-      c.globalAlpha = 1
-    }
-    if (f.fx & FX_BUBBLE) {
-      const span = RIGHT_PLANE - LEFT_PLANE
-      c.globalCompositeOperation = 'lighter'
-      for (const k of [0.25, 0.75]) {
-        const bx = LEFT_PLANE + span * k
-        c.fillStyle = 'rgba(180,232,255,0.10)'
-        c.fillRect(bx - 60, 0, 120, GROUND + 40)
-      }
-      c.globalCompositeOperation = 'source-over'
-    }
-    if (f.fx & (FX_GUST_WARN | FX_GUST)) {
-      const warn = (f.fx & FX_GUST_WARN) !== 0
-      const dir = f.wind >= 0 ? 1 : -1
-      c.globalAlpha = warn ? 0.35 + Math.sin(this.time * 14) * 0.2 : 0.55
-      c.strokeStyle = warn ? 'rgba(255,236,170,0.9)' : 'rgba(222,240,255,0.9)'
-      c.lineWidth = 3
-      for (let i = 0; i < 5; i++) {
-        const y = 120 + i * 62
-        const x0 = LEFT_PLANE + 40 + ((this.time * 340 * (warn ? 0 : dir) + i * 90) % 360)
-        c.beginPath()
-        c.moveTo(x0, y); c.lineTo(x0 + 90 * dir, y)
-        c.lineTo(x0 + 70 * dir, y - 9)
-        c.stroke()
-      }
-      c.globalAlpha = 1
-    }
-  }
-
-  /** LCD, inversão e escuro de túnel: passa por cima de tudo, sem tocar no jogo. */
-  private sceneGrade(w: Match['world'], dt: number) {
-    const c = this.ctx
-    const f = w.field
-    const k = (a: number, b: number, r: number) => a + (b - a) * (1 - Math.exp(-dt * r))
-    this.lcdK = k(this.lcdK, w.sceneRule === 'gameboy' ? 1 : 0, 5)
-    this.invertK = k(this.invertK, (f.fx & FX_INVERT) ? 1 : 0, 22)
-    this.dimK = k(this.dimK, (f.fx & FX_TUNNEL) ? 0.82 : 0, 7)
-
-    if (this.dimK > 0.004) {
-      c.fillStyle = `rgba(0,0,0,${this.dimK})`
-      c.fillRect(0, 0, this.cw, this.ch)
-    }
-    if (this.lcdK > 0.01) {
-      c.globalAlpha = this.lcdK
-      c.globalCompositeOperation = 'saturation'
-      c.fillStyle = '#808080'
-      c.fillRect(0, 0, this.cw, this.ch)
-      c.globalCompositeOperation = 'source-over'
-      // sem contraste o verde vira papa: o LCD só tem quatro tons por um motivo
-      c.globalAlpha = 1
-      c.filter = 'contrast(2.6) brightness(1.05)'
-      c.drawImage(c.canvas, 0, 0)
-      c.filter = 'none'
-      c.globalAlpha = this.lcdK
-      c.globalCompositeOperation = 'multiply'
-      c.fillStyle = '#9bbc0f'
-      c.fillRect(0, 0, this.cw, this.ch)
-      c.globalCompositeOperation = 'source-over'
-      c.globalAlpha = this.lcdK * 0.16
-      c.fillStyle = '#0f380f'
-      for (let y = 0; y < this.ch; y += 4) c.fillRect(0, y, this.cw, 2)
-      c.globalAlpha = 1
-    }
-    if (this.invertK > 0.01) {
-      c.globalAlpha = this.invertK
-      c.globalCompositeOperation = 'difference'
-      c.fillStyle = '#ffffff'
-      c.fillRect(0, 0, this.cw, this.ch)
-      c.globalCompositeOperation = 'source-over'
-      c.globalAlpha = 1
     }
   }
 
@@ -1417,6 +1312,11 @@ export class Stage2D implements GameRenderer {
     const want = Math.max(0, Math.min(OPEN_MARGIN, far + 24))
     this.frameExtra += (want - this.frameExtra) * (1 - Math.exp(-dt * (want > this.frameExtra ? 5.5 : 1.4)))
     this.applyFrame()
+    // o 3D passeia a câmera atrás da bola e balança de leve parado; aqui a
+    // quadra é fixa, então o mesmo passeio vira só este número
+    const panWant = Math.max(-0.107, Math.min(0.107, ((bx - NET_POSITION_X) / (RIGHT_PLANE / 2)) * 0.196))
+    this.pan += (panWant - this.pan) * (1 - Math.exp(-dt * 3.2))
+    this.sway = Math.sin(this.time * 0.31) * 0.0149 + Math.sin(this.time * 0.17) * 0.0082
     const superOn = w.superFrames > 0
     if (superOn) {
       this.trail.push({ x: bx, y: by, life: 0, seed: Math.random() * 6.28 })
@@ -1438,7 +1338,6 @@ export class Stage2D implements GameRenderer {
     c.stroke()
 
     this.walls()
-    this.sceneProps(w)
 
     c.fillStyle = 'rgba(150,116,64,0.30)'
     for (const cr of this.craters) {
@@ -1571,8 +1470,8 @@ export class Stage2D implements GameRenderer {
     c.globalAlpha = 1
 
     c.setTransform(1, 0, 0, 1, 0, 0)
+    this.paintDepth(true)
     this.foreground(dt)
-    this.sceneGrade(w, dt)
 
     if (this.flash > 0.001) {
       c.fillStyle = `rgba(255,255,255,${this.flash})`

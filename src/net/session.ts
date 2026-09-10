@@ -3,14 +3,12 @@ import { Rollback } from './rollback.ts'
 import type { PeerId, Transport } from './transport.ts'
 import { LEFT, RIGHT } from '../core/constants.ts'
 import { setArena, arenaId } from '../core/constants.ts'
-import { sceneRuleCode, sceneRuleFromCode } from '../core/scene-rules.ts'
-import type { SceneRuleId } from '../core/scene-rules.ts'
 import { defaultLook, packLook, unpackLook } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 15
+const PROTO = 16
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8, REMATCH = 9,
@@ -51,12 +49,10 @@ export interface SessionOpts {
   arena: ArenaId
   walls: boolean
   /** cenário do host: os que são regra mudam a física dos dois lados */
-  sceneRule: SceneRuleId
   /** aparência local: viaja junto no aperto de mão, não entra na simulação */
   look: PlayerLook
   onArena?: (id: ArenaId) => void
   onWalls?: (on: boolean) => void
-  onSceneRule?: (r: SceneRuleId) => void
   scoreToWin?: number
   name: string
   host: boolean
@@ -87,7 +83,7 @@ export class NetSession {
   rtt = 0
   private checksums = new Map<number, number>()
   desynced = false
-  private began: { ruleId: string; stw: number; arena: ArenaId; walls: boolean; rule: SceneRuleId; serving: Side } | null = null
+  private began: { ruleId: string; stw: number; arena: ArenaId; walls: boolean; serving: Side } | null = null
 
   /** Regra, placar-alvo, arena, paredes e quem saca: o replay precisa disso pra reproduzir. */
   get setup() { return this.began }
@@ -169,7 +165,7 @@ export class NetSession {
       this.peer = from
       this.sendWelcome(from)
       this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side,
-        this.opts.arena, this.opts.walls, this.opts.sceneRule)
+        this.opts.arena, this.opts.walls)
     }
     if (this.opts.onJoinRequest) this.opts.onJoinRequest(this.peerName, () => settle(true), () => settle(false))
     else settle(true)
@@ -181,14 +177,13 @@ export class NetSession {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
     const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
     const look = packLook(this.opts.look)
-    const buf = new Uint8Array(1 + 1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.WELCOME)
     dv.setUint8(o++, PROTO)
     dv.setUint8(o++, this.seed & 1)
     dv.setUint8(o++, (this.opts.arena === 'wide' ? 1 : 0) | (this.opts.walls ? 0 : 2))
-    dv.setUint8(o++, sceneRuleCode(this.opts.sceneRule))
     dv.setUint16(o, this.scoreToWin()); o += 2
     for (const b of look) dv.setUint8(o++, b)
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
@@ -204,7 +199,6 @@ export class NetSession {
     const arenaByte = dv.getUint8(o++)
     const arena: ArenaId = (arenaByte & 1) === 1 ? 'wide' : 'default'
     const walls = (arenaByte & 2) === 0
-    const sceneRule = sceneRuleFromCode(dv.getUint8(o++))
     const stw = dv.getUint16(o); o += 2
     this.peerLook = unpackLook(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2)); o += 3
     const nl = dv.getUint8(o++)
@@ -213,21 +207,18 @@ export class NetSession {
     const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl))
     this.peer = from
     clearInterval(this.helloTimer)
-    this.begin(ruleId, stw, serving, arena, walls, sceneRule)
+    this.begin(ruleId, stw, serving, arena, walls)
   }
 
-  private begin(
-    ruleId: string, stw: number, serving: Side, arena: ArenaId, walls: boolean, rule: SceneRuleId,
-  ) {
+  private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId, walls: boolean) {
     if (arenaId() !== arena) { setArena(arena); this.opts.onArena?.(arena) }
     if (this.opts.walls !== walls) { this.opts.walls = walls; this.opts.onWalls?.(walls) }
-    if (this.opts.sceneRule !== rule) { this.opts.sceneRule = rule; this.opts.onSceneRule?.(rule) }
-    this.began = { ruleId, stw, arena, walls, rule, serving }
+    this.began = { ruleId, stw, arena, walls, serving }
     this.wantMine = false
     this.wantTheirs = false
     this.checksums.clear()
     this.desynced = false
-    this.match = new Match(ruleId, stw || undefined, serving, walls, rule)
+    this.match = new Match(ruleId, stw || undefined, serving, walls)
     this.rollback = new Rollback(this.match, this.localSide)
     clearInterval(this.helloTimer)
     this.setPhase('playing')
@@ -249,7 +240,7 @@ export class NetSession {
     this.seed = (Math.random() * 0xffffffff) >>> 0
     const serving = (this.seed & 1) as Side
     this.transport.send(new Uint8Array([P.REMATCH, 1, serving]))
-    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls, this.began.rule)
+    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls)
   }
 
   private onRematch(dv: DataView) {
@@ -257,7 +248,7 @@ export class NetSession {
     if (dv.getUint8(1) === 1) {
       if (this.opts.host) return
       const serving = (dv.byteLength > 2 ? dv.getUint8(2) : 0) as Side
-      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls, this.began.rule)
+      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls)
       return
     }
     this.wantTheirs = true
