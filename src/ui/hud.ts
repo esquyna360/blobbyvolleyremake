@@ -7,6 +7,23 @@ import type { NetStats } from '../net/session.ts'
 const RALLY_MIN = 6
 const RALLY_HOLD = 1900
 
+/**
+ * Estalo de escala. Reiniciar uma animação de CSS exige escrever a classe, ler
+ * `offsetWidth` pra forçar o reflow e escrever de novo — e esse reflow síncrono
+ * cai no meio do quadro, com o canvas do jogo esperando. A Web Animations API
+ * reinicia sem tocar em layout.
+ */
+const bumps = new WeakMap<HTMLElement, Animation>()
+
+function bump(node: HTMLElement, from: number, ms: number, keep = '') {
+  // um toque por quadro no rally longo empilharia animação sobre animação
+  bumps.get(node)?.cancel()
+  bumps.set(node, node.animate(
+    [{ transform: `${keep}scale(${from})` }, { transform: `${keep}scale(1)` }],
+    { duration: ms, easing: 'cubic-bezier(.2,1.6,.4,1)' },
+  ))
+}
+
 export class Hud {
   root: HTMLElement
   private ptsL: HTMLElement
@@ -153,10 +170,7 @@ export class Hud {
     for (const [i, node] of [[0, this.ptsL], [1, this.ptsR]] as [number, HTMLElement][]) {
       if (scores[i] !== this.lastScore[i]) {
         node.textContent = String(scores[i])
-        node.classList.remove('pop')
-        void node.offsetWidth
-        node.classList.add('pop')
-        setTimeout(() => node.classList.remove('pop'), 170)
+        bump(node, 1.42, 170)
         this.lastScore[i] = scores[i]
       }
     }
@@ -201,9 +215,7 @@ export class Hud {
     // não fica plantado na tela: some sozinho se a bola parar de ser tocada
     clearTimeout(this.rallyHide)
     this.rallyHide = setTimeout(() => this.rallyEl.classList.remove('on'), RALLY_HOLD)
-    void this.rallyEl.offsetWidth
-    this.rallyEl.classList.add('bump')
-    setTimeout(() => this.rallyEl.classList.remove('bump'), 180)
+    bump(this.rallyEl, 1.34, 180, 'translateX(-50%) ')
   }
 
   showNet(stats: NetStats | null) {
@@ -249,8 +261,9 @@ export class Hud {
   fatality() {
     const host = this.root.parentElement!
     host.querySelector('.fatality')?.remove()
+    const lite = document.body.classList.contains('lite')
     const drips = el('div', { class: 'fat-drips' })
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < (lite ? 6 : 16); i++) {
       const d = el('i')
       d.style.left = `${Math.random() * 100}%`
       d.style.width = `${4 + Math.random() * 9}px`
@@ -259,7 +272,7 @@ export class Hud {
       drips.append(d)
     }
     const splats = el('div', { class: 'fat-drips' })
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < (lite ? 4 : 9); i++) {
       const sp = el('div', { class: 'fat-splat' })
       const size = 60 + Math.random() * 220
       sp.style.width = `${size}px`

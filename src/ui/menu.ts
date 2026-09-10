@@ -389,7 +389,7 @@ export class Menu {
     this.panel(
       this.title('1 JOGADOR'),
       el('div', { class: 'cards' },
-        this.card('Versus', 'partida contra o computador, na dificuldade dos ajustes',
+        this.card('Versus', 'contra o computador — a dificuldade fica em AJUSTES',
           () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'go'),
         this.soon('Campanha', 'uma escada de adversários, cada um com o seu jeito'),
         this.card('Minigames', 'treinos de um jogador só, sem adversário',
@@ -397,7 +397,6 @@ export class Menu {
       el('div', { class: 'opts pre' },
         this.opt('Cenário', SCENE_LIST, cfg.scene,
           v => { cfg.scene = v; this.handlers.onScene(v) })),
-      this.tipLine('a dificuldade do Versus fica em AJUSTES'),
       this.back(() => this.main()),
     )
   }
@@ -409,11 +408,11 @@ export class Menu {
     this.panel(
       this.title('MINIGAMES'),
       el('div', { class: 'cards' },
-        this.card('Mira', 'a bola volta sozinha e uma faixa acende no campo vazio — três toques pra derrubar lá dentro. Três erros e acabou.',
+        this.card('Mira', 'uma faixa acende no campo vazio: três toques pra derrubar a bola lá dentro. três erros e acabou.',
           () => { cfg.mode = 'drill'; this.handlers.onStart(cfg) }, 'go'),
-        this.soon('Mais em breve', 'outros treinos entram aqui')),
+        this.soon('Mais treinos', 'outros modos de um jogador só entram aqui')),
       best > 0
-        ? el('div', { class: 'hint center', textContent: `seu recorde na Mira: ${best} acertos` })
+        ? el('div', { class: 'tipline', textContent: `seu recorde na Mira: ${best} acertos` })
         : el('span'),
       this.back(() => this.solo()),
     )
