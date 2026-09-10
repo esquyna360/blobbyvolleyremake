@@ -62,13 +62,22 @@ function softRingTexture() {
   return t
 }
 
-const CAM_Z = 20.4
-const CAM_Z_MAX = 34
+/**
+ * Lente longa e câmera longe, no lugar de grande-angular colada. A quadra
+ * ocupa o mesmo tanto de tela dos dois jeitos — o que muda é o fundo, que
+ * para de encolher, e a perspectiva, que para de esticar a areia da frente.
+ */
+const CAM_FOV = 27.5
+/** O fov encolhe com a bola rápida; o enquadramento tem que caber no menor. */
+const CAM_FOV_MIN = 26.7
+const CAM_Z = 28.2
+const CAM_Z_MAX = 47
 const CAM_MARGIN = 1.4
 /** Quanto o alvo do lookAt corre atrás da bola, em fração da meia-quadra. */
 const CAM_LOOK = 0.14
-/** O fov encolhe com a bola rápida; o enquadramento tem que caber no menor. */
-const CAM_FOV_MIN = 36.9
+/** Altura do olho e do alvo, no descanso. A diferença é toda a inclinação. */
+const CAM_EYE_Y = 4.35
+const CAM_LOOK_Y = 2.9
 
 export interface GameRenderer {
   setSize(w: number, h: number): void
@@ -331,9 +340,9 @@ export class Stage implements GameRenderer {
     this.renderer.shadowMap.enabled = quality.shadows
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
-    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000)
-    this.camera.position.set(0, 5.9, CAM_Z)
-    this.camera.lookAt(0, 2.8, 0)
+    this.camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.1, 2000)
+    this.camera.position.set(0, CAM_EYE_Y, CAM_Z)
+    this.camera.lookAt(0, CAM_LOOK_Y, 0)
 
     this.build()
   }
@@ -1134,10 +1143,10 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const shr = Math.sin(t * 1.3) * sh * 0.022
 
     const px = Math.max(-this.camSpan, Math.min(this.camSpan, this.camTargetX))
-    this.camera.position.set(px + sway + shx, 5.9 + swayY + shy, this.camZ - this.trauma * 0.5)
-    this.camera.lookAt(bx * CAM_LOOK, 2.7 + by * 0.07, 0)
+    this.camera.position.set(px + sway + shx, CAM_EYE_Y + swayY + shy, this.camZ - this.trauma * 0.5)
+    this.camera.lookAt(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0)
     this.camera.rotation.z += shr
-    this.camera.fov = 38 - Math.min(this.ballSpeed, 22) * 0.05
+    this.camera.fov = CAM_FOV - Math.min(this.ballSpeed, 22) * 0.036
     this.camera.updateProjectionMatrix()
 
     this.sun.target.position.set(this.camTargetX * 0.5, 2, 0)
@@ -1188,7 +1197,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.scenery.update(this.time, dt)
     this.indoor.update(this.time, this.tension)
     this.campfire.update(this.time)
-    this.depth3.update(this.camZ, this.camera.fov, this.camera.aspect, 5.9, 2.7)
+    this.depth3.update(this.camZ, this.camera.fov, this.camera.aspect, CAM_EYE_Y, CAM_LOOK_Y)
     this.fg3.update(dt, this.time)
     this.particles.update(this.time)
     this.skyUniforms.uTime.value = this.time

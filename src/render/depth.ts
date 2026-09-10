@@ -336,5 +336,9 @@ export function getDepth(id: DepthId): DepthLayer[] {
  */
 export const depthScale = (z: number, camZ: number) => Math.max(0.05, (camZ - z) / camZ)
 
-/** Distância de descanso da câmera 3D. O 2D usa a mesma pra andar igual. */
+/**
+ * Régua das distâncias acima: `z` é lido contra ela, então uma camada em 14,5
+ * fica a 71% do caminho até a câmera e continua lá se a câmera se afastar. O
+ * 2D usa a mesma régua pra deslocar igual.
+ */
 export const DEPTH_CAM_Z = 20.4

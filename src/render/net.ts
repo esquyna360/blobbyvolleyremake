@@ -94,7 +94,9 @@ export function createNet(): Net {
   const postMat = new THREE.MeshStandardMaterial({
     color: 0x9aa4ae, roughness: 0.35, metalness: 0.85,
   })
-  for (const z of [-depth / 2, depth / 2]) {
+  // só o poste da frente: a câmera olha a rede de lado, então o de trás cai
+  // alinhado com ele e lê como poste duplicado, não como profundidade
+  for (const z of [depth / 2]) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(NET_R * 1.0, NET_R * 1.35, NET_TOP + 0.35, 20), postMat)
     post.position.set(0, (NET_TOP + 0.35) / 2 - 0.15, z)
     post.castShadow = true
