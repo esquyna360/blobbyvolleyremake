@@ -28,7 +28,8 @@ import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
 import { MENU_SONG, SCENES, getScene } from './render/scenes.ts'
 import type { SceneId } from './render/scenes.ts'
-import { defaultLook, loadLook } from './core/looks.ts'
+import { defaultLook, loadLook, rollLook, BODY_COLORS } from './core/looks.ts'
+import type { PlayerLook } from './core/looks.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
@@ -112,6 +113,7 @@ class App {
   private touchEmotes: HTMLElement | null = null
   private emoteAt = [0, 0]
   private botMood: BotMood | null = null
+  private botLook: PlayerLook | null = null
   private rec = new Recorder()
   private recMode: ReplayMode = 'bot'
   private recUpTo = -1
@@ -211,9 +213,12 @@ class App {
   private applyLooks() {
     const me = this.session ? this.localSide : LEFT
     const foe = me === LEFT ? RIGHT : LEFT
-    const theirs = this.session?.peerLook ?? defaultLook(foe)
-    // sem rede o outro é genérico: se calhar da minha cor, ele troca pra outra
-    if (!this.session && theirs.body === this.cfg.look.body) theirs.body = theirs.body === 0 ? 1 : 0
+    const theirs = this.session?.peerLook ?? this.botLook ?? defaultLook(foe)
+    // se calhar da minha cor, o outro anda uma casa: dois blobbys iguais em
+    // quadra tiram a única pista de quem é quem
+    if (!this.session && theirs.body === this.cfg.look.body) {
+      theirs.body = (theirs.body + 1) % BODY_COLORS.length
+    }
     this.stage.setLook(me, this.cfg.look)
     this.stage.setLook(foe, theirs)
   }
@@ -391,6 +396,8 @@ class App {
     this.match = this.newMatch(this.cfg, LEFT)
     this.bot = new Bot(RIGHT, 'normal', 4242)
     this.demoBot = new Bot(LEFT, 'normal', 777)
+    this.botLook = rollLook(this.cfg.look.body)
+    this.applyLooks()
     this.phase = 'menu'
   }
   private demoBot: Bot | null = null
@@ -445,6 +452,8 @@ class App {
     this.localSide = LEFT
     this.bot = cfg.mode === 'bot' ? new Bot(RIGHT, cfg.difficulty, (Math.random() * 1e9) | 0) : null
     this.botMood = this.bot ? new BotMood(RIGHT, cfg.difficulty) : null
+    // adversário novo a cada partida: o bot se veste sozinho
+    this.botLook = this.bot ? rollLook(cfg.look.body) : null
     this.recMode = cfg.mode === 'bot' ? 'bot' : 'local'
     this.applyLooks()
     this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
@@ -561,6 +570,7 @@ class App {
     this.leaveWatch(false)
     this.bot = null
     this.botMood = null
+    this.botLook = null
     this.demoBot = null
     this.spectator = new Spectator(ad.code, {
       onArena: id => this.applyArena(id),
@@ -705,6 +715,7 @@ class App {
         this.localSide = s.localSide
         this.bot = null
         this.botMood = null
+        this.botLook = null
         this.demoBot = null
         this.applyLooks()
         this.stage.capture(this.match)
@@ -838,6 +849,7 @@ class App {
     this.leaveWatch(false)
     this.bot = null
     this.botMood = null
+    this.botLook = null
     this.demoBot = null
     this.applyArena(data.meta.arena)
     this.stage.setWalls(data.meta.walls !== false)

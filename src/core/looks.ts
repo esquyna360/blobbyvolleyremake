@@ -172,6 +172,18 @@ export const defaultLook = (side: number): PlayerLook => ({
   body: side === 0 ? 0 : 1, hair: 0, hairColor: 0,
 })
 
+/**
+ * Visual do bot, sorteado a cada partida. Só pintura, então `Math.random` aqui
+ * não encosta na simulação — e `avoidBody` existe pra ele nunca sair da mesma
+ * cor que a minha.
+ */
+export function rollLook(avoidBody: number): PlayerLook {
+  const pick = (n: number) => Math.floor(Math.random() * n)
+  const n = BODY_COLORS.length
+  const body = (avoidBody + 1 + pick(n - 1)) % n
+  return { body, hair: pick(HAIR_STYLES.length), hairColor: pick(HAIR_COLORS.length) }
+}
+
 export const bodyHex = (l: PlayerLook) => BODY_COLORS[wrap(l.body, BODY_COLORS.length)].hex
 export const hairHex = (l: PlayerLook) => HAIR_COLORS[wrap(l.hairColor, HAIR_COLORS.length)].hex
 export const hairStyle = (l: PlayerLook) => HAIR_STYLES[wrap(l.hair, HAIR_STYLES.length)]

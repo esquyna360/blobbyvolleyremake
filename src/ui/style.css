@@ -294,6 +294,11 @@ html, body {
 .act.go:hover, .act.go:focus-visible { background: linear-gradient(180deg, #fff0bd, #ffdc73); }
 .act:active { transform: translateY(1px); }
 
+/* Cenário na porta de entrada: escolhe olhando pro fundo, que troca na hora. */
+.opts.pre { margin: 6px 0 0; }
+.opts.pre .opt { padding: 4px 8px; }
+.home-act .opts.pre { border-top: 1px solid var(--line); padding-top: 6px; }
+
 /* Terceiro nível: existe, não disputa. */
 .minor {
   display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
