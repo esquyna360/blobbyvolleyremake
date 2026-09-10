@@ -7,6 +7,7 @@ import { getRules } from './core/logic.ts'
 import { packInput, NO_INPUT } from './core/input.ts'
 import type { PlayerInput } from './core/input.ts'
 import { Bot } from './ai/bot.ts'
+import { BotMood } from './ai/mood.ts'
 import { Stage, QUALITY_PRESETS } from './render/stage.ts'
 import type { GameRenderer } from './render/stage.ts'
 import { Stage2D } from './render/stage2d.ts'
@@ -110,6 +111,7 @@ class App {
   private touchMenu: HTMLElement | null = null
   private touchEmotes: HTMLElement | null = null
   private emoteAt = [0, 0]
+  private botMood: BotMood | null = null
   private rec = new Recorder()
   private recMode: ReplayMode = 'bot'
   private recUpTo = -1
@@ -310,6 +312,10 @@ class App {
   private playEmote(side: Side, id: number) {
     this.stage.emote(side, id)
     this.audio.emote(id)
+    if (side === LEFT && this.botMood) {
+      const back = this.botMood.answer(id)
+      if (back >= 0) setTimeout(() => this.sendEmote(RIGHT, back), 520 + Math.random() * 380)
+    }
   }
 
   private buildTouch() {
@@ -438,6 +444,7 @@ class App {
     this.match = this.newMatch(cfg, LEFT)
     this.localSide = LEFT
     this.bot = cfg.mode === 'bot' ? new Bot(RIGHT, cfg.difficulty, (Math.random() * 1e9) | 0) : null
+    this.botMood = this.bot ? new BotMood(RIGHT, cfg.difficulty) : null
     this.recMode = cfg.mode === 'bot' ? 'bot' : 'local'
     this.applyLooks()
     this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
@@ -553,6 +560,7 @@ class App {
     this.closeSession()
     this.leaveWatch(false)
     this.bot = null
+    this.botMood = null
     this.demoBot = null
     this.spectator = new Spectator(ad.code, {
       onArena: id => this.applyArena(id),
@@ -696,6 +704,7 @@ class App {
         this.hud.setRule(r.name, this.match.logic.scoreToWin)
         this.localSide = s.localSide
         this.bot = null
+        this.botMood = null
         this.demoBot = null
         this.applyLooks()
         this.stage.capture(this.match)
@@ -828,6 +837,7 @@ class App {
     this.closeSession()
     this.leaveWatch(false)
     this.bot = null
+    this.botMood = null
     this.demoBot = null
     this.applyArena(data.meta.arena)
     this.stage.setWalls(data.meta.walls !== false)
@@ -927,6 +937,10 @@ class App {
   }
 
   private uiEvents(events: MatchEvent[]) {
+    if (this.botMood) {
+      const id = this.botMood.react(events)
+      if (id >= 0) setTimeout(() => this.sendEmote(RIGHT, id), 260 + Math.random() * 320)
+    }
     for (const e of events) {
       if (e.event === Ev.FATALITY) this.hud.fatality()
       else if (e.event === Ev.PARRY) this.hud.parry()
@@ -969,6 +983,10 @@ class App {
     this.saveReplay()
     const iWon = this.session ? w === this.localSide : (this.bot ? w === LEFT : true)
     this.audio.finish(iWon)
+    if (this.botMood) {
+      const id = this.botMood.finish(w === RIGHT)
+      setTimeout(() => this.sendEmote(RIGHT, id), 700)
+    }
     const title = this.session || this.bot ? (iWon ? 'VITÓRIA' : 'DERROTA') : (w === LEFT ? 'P1 VENCE' : 'P2 VENCE')
     const color = w === LEFT ? '#ff3b47' : '#3a8cff'
     this.hud.banner(title, 2200, color)
