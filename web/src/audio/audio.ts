@@ -8,6 +8,7 @@ import { loadSong } from './song.ts'
 import type { Rack } from './synth.ts'
 
 export const FATALITY_SFX = `${import.meta.env.BASE_URL}fatality.mp3`
+export const PARRY_SFX = `${import.meta.env.BASE_URL}parry.mp3`
 
 /**
  * Rally parado não é rally mudo: o piso do volume e do filtro tem que deixar a
@@ -729,6 +730,20 @@ export class GameAudio {
   /** Parry: estalo metálico brilhante subindo. */
   parry(pan = 0) {
     if (!this.ctx) return
+    if (this.parryOk) {
+      try {
+        const a = this.parrySample ?? (this.parrySample = new Audio(PARRY_SFX))
+        a.volume = Math.max(0, Math.min(1, this.sfxVol))
+        a.currentTime = 0
+        const r = a.play()
+        if (r) void r.catch(() => { this.parryOk = false; this.parrySynth(pan) })
+        return
+      } catch { this.parryOk = false }
+    }
+    this.parrySynth(pan)
+  }
+
+  private parrySynth(pan = 0) {
     this.thump(880, 2.6, 0.22, 0.2, 'square')
     this.bell(1568, 0, 0.7, 0.2)
     this.bell(2349, 0.02, 0.55, 0.13)
@@ -775,6 +790,8 @@ export class GameAudio {
   }
 
   private voice: HTMLAudioElement | null = null
+  private parrySample: HTMLAudioElement | null = null
+  private parryOk = true
 
   fatality(pan = 0) {
     if (!this.ctx) return

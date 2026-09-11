@@ -79,6 +79,8 @@ function discP(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, c
   }
 }
 
+const PARRY_COLS: Cols = { base: '#a9d8ff', hi: '#f2fbff', dk: '#6fa6f0', dk2: '#3f6fc4' }
+
 function colsOf(hex: string): Cols {
   return { base: hex, hi: shade(hex, 1.45), dk: shade(hex, 0.62), dk2: shade(hex, 0.32) }
 }
@@ -125,6 +127,9 @@ export class StagePixel implements GameRenderer {
   private energy = 0
   private blobFlash = [0, 0]
   private blobKick = [0, 0]
+  /** parry à la SF3: o blob inteiro vira azul-gelo por um instante */
+  private parryTint = [0, 0]
+  private sparks: { x: number; y: number; life: number; seed: number }[] = []
   private aber = 0
   private flash = 0
   private squash = { k: 0, ang: 0 }
@@ -427,6 +432,8 @@ export class StagePixel implements GameRenderer {
           const p = e.side as Side
           this.trauma = Math.min(1, this.trauma + 0.45)
           this.flash = Math.max(this.flash, 0.42)
+          this.parryTint[p] = 0.32
+          this.sparks.push({ x: w.ballX, y: w.ballY, life: 0, seed: this.time })
           this.burst(w.blobX[p], w.blobY[p] - 24, 46, 330, '#8fe4ff', 0.55)
           this.burst(w.blobX[p], w.blobY[p] - 24, 22, 190, '#ffffff', 0.5)
           this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 24, r: 10, max: 300, life: 0, color: '#0f9ada', w: 2 })
@@ -470,6 +477,8 @@ export class StagePixel implements GameRenderer {
           break
         }
         case Ev.REVERSAL: {
+          this.parryTint[e.side as Side] = 0.22
+          this.sparks.push({ x: w.ballX, y: w.ballY, life: 0, seed: this.time })
           const p = e.side as Side
           this.trauma = 1
           this.flash = Math.max(this.flash, 0.5)
@@ -603,12 +612,14 @@ export class StagePixel implements GameRenderer {
     this.time += dt
     for (const f of this.faces) f.update(dt, this.tension, false)
     if (this.pops.length) this.pops = this.pops.filter(e => { e.life += dt; return e.life < e.max })
+    if (this.sparks.length) this.sparks = this.sparks.filter(e => { e.life += dt; return e.life < 0.3 })
     this.trauma = Math.max(0, this.trauma - dt * 2.2)
     this.aber = Math.max(0, this.aber - dt * 4)
     this.cut = Math.max(0, this.cut - dt * 5)
     for (const i of [0, 1]) {
       this.blobFlash[i] = Math.max(0, this.blobFlash[i] - dt * 3.5)
       this.blobKick[i] = Math.max(0, this.blobKick[i] - dt * 3)
+      this.parryTint[i] = Math.max(0, this.parryTint[i] - dt)
     }
     this.squash.k = Math.max(0, this.squash.k - dt * 0.85)
     this.wallHits = this.wallHits.filter(h => { h.life += dt; return h.life < 0.5 })
@@ -640,7 +651,7 @@ export class StagePixel implements GameRenderer {
     const st = hairStyle(this.looks[p])
     if (!st.tufts.length && !st.puffs.length) return
     const g = this.g
-    const hc = this.hairCols[p]
+    const hc = this.parryTint[p] > 0 ? PARRY_COLS : this.hairCols[p]
     const isBack = (a: number) => Math.abs(a) >= 88
     const sway = Math.sin(this.time * 5 + p) * 0.35
     for (const t of st.tufts) {
@@ -701,7 +712,8 @@ export class StagePixel implements GameRenderer {
                stunned: boolean, cr: number, dive: number, dvDir: number) {
     if (this.off(p)) return
     const g = this.g
-    const c = this.cols[p]
+    const tint = this.parryTint[p] > 0
+    const c = tint ? PARRY_COLS : this.cols[p]
     const kick = this.blobKick[p]
     const squash = (1 + Math.sin(state * 1.6) * 0.045 + Math.sin(kick * 9) * kick * 0.12) * (1 - cr * 0.12)
     const ru = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
@@ -1069,6 +1081,23 @@ export class StagePixel implements GameRenderer {
       const ry = r.flat ? rad * 0.3 : rad
       outlineP(g, this.X(r.x), this.Y(r.y), rad, ry, r.color)
       if (r.w) outlineP(g, this.X(r.x), this.Y(r.y), rad - 1, Math.max(0.5, ry - 1), r.color)
+    }
+    for (const sp of this.sparks) {
+      // faísca do SF3: raios brancos irregulares saindo do ponto de contato
+      const k = sp.life / 0.3
+      const cx = this.X(sp.x), cy = this.Y(sp.y)
+      g.globalAlpha = 1 - k * k
+      g.strokeStyle = k < 0.35 ? '#ffffff' : '#bfe9ff'
+      g.lineWidth = k < 0.35 ? 2 : 1
+      g.beginPath()
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + Math.sin(sp.seed * 7 + i * 3.1) * 0.3
+        const len = this.S(22 + 40 * Math.abs(Math.sin(sp.seed * 3 + i * 1.7))) * (0.4 + 0.6 * Math.min(1, k * 3)) * (1 - k * 0.3)
+        const r0 = this.S(6) * k * 4
+        g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0)
+        g.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len)
+      }
+      g.stroke()
     }
     g.globalAlpha = 1
   }
