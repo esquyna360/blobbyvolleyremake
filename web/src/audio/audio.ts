@@ -365,6 +365,8 @@ export class GameAudio {
    * O rally manda no andamento e nas camadas. Não é a mesma faixa mais alta:
    * é a mesma faixa mais rápida e com mais gente tocando.
    */
+  private intensityAt = -1
+
   setRally(rally: number, matchPoint: boolean) {
     const tier = tierForRally(rally, matchPoint)
     const tempo = tempoForRally(rally) + (matchPoint ? 0.04 : 0)
@@ -379,8 +381,11 @@ export class GameAudio {
   setIntensity(k: number) {
     this.intensity = k
     if (!this.ctx || this.paused) return
-    const t = this.ctx.currentTime
     const kk = Math.max(0, Math.min(1, k))
+    // chamado todo frame: só toca no AudioParam quando o valor muda de fato
+    if (Math.abs(kk - this.intensityAt) < 0.01) return
+    this.intensityAt = kk
+    const t = this.ctx.currentTime
     this.musicLp.frequency.setTargetAtTime(musicCut(kk), t, 0.5)
     this.music.gain.setTargetAtTime(musicGain(kk), t, 0.6)
   }

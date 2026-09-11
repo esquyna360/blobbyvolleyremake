@@ -159,6 +159,13 @@ export const currentStrategy = () => lastStrategy
 export interface Transport {
   readonly kind: string
   send(data: Uint8Array, to?: PeerId): void
+  /**
+   * Pacote descartável (input redundante, ping): vai por canal sem ordem nem
+   * retransmissão quando existe. O canal do Trystero é confiável e ordenado —
+   * pacote perdido segura todos os seguintes, e a fila só cresce ao longo da
+   * partida. Sem o canal rápido cai no `send` normal.
+   */
+  sendFast(data: Uint8Array, to?: PeerId): void
   onData(cb: (data: Uint8Array, peer: PeerId) => void): void
   onPeerJoin(cb: (peer: PeerId) => void): void
   onPeerLeave(cb: (peer: PeerId) => void): void
@@ -180,24 +187,63 @@ export async function createRoomTransport(roomId: string, pref: Strategy = 'supa
   const joinCbs: ((p: PeerId) => void)[] = []
   const leaveCbs: ((p: PeerId) => void)[] = []
   const peerSet = new Set<PeerId>()
+  const fast = new Map<PeerId, RTCDataChannel>()
 
+  const deliver = (u8: Uint8Array, peer: PeerId) => { for (const cb of dataCbs) cb(u8, peer) }
   getRaw((data, peer) => {
-    const u8 = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer)
-    for (const cb of dataCbs) cb(u8, peer)
+    deliver(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer), peer)
   })
-  room.onPeerJoin(p => { peerSet.add(p); for (const cb of joinCbs) cb(p) })
-  room.onPeerLeave(p => { peerSet.delete(p); for (const cb of leaveCbs) cb(p) })
+
+  // Cada lado abre o seu canal de saída e escuta o do outro: sem negociar quem
+  // cria. Canal novo na mesma associação SCTP não renegocia nada.
+  const openFast = (p: PeerId) => {
+    const pc = (room.getPeers() as Record<string, RTCPeerConnection | undefined>)[p]
+    if (!pc) return
+    const prev = pc.ondatachannel
+    pc.ondatachannel = ev => {
+      if (ev.channel.label !== FAST_LABEL) { prev?.call(pc, ev); return }
+      ev.channel.binaryType = 'arraybuffer'
+      ev.channel.onmessage = e => deliver(new Uint8Array(e.data as ArrayBuffer), p)
+    }
+    try {
+      const ch = pc.createDataChannel(FAST_LABEL, { ordered: false, maxRetransmits: 0 })
+      ch.binaryType = 'arraybuffer'
+      ch.onopen = () => fast.set(p, ch)
+      ch.onclose = () => { if (fast.get(p) === ch) fast.delete(p) }
+      ch.onerror = () => { if (fast.get(p) === ch) fast.delete(p) }
+    } catch { /* fica no canal do Trystero */ }
+  }
+
+  room.onPeerJoin(p => { peerSet.add(p); openFast(p); for (const cb of joinCbs) cb(p) })
+  room.onPeerLeave(p => { peerSet.delete(p); fast.delete(p); for (const cb of leaveCbs) cb(p) })
+
+  const send = (d: Uint8Array, to?: PeerId) => { void (to ? sendRaw(d, to) : sendRaw(d)) }
+  const sendFast = (d: Uint8Array, to?: PeerId) => {
+    const targets = to ? [to] : [...peerSet]
+    for (const p of targets) {
+      const ch = fast.get(p)
+      if (ch && ch.readyState === 'open' && ch.bufferedAmount < FAST_BACKLOG) {
+        try { ch.send(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) as ArrayBuffer); continue } catch { /* cai pro lento */ }
+      }
+      send(d, p)
+    }
+  }
 
   return {
     kind: `room:${strategy}`,
-    send: (d, to) => { void (to ? sendRaw(d, to) : sendRaw(d)) },
+    send,
+    sendFast,
     onData: cb => dataCbs.push(cb),
     onPeerJoin: cb => joinCbs.push(cb),
     onPeerLeave: cb => leaveCbs.push(cb),
     peers: () => [...peerSet],
-    close: () => room.leave(),
+    close: () => { for (const ch of fast.values()) ch.close(); fast.clear(); void room.leave() },
   }
 }
+
+const FAST_LABEL = 'fast'
+/** Acima disso o canal está engasgado: solta o pacote em vez de empilhar. */
+const FAST_BACKLOG = 4096
 
 export interface ManualHandle {
   transport: Transport
@@ -274,6 +320,7 @@ export function createManualTransport(asHost: boolean): ManualHandle {
   const transport: Transport = {
     kind: asHost ? 'manual:host' : 'manual:guest',
     send: d => { if (channel && channel.readyState === 'open') channel.send(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) as ArrayBuffer) },
+    sendFast: d => { if (channel && channel.readyState === 'open') channel.send(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) as ArrayBuffer) },
     onData: cb => dataCbs.push(cb),
     onPeerJoin: cb => joinCbs.push(cb),
     onPeerLeave: cb => leaveCbs.push(cb),

@@ -272,7 +272,7 @@ export class NetSession {
       const b = new Uint8Array(9)
       new DataView(b.buffer).setUint8(0, P.PING)
       new DataView(b.buffer).setFloat64(1, performance.now())
-      this.transport.send(b)
+      this.transport.sendFast(b)
     }, 1000) as unknown as number
   }
 
@@ -301,7 +301,7 @@ export class NetSession {
         const d2 = new DataView(b.buffer)
         d2.setUint8(0, P.PONG)
         d2.setFloat64(1, dv.getFloat64(1))
-        this.transport.send(b)
+        this.transport.sendFast(b)
         break
       }
       case P.PONG: this.rtt = performance.now() - dv.getFloat64(1); break
@@ -332,7 +332,7 @@ export class NetSession {
     dv.setUint32(5, rb.frame)
     dv.setUint8(9, bits.length)
     buf.set(bits, 10)
-    this.transport.send(buf)
+    this.transport.sendFast(buf)
   }
 
   maybeSendChecksum() {
