@@ -6,7 +6,7 @@ import type { ArenaId, SideOrNone } from './constants.ts'
  * Sobe sempre que física, regra ou ordem de eventos mudar. Replay gravado com
  * outra versão não reproduz o mesmo jogo — melhor não mostrar do que mentir.
  */
-export const SIM_VERSION = 17
+export const SIM_VERSION = 18
 
 export type ReplayMode = 'bot' | 'local' | 'online'
 

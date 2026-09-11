@@ -97,6 +97,8 @@ export class PhysicWorld {
   hitAimX = [0, 0]
   hitAimY = [0, 0]
   hitLag = [0, 0]
+  /** Frames após a batida em que a bola atravessa o corpo de quem bateu enquanto se afasta. */
+  hitPass = [0, 0]
   prevHit = [0, 0]
   swingT = [0, 0]
   /** double special: a bola dá uma volta no corpo antes de sair */
@@ -539,6 +541,7 @@ export class PhysicWorld {
    */
   private hitStep(p: Side, raw: PlayerInput, isBallValid: boolean, out: MatchEvent[]) {
     if (this.hitLag[p] > 0) this.hitLag[p]--
+    if (this.hitPass[p] > 0) this.hitPass[p]--
     const busy = this.stun[p] > 0 || this.diveFrames[p] > 0 || this.diveRecover[p] > 0
     if (this.swingT[p] > 0) {
       this.swingT[p]--
@@ -589,6 +592,7 @@ export class PhysicWorld {
     const d2 = dx * dx + dy * dy
     if (d2 > HIT_REACH * HIT_REACH) return false
     this.hitLag[p] = HIT_LAG
+    this.hitPass[p] = 30
     this.bumpTempo()
     this.ballSpin = 0
     const cortada = !this.blobHitGround(p) && this.hitAimY[p] > 0
@@ -736,6 +740,11 @@ export class PhysicWorld {
 
     // quem soltou o especial não reencosta na bola enquanto ela sai de perto
     if (this.superOwner === p && this.superFrames > SPECIAL_BALL_FRAMES - 12) return false
+    // quem acabou de bater também não: a bola sai limpa do corpo enquanto se afasta
+    if (this.hitPass[p] > 0) {
+      const away = (this.ballX - this.blobX[p]) * this.ballVX + (this.ballY - this.blobY[p]) * this.ballVY > 0
+      if (away) return false
+    }
 
     this.bumpTempo()
 
@@ -994,6 +1003,7 @@ export class PhysicWorld {
     this.superKind = 0
     this.armSpecial[LEFT] = 0; this.armSpecial[RIGHT] = 0
     this.hitLag[LEFT] = 0; this.hitLag[RIGHT] = 0
+    this.hitPass[LEFT] = 0; this.hitPass[RIGHT] = 0
     this.revActive[LEFT] = 0; this.revActive[RIGHT] = 0
     this.revCd[LEFT] = 0; this.revCd[RIGHT] = 0
     this.diveFrames[LEFT] = 0; this.diveFrames[RIGHT] = 0

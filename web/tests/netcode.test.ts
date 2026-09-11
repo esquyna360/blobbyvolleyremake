@@ -221,6 +221,29 @@ test('deixadinha: toque curto; com frente vai pro fundo; cortada no ar tem prior
   assert.equal(m.logic.isGameRunning, true, 'deixadinha no saque não começou o rally')
 })
 
+test('cortada por baixo da bola não bate no próprio blob', () => {
+  const m = new Match('default', 3, LEFT)
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 150; w.blobX[RIGHT] = 845
+  w.blobY[LEFT] = GROUND_PLANE_HEIGHT - 100; w.blobVY[LEFT] = 0
+  w.ballX = 900; w.ballY = 100; w.ballVX = 0; w.ballVY = 0
+  const HOLD = { ...NO_INPUT, hit: true, right: true, down: true }
+  for (let f = 0; f < 12; f++) {
+    m.step(HOLD, NO_INPUT)
+    w.ballX = 162; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0
+    w.blobY[LEFT] = GROUND_PLANE_HEIGHT - 100; w.blobVY[LEFT] = 0
+  }
+  m.step(NO_INPUT, NO_INPUT)
+  assert.ok(m.events.some(e => e.event === Ev.HIT), 'cortada não saiu')
+  for (let f = 0; f < 20; f++) {
+    m.step(NO_INPUT, NO_INPUT)
+    assert.ok(!m.events.some(e => e.event === Ev.BALL_HIT_BLOB && e.side === LEFT), `bola voltou no próprio blob no frame ${f}`)
+  }
+  assert.ok(w.ballVY > 0 && w.ballVX > 0, 'cortada não desceu pra frente')
+})
+
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world
