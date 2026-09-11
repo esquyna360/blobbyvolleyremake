@@ -56,6 +56,24 @@ func set_look(look: Array) -> void:
 	_mat.set_shader_parameter("deep_color", deep)
 	_hair.set_look(look)
 
+## Retrato parado: respira, pisca e olha pra câmera, sem mundo por trás.
+func pose(dt: float, time: float, tension := 0.0) -> void:
+	var breath := sin(time * 2.0) * 0.03
+	var sq := Vector3(1.0 - breath * 0.6, 1.0 + breath, 1.0 - breath * 0.6)
+	_mat.set_shader_parameter("squash", sq)
+	_mat.set_shader_parameter("wobble_amp", 0.0)
+	_mat.set_shader_parameter("eye_aim", Vector3(0.0, 0.08, 1.0).normalized())
+	_hair.position.y = HEAD_OFF * sq.y
+	_hair.scale = Vector3(sq.x * HEAD_R, sq.y * HEAD_R, sq.z * HEAD_R)
+	rotation.z = sin(time * 0.9) * 0.03
+	face.update(dt, tension, false)
+	_mat.set_shader_parameter("blink", 0.08 + face.blink * 0.92)
+	_mat.set_shader_parameter("lid", face.lid)
+	_mat.set_shader_parameter("curve", face.curve)
+	_mat.set_shader_parameter("brow", face.brow)
+	_mat.set_shader_parameter("tear", face.tear)
+	_mat.set_shader_parameter("mouth", face.open)
+
 func kick(w: float, sv: float) -> void:
 	wobble = maxf(wobble, w)
 	squash_vel -= sv

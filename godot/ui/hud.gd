@@ -16,6 +16,11 @@ var _rally: Label
 var _info: Label
 var _big: Label
 var _mark: Label
+var _card: Label
+var _card_t := 0.0
+var _goo: Control
+var _splats: Array = []
+var names := ["", ""]
 var _mark_a := 0.0
 var _big_t := 0.0
 var _big_pop := 0.0
@@ -174,6 +179,54 @@ func build(left: Color, right: Color) -> void:
 	_mark.modulate.a = 0.0
 	_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_mark)
+	_card = Label.new()
+	_card.set_anchors_preset(Control.PRESET_CENTER)
+	_card.anchor_left = 0.5
+	_card.anchor_right = 0.5
+	_card.anchor_top = 0.76
+	_card.anchor_bottom = 0.76
+	_card.offset_left = -400
+	_card.offset_right = 400
+	_card.offset_top = -40
+	_card.offset_bottom = 40
+	_card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_card.add_theme_font_size_override("font_size", 46)
+	_card.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.8))
+	_card.add_theme_constant_override("outline_size", 8)
+	_card.modulate.a = 0.0
+	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_card)
+	_goo = Control.new()
+	_goo.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_goo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goo.draw.connect(_draw_goo)
+	add_child(_goo)
+
+func card(text: String, color: Color, hold := 1.2) -> void:
+	_card.text = text
+	_card.add_theme_color_override("font_color", color)
+	_card_t = hold
+	_card.modulate.a = 0.0
+
+func splat(color: Color) -> void:
+	var vs := size
+	var n := 3 + randi() % 4
+	var cx := randf_range(vs.x * 0.15, vs.x * 0.85)
+	var cy := randf_range(vs.y * 0.15, vs.y * 0.85)
+	for k in n:
+		_splats.append({"p": Vector2(cx + randf_range(-90, 90), cy + randf_range(-70, 70)),
+			"r": randf_range(22, 70) * (1.6 if k == 0 else 1.0), "c": color, "t": 0.0,
+			"vy": randf_range(6.0, 22.0)})
+	_goo.queue_redraw()
+
+func _draw_goo() -> void:
+	for s in _splats:
+		var a: float = 0.86 * clampf(1.0 - (s.t - 2.2) / 1.6, 0.0, 1.0)
+		var c: Color = s.c
+		_goo.draw_circle(s.p, s.r, Color(c.r, c.g, c.b, a))
+		_goo.draw_circle(s.p + Vector2(-s.r * 0.3, -s.r * 0.3), s.r * 0.3,
+			Color(1, 1, 1, a * 0.35))
+		_goo.draw_circle(s.p + Vector2(0, s.r * 0.9), s.r * 0.45, Color(c.r, c.g, c.b, a))
 
 func ball_hint(h: Vector3, dt: float) -> void:
 	var want := 1.0 if h.z > 0.5 else 0.0
@@ -210,7 +263,8 @@ func update(m: BVMatch, dt: float) -> void:
 
 	var stw := g.score_to_win
 	var mp := maxi(g.scores[0], g.scores[1]) >= stw - 1 and g.winner == BV.NO_PLAYER
-	_info.text = "MATCH POINT" if mp else "%s · até %d" % [g.rules.name, stw]
+	_info.text = "MATCH POINT" if mp else ("%s  vs  %s" % [names[0], names[1]] if names[0] != "" \
+		else "%s · até %d" % [g.rules.name, stw])
 	_info.add_theme_color_override("font_color",
 		Color(1.0, 0.5, 0.35) if mp else Color(1, 1, 1, 0.78))
 
@@ -238,6 +292,22 @@ func update(m: BVMatch, dt: float) -> void:
 	_rally.pivot_offset = _rally.size * 0.5
 	_rally.scale = Vector2.ONE * (1.0 + _rally_pulse * 0.10)
 
+	if _card_t > 0.0:
+		_card_t -= dt
+		_card.modulate.a = clampf(minf(_card_t * 4.0, 1.0), 0.0, 1.0)
+		_card.pivot_offset = _card.size * 0.5
+		_card.scale = Vector2.ONE * (1.0 + clampf(_card_t - 0.9, 0.0, 0.3) * 0.15)
+	elif _card.modulate.a > 0.0:
+		_card.modulate.a = 0.0
+	if _splats.size() > 0:
+		var keep := []
+		for s in _splats:
+			s.t += dt
+			s.p.y += s.vy * dt * (1.0 + s.t)
+			if s.t < 3.8:
+				keep.append(s)
+		_splats = keep
+		_goo.queue_redraw()
 	if _big_t > 0.0:
 		_big_t -= dt
 		_big_pop = maxf(0.0, _big_pop - dt * 5.0)

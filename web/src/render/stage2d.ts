@@ -100,6 +100,7 @@ interface Big { text: string; kind: BigKind; color: string; life: number; max: n
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
 
 export class Stage2D implements GameRenderer {
+  timeScale() { return 1 }
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private cw = 1

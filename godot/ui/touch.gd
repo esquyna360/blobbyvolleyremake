@@ -17,11 +17,11 @@ func build(slot_index := 0) -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_font = get_theme_default_font()
 	_buttons = [
-		{"act": "left", "icon": "◀", "label": "", "pos": Vector2(96, -116), "r": 64.0,
+		{"act": "left", "icon": "◀", "label": "", "pos": Vector2(96, -200), "r": 64.0,
 			"col": Color(0.92, 0.86, 0.66), "side": 0},
-		{"act": "right", "icon": "▶", "label": "", "pos": Vector2(240, -116), "r": 64.0,
+		{"act": "right", "icon": "▶", "label": "", "pos": Vector2(240, -200), "r": 64.0,
 			"col": Color(0.92, 0.86, 0.66), "side": 0},
-		{"act": "down", "icon": "▼", "label": "", "pos": Vector2(168, -246), "r": 50.0,
+		{"act": "down", "icon": "▼", "label": "", "pos": Vector2(168, -92), "r": 50.0,
 			"col": Color(0.92, 0.86, 0.66), "side": 0},
 		{"act": "up", "icon": "⤒", "label": "PULAR", "pos": Vector2(-112, -128), "r": 74.0,
 			"col": Color(0.55, 0.90, 0.45), "side": 1},

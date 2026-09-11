@@ -40,6 +40,15 @@ var trauma := 0.0
 var hitstop := 0.0
 var aberration := 0.0
 var flash := 0.0
+signal goo(color: Color)
+var _aura: Array[MeshInstance3D] = []
+var _stars: Array = []
+var _punch := 0.0
+var _punch_side := 0
+var outro_t := -1.0
+var _outro_winner := 0
+var _chunks: Array = []
+const OUTRO_LEN := 4.6
 var ball_speed := 0.0
 
 var _cam_target_x := 0.0
@@ -115,6 +124,100 @@ func _intro_cam(dt: float, w: PhysicWorld) -> bool:
 	return true
 
 var _cut := 0.0
+
+## Câmera encosta na cara de quem soltou o especial: o jogo desacelera
+## junto (ver Game._process) e volta em meio segundo.
+func drama() -> float:
+	if outro_t >= 0.0:
+		return 0.0
+	return 0.2 if _punch > 0.14 else 1.0
+
+func _punch_k() -> float:
+	if _punch <= 0.0:
+		return 0.0
+	var k_in := clampf((0.5 - _punch) / 0.07, 0.0, 1.0)
+	var k_out := clampf(_punch / 0.14, 0.0, 1.0)
+	return _ease(k_in) * _ease(k_out)
+
+func start_outro(winner: int) -> void:
+	outro_t = 0.0
+	_outro_winner = winner
+	var l := BV.other(winner)
+	var bp: Vector3 = blobs[l].position
+	var col := blobs[l].body_color
+	_gib[l] = 1
+	trauma = 1.0
+	hitstop = maxf(hitstop, 0.12)
+	flash = maxf(flash, 0.5)
+	fx.burst(bp + Vector3(0, 0.8, 0), 700, 16.0, PI, 1.3, 2.6, 0.12, col, 0.9, 0.45, false)
+	fx.burst(bp + Vector3(0, 0.8, 0), 260, 26.0, 0.8, 0.3, 0.6, 0.07, Color(1.0, 0.95, 0.85), 3.0)
+	for k in 14:
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		var r := 0.12 + randf() * 0.28
+		sm.radius = r
+		sm.height = r * 2.0
+		sm.radial_segments = 10
+		sm.rings = 6
+		mi.mesh = sm
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = col
+		mat.roughness = 0.25
+		mat.clearcoat_enabled = true
+		mi.material_override = mat
+		mi.position = bp + Vector3((randf() - 0.5) * 0.6, 0.6 + randf() * 0.8, 0.2)
+		add_child(mi)
+		var to_cam := (camera.position - mi.position).normalized()
+		var v := to_cam * (9.0 + randf() * 9.0) + Vector3((randf() - 0.5) * 6.0, 3.0 + randf() * 6.0, 0.0)
+		_chunks.append({"n": mi, "v": v, "spin": Vector3(randf(), randf(), randf()) * 6.0, "t": 0.0})
+	blobs[winner].face.set_mood("laugh", 8.0, 9)
+
+func outro_active() -> bool:
+	return outro_t >= 0.0
+
+func _step_chunks(dt: float) -> void:
+	var keep := []
+	for c in _chunks:
+		var n: MeshInstance3D = c.n
+		c.v.y -= 22.0 * dt
+		n.position += c.v * dt
+		n.rotation += c.spin * dt
+		c.t += dt
+		var d: float = camera.position.distance_to(n.position)
+		if d < 1.6:
+			goo.emit(n.material_override.albedo_color)
+			n.queue_free()
+			continue
+		if n.position.y < -2.0 or c.t > 4.0:
+			n.queue_free()
+			continue
+		keep.append(c)
+	_chunks = keep
+
+## Fim de partida: o perdedor explode em gosma, uns pedaços vêm até a lente,
+## e a câmera vai buscar a cara de quem ganhou.
+func _outro_cam(dt: float, w: PhysicWorld) -> bool:
+	if outro_t < 0.0:
+		return false
+	outro_t += dt
+	var i := _outro_winner
+	var wx: float = blobs[i].position.x
+	var hy: float = blobs[i].position.y + 0.75
+	var d := 1.0 if i == BV.LEFT else -1.0
+	var t := outro_t
+	if t < 0.9:
+		return false
+	var k := _ease(clampf((t - 0.9) / 1.1, 0.0, 1.0))
+	var gp := camera.position
+	var orbit := sin((t - 2.0) * 0.6) * 0.5
+	var pos := Vector3(wx + d * 0.5 + orbit, hy + 0.15, 3.4 - (t - 2.0) * 0.06)
+	var look := Vector3(wx, hy, 0.0)
+	camera.position = gp.lerp(pos, k)
+	camera.look_at(Vector3(_cam_target_x * CAM_LOOK, CAM_LOOK_Y, 0.0).lerp(look, k), Vector3.UP)
+	camera.fov = lerpf(CAM_FOV, 29.0, k)
+	if outro_t >= OUTRO_LEN:
+		outro_t = OUTRO_LEN
+	return true
 
 func ball_screen_hint(bx: float, by: float) -> Vector3:
 	var p := Vector3(bx, by, 0.0)
@@ -198,6 +301,40 @@ func build(q: int) -> void:
 		_reach.append(m)
 		_shadow.append(_make_shadow())
 	_shadow.append(_make_shadow())
+
+	for i in 2:
+		var am := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(1, 1)
+		am.mesh = qm
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = load("res://assets/stage/glow.png")
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		mat.disable_fog = true
+		mat.disable_receive_shadows = true
+		am.material_override = mat
+		am.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		am.visible = false
+		add_child(am)
+		_aura.append(am)
+		var group := []
+		for k in 3:
+			var st := Label3D.new()
+			st.text = "★"
+			st.font_size = 96
+			st.pixel_size = 0.005
+			st.modulate = Color(1.0, 0.9, 0.3)
+			st.outline_modulate = Color(0.4, 0.25, 0.0, 0.9)
+			st.outline_size = 14
+			st.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			st.no_depth_test = true
+			st.visible = false
+			add_child(st)
+			group.append(st)
+		_stars.append(group)
 
 	if q >= 2:
 		_post_mat.shader = load("res://render/post.gdshader")
@@ -337,6 +474,10 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			var p := side
 			var bx := Map.gx(w.ball_x)
 			var by := Map.gy(w.ball_y)
+			if intensity >= 1.0:
+				_punch = 0.5
+				_punch_side = p
+				blobs[p].face.set_mood("angry", 0.6, 8)
 			trauma = minf(1.0, trauma + 0.75)
 			hitstop = maxf(hitstop, 0.11)
 			aberration = maxf(aberration, 2.2)
@@ -560,7 +701,21 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 		camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0), Vector3.UP)
 		camera.rotate_object_local(Vector3.FORWARD, shr)
 		camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036 - tension * 1.4
+		_punch = maxf(0.0, _punch - dt)
+		var pk := _punch_k()
+		if pk > 0.0:
+			var i := _punch_side
+			var fx_ := Map.gx(w.blob_x[i])
+			var fy := Map.gy(w.blob_y[i]) + 0.75
+			var d := 1.0 if i == BV.LEFT else -1.0
+			var tp := Vector3(fx_ + d * 0.3, fy + 0.25, 3.9)
+			camera.position = camera.position.lerp(tp, pk)
+			camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0).lerp(
+				Vector3(fx_, fy - 0.12, 0.0), pk), Vector3.UP)
+			camera.fov = lerpf(camera.fov, 30.0, pk)
+		_outro_cam(dt, w)
 	_cut = maxf(0.0, _cut - dt * 6.0)
+	_step_chunks(dt)
 
 	ball.update(bx, by, brot, sin(time * 0.7) * 0.25, dt)
 	_blob_shadow(_shadow[2], bx, by, 1.5)
@@ -568,8 +723,11 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 		var col := blobs[w.super_owner].body_color if w.super_owner >= 0 \
 			else Color(1.0, 0.7, 0.2)
 		ball.flash(3.4 + sin(time * 30.0) * 0.8)
-		fx.burst(Vector3(bx, by, 0), 13, 2.2, PI, 1.5, 0.55, 0.085,
-			Color(1.0, 0.42, 0.05), 2.6, 0.3)
+		fx.burst(Vector3(bx, by, 0), 22, 2.6, PI, 1.5, 0.7, 0.11,
+			Color(1.0, 0.42, 0.05), 2.4, 0.3)
+		fx.burst(Vector3(bx, by, 0), 6, 1.0, PI, 1.2, 1.1, 0.16, col, 1.6, 0.2)
+		if int(time * 40.0) % 3 == 0:
+			fx.shock(Vector3(bx, by, 0.2), 0.05, 1.4, 0.22, Color(1.4, 0.9, 0.4), 0.5)
 		fx.burst(Vector3(bx, by, 0), 5, 0.6, PI, 2.1, 1.4, 0.055,
 			Color(0.16, 0.13, 0.12), 1.4, 0.15, false)
 		fx.burst(Vector3(bx, by, 0), 3, 0.9, PI, 0.8, 0.7, 0.04, col, 2.0, 0.3)
@@ -581,6 +739,30 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	FaceRig.reach_moods([blobs[0].face, blobs[1].face], w, m.logic.is_ball_valid)
 	_update_blob(BV.LEFT, alpha, dt, w, bx, by)
 	_update_blob(BV.RIGHT, alpha, dt, w, bx, by)
+	for i in 2:
+		var b := blobs[i]
+		var am := _aura[i]
+		var ready := w.charge[i] >= BV.SPECIAL_FULL and b.visible
+		am.visible = ready
+		if ready:
+			var pulse := 0.5 + 0.5 * sin(time * 5.0 + i)
+			var s := 3.0 + pulse * 0.5
+			am.scale = Vector3(s, s * 1.15, 1)
+			am.position = b.position + Vector3(0, 0.9, -0.35)
+			var mat: StandardMaterial3D = am.material_override
+			var c := b.body_color.lightened(0.35)
+			mat.albedo_color = Color(c.r, c.g, c.b, 0.28 + pulse * 0.16)
+			if int(time * 12.0 + i * 5) % 4 == 0:
+				fx.burst(b.position + Vector3((randf() - 0.5) * 1.2, 0.2, 0.3), 4, 1.2,
+					0.5, 1.0, 0.9, 0.05, c, 1.2, 0.2)
+		var stunned := w.stun[i] > 0 and b.visible
+		for k in 3:
+			var st: Label3D = _stars[i][k]
+			st.visible = stunned
+			if stunned:
+				var a := time * 5.0 + k * TAU / 3.0
+				st.position = b.position + Vector3(cos(a) * 0.55, 1.75 + sin(a * 2.0) * 0.08, sin(a) * 0.55)
+				st.scale = Vector3.ONE * (0.8 + 0.25 * sin(time * 9.0 + k))
 	_update_reach(w, alpha, dt)
 
 	court.step(dt)

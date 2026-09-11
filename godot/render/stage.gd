@@ -116,6 +116,155 @@ const THEMES := {
 			{"m": "detail-tank", "dir": "industrial", "x": 9.0, "y": -0.4, "z": 16.5, "h": 2.6, "tint": 0.35},
 		],
 	},
+	"acampamento": {
+		"dir": "res://assets/stage/camp/", "extra": "camp",
+		"bg": Color(0.03, 0.04, 0.09), "ambient": Color(0.30, 0.36, 0.55),
+		"fog": Color(0.10, 0.14, 0.26), "sat": 1.05, "sky_mult": 1.0, "sky_y": 7.0,
+		"back_rot": Vector3(-40, 160, 0), "back_col": Color(0.70, 0.80, 1.0), "back_e": 0.9,
+		"key_rot": Vector3(-48, 20, 0), "key_col": Color(0.75, 0.82, 1.0), "key_e": 0.55,
+		"ground": Color(0.62, 0.70, 0.62),
+		"water": {"shallow": Color(0.10, 0.18, 0.32), "deep": Color(0.03, 0.05, 0.14),
+			"foam": Color(0.75, 0.85, 1.0), "sky": Color(0.55, 0.65, 0.95),
+			"flow": 0.08, "wave": 0.06, "scale": 0.5},
+		"falls": false, "rays": false, "ray_col": Color(0.7, 0.8, 1.0),
+		"glow": {"col": Color(0.65, 0.75, 1.0, 0.30), "scale": Vector2(60, 40),
+			"pos": Vector3(14.0, 26.0, -160.0)},
+		"butterflies": true, "birds": false, "fire": Vector3(-9.5, 0.0, 6.0), "leaves": false,
+		"mote_col": Color(0.8, 0.9, 1.0, 0.25), "fog_col": Color(0.6, 0.7, 0.95, 0.16),
+		"leaf_ramp": [Color(0.5, 0.5, 0.55), Color(0.6, 0.6, 0.65), Color(0.55, 0.55, 0.6), Color(0.45, 0.45, 0.5)],
+		"props": [
+			{"m": "tree_pineTallA", "x": -12.0, "z": 10.0, "h": 12.0, "ry": 20, "tint": 0.45},
+			{"m": "tent_smallOpen", "x": 13.5, "z": 1.0, "h": 2.6, "ry": -150},
+			{"m": "campfire_logs", "x": -9.5, "z": 6.0, "h": 0.6},
+			{"m": "log_stack", "x": -12.5, "z": 4.5, "h": 0.9, "ry": 30},
+			{"m": "log", "x": -7.5, "y": -0.05, "z": 8.0, "h": 0.8, "ry": 80},
+			{"m": "stump_round", "x": -11.0, "z": 8.2, "h": 0.6},
+			{"m": "tree_pineRoundA", "x": -16.5, "z": -3.0, "h": 9.5, "ry": 40},
+			{"m": "tree_pineTallA", "x": 17.0, "z": -4.0, "h": 11.0, "ry": 110},
+			{"m": "tree_pineRoundA", "x": 20.5, "z": -10.0, "h": 8.5},
+			{"m": "tree_pineTallA", "x": -21.0, "z": -11.0, "h": 12.0, "ry": 70},
+			{"m": "tree_pineRoundA", "x": -11.5, "z": -12.5, "h": 7.5, "ry": 150},
+			{"m": "tree_pineTallA", "x": 10.5, "z": -13.5, "h": 9.0, "ry": 15},
+			{"m": "mushroom_tanGroup", "x": -10.2, "z": 3.0, "h": 0.5},
+			{"m": "rock_largeA", "x": 7.0, "z": -13.5, "h": 1.4, "ry": 20},
+			{"m": "rock_smallB", "x": 11.0, "z": 6.5, "h": 0.5},
+			{"m": "canoe", "x": -3.0, "y": 0.05, "z": -14.0, "h": 0.9, "ry": 15},
+			{"m": "plant_bush", "x": 15.5, "z": 4.5, "h": 1.2},
+			{"m": "grass_large", "x": 8.0, "z": 16.5, "h": 1.1, "tint": 0.45},
+		],
+	},
+	"neve": {
+		"dir": "res://assets/stage/snow/", "extra": "snow", "snow": true,
+		"bg": Color(0.72, 0.80, 0.90), "ambient": Color(0.80, 0.86, 0.95),
+		"fog": Color(0.88, 0.92, 0.97), "sat": 0.95, "sky_mult": 1.05, "sky_y": 6.0,
+		"back_rot": Vector3(-30, 165, 0), "back_col": Color(1.0, 0.95, 0.85), "back_e": 0.7,
+		"key_rot": Vector3(-52, 25, 0), "key_col": Color(1.0, 0.98, 0.95), "key_e": 1.0,
+		"ground": Color(0.98, 0.99, 1.0),
+		"water": {"shallow": Color(0.72, 0.82, 0.90), "deep": Color(0.55, 0.68, 0.82),
+			"foam": Color(1.0, 1.0, 1.0), "sky": Color(0.85, 0.9, 0.97),
+			"flow": 0.0, "wave": 0.015, "scale": 0.4},
+		"falls": false, "rays": false, "ray_col": Color(1.0, 1.0, 1.0),
+		"glow": {"col": Color(1.0, 0.98, 0.9, 0.25), "scale": Vector2(70, 50),
+			"pos": Vector3(-20.0, 20.0, -160.0)},
+		"butterflies": false, "birds": false, "fire": null, "leaves": true,
+		"mote_col": Color(1, 1, 1, 0.3), "fog_col": Color(0.9, 0.94, 1.0, 0.2),
+		"leaf_ramp": [Color(1, 1, 1), Color(0.95, 0.97, 1.0), Color(1, 1, 1), Color(0.9, 0.94, 1.0)],
+		"props": [
+			{"m": "tree_pineTallA", "x": -11.5, "z": 10.5, "h": 12.5, "ry": 30, "tint": 0.55},
+			{"m": "tree_pineRoundA", "x": -14.0, "z": 0.5, "h": 9.5, "ry": 60},
+			{"m": "tree_pineTallA", "x": 16.0, "z": -2.0, "h": 11.5, "ry": 100},
+			{"m": "tree_pineRoundA", "x": 20.0, "z": -9.0, "h": 8.0},
+			{"m": "tree_pineTallA", "x": -20.0, "z": -9.5, "h": 12.0, "ry": 70},
+			{"m": "tree_pineTallA", "x": 9.5, "z": -13.0, "h": 8.5, "ry": 15},
+			{"m": "tree_pineRoundA", "x": -8.0, "z": -13.5, "h": 6.5, "ry": 150},
+			{"m": "rock_largeB", "x": 6.0, "z": 16.0, "h": 1.7, "ry": 30, "tint": 0.6},
+			{"m": "rock_tallA", "x": -4.0, "z": -13.5, "h": 2.0},
+			{"m": "log_large", "x": 11.5, "y": 0.0, "z": 8.5, "h": 0.9, "ry": 20},
+			{"m": "stump_old", "x": -12.0, "z": 5.0, "h": 0.8},
+			{"m": "fence_simple", "x": 14.0, "z": -12.5, "h": 1.1},
+			{"m": "fence_simple", "x": 17.6, "z": -12.5, "h": 1.1},
+		],
+	},
+	"telhado": {
+		"dir": "res://assets/stage/roof/", "extra": "city", "layers": false, "fringe": false,
+		"bg": Color(0.06, 0.04, 0.10), "ambient": Color(0.30, 0.26, 0.42),
+		"fog": Color(0.20, 0.12, 0.28), "sat": 1.1, "sky_mult": 1.0, "sky_y": 10.0,
+		"back_rot": Vector3(-30, 170, 0), "back_col": Color(0.9, 0.5, 0.8), "back_e": 0.8,
+		"key_rot": Vector3(-55, 15, 0), "key_col": Color(0.85, 0.85, 1.0), "key_e": 0.6,
+		"ground": Color(0.6, 0.62, 0.68),
+		"water": {}, "falls": false, "rays": false, "ray_col": Color(1, 0.5, 0.8),
+		"glow": {}, "butterflies": false, "birds": false, "fire": null, "leaves": false,
+		"mote_col": Color(0.9, 0.8, 1.0, 0.2), "fog_col": Color(0.6, 0.4, 0.7, 0.14),
+		"leaf_ramp": [Color(0.5, 0.5, 0.55), Color(0.6, 0.6, 0.65), Color(0.55, 0.55, 0.6), Color(0.45, 0.45, 0.5)],
+		"props": [
+			{"m": "chimney-basic", "dir": "industrial", "x": -10.5, "y": -0.5, "z": 15.5, "h": 6.5, "tint": 0.3},
+			{"m": "water-tower", "dir": "industrial", "x": -18.0, "z": -6.0, "h": 9.0, "ry": 20},
+			{"m": "detail-tank", "dir": "industrial", "x": 13.5, "z": 4.0, "h": 2.6},
+			{"m": "detail-tank-large", "dir": "industrial", "x": 20.0, "z": -5.0, "h": 4.0},
+			{"m": "chimney-basic", "dir": "industrial", "x": 9.0, "z": -12.0, "h": 4.0},
+			{"m": "shipping-container-b", "dir": "industrial", "x": -13.0, "z": 3.5, "h": 2.4, "ry": 75},
+		],
+	},
+	"ruinas": {
+		"dir": "res://assets/stage/ruins/", "extra": "ruins", "fringe": false,
+		"bg": Color(0.45, 0.60, 0.58), "ambient": Color(0.66, 0.76, 0.70),
+		"fog": Color(0.72, 0.84, 0.76), "sat": 1.05, "sky_mult": 1.15, "sky_y": 6.0,
+		"back_rot": Vector3(-36, 168, 0), "back_col": Color(1.0, 0.95, 0.75), "back_e": 0.8,
+		"key_rot": Vector3(-50, 22, 0), "key_col": Color(0.95, 1.0, 0.9), "key_e": 1.0,
+		"ground": Color(0.86, 0.86, 0.80),
+		"water": {"shallow": Color(0.25, 0.42, 0.34), "deep": Color(0.08, 0.20, 0.18),
+			"foam": Color(0.8, 0.9, 0.8), "sky": Color(0.6, 0.75, 0.7),
+			"flow": 0.05, "wave": 0.05, "scale": 0.5},
+		"falls": true, "rays": true, "ray_col": Color(0.9, 1.0, 0.75),
+		"glow": {"col": Color(0.9, 1.0, 0.75, 0.25), "scale": Vector2(50, 34),
+			"pos": Vector3(0.6, 9.0, -95.0)},
+		"butterflies": true, "birds": false, "fire": Vector3(14.5, 0.0, -9.5), "leaves": true,
+		"mote_col": Color(0.9, 1.0, 0.8, 0.3), "fog_col": Color(0.8, 0.95, 0.85, 0.22),
+		"leaf_ramp": [Color(0.45, 0.72, 0.30), Color(0.80, 0.85, 0.30), Color(0.98, 0.78, 0.25), Color(0.95, 0.55, 0.20)],
+		"props": [
+			{"m": "statue_column", "x": -13.5, "z": 2.0, "h": 6.5, "ry": 10},
+			{"m": "statue_column", "x": 14.0, "z": 0.0, "h": 4.2, "ry": -20},
+			{"m": "statue_column", "x": 9.0, "z": -12.0, "h": 7.0},
+			{"m": "statue_column", "x": -7.5, "z": -12.5, "h": 5.5, "ry": 40},
+			{"m": "statue_column", "x": 19.0, "z": -8.0, "h": 6.0},
+			{"m": "cliff_top_rock", "x": -20.0, "y": -0.3, "z": -13.0, "h": 4.5, "ry": 30},
+			{"m": "tree_fat", "x": -18.5, "z": -4.0, "h": 10.0, "ry": 10},
+			{"m": "tree_detailed", "x": 21.0, "z": -13.0, "h": 10.5, "ry": -30},
+			{"m": "plant_bushLarge", "x": -11.5, "z": 6.0, "h": 1.7, "ry": 15},
+			{"m": "plant_bushDetailed", "x": 12.5, "z": 6.5, "h": 1.6, "ry": -40},
+			{"m": "grass_leafsLarge", "x": 8.0, "z": 15.0, "h": 2.4, "ry": -20, "tint": 0.5},
+			{"m": "mushroom_redGroup", "x": -10.5, "z": 3.5, "h": 0.8},
+			{"m": "flower_yellowA", "x": 11.0, "z": 8.5, "h": 0.5},
+			{"m": "lily_large", "x": -4.0, "y": -0.02, "z": -22.0, "h": 0.25},
+			{"m": "lily_large", "x": 6.5, "y": -0.02, "z": -26.0, "h": 0.25, "ry": 60},
+			{"m": "cliff_waterfall_rock", "x": -22.0, "y": -0.3, "z": -20.0, "h": 4.0, "ry": 15},
+		],
+	},
+	"caverna": {
+		"dir": "res://assets/stage/cave/", "extra": "cave", "layers": false, "sky": false, "fringe": false,
+		"bg": Color(0.08, 0.03, 0.02), "ambient": Color(0.30, 0.18, 0.16),
+		"fog": Color(0.30, 0.10, 0.06), "sat": 1.1, "sky_mult": 1.0, "sky_y": 6.0,
+		"back_rot": Vector3(-25, 175, 0), "back_col": Color(1.0, 0.45, 0.2), "back_e": 0.9,
+		"key_rot": Vector3(-60, 10, 0), "key_col": Color(1.0, 0.85, 0.75), "key_e": 0.55,
+		"ground": Color(0.75, 0.68, 0.66),
+		"water": {}, "falls": false, "rays": false, "ray_col": Color(1, 0.5, 0.2),
+		"glow": {}, "butterflies": false, "birds": false, "fire": null, "leaves": false,
+		"embers": true,
+		"mote_col": Color(1.0, 0.6, 0.3, 0.3), "fog_col": Color(0.6, 0.2, 0.1, 0.16),
+		"leaf_ramp": [Color(0.5, 0.5, 0.55), Color(0.6, 0.6, 0.65), Color(0.55, 0.55, 0.6), Color(0.45, 0.45, 0.5)],
+		"props": [
+			{"m": "cliff_rock", "x": -9.5, "y": 13.5, "z": 12.0, "h": 5.0, "rx": 180, "ry": 30, "tint": 0.4},
+			{"m": "cliff_blockCave_rock", "x": -15.0, "y": -0.3, "z": 2.0, "h": 6.0, "ry": 20},
+			{"m": "cliff_half_rock", "x": 15.5, "y": -0.3, "z": 0.5, "h": 5.5, "ry": -40},
+			{"m": "cliff_large_rock", "x": -22.0, "y": -0.3, "z": -8.0, "h": 8.0, "ry": 15},
+			{"m": "cliff_large_rock", "x": 22.0, "y": -0.3, "z": -9.0, "h": 8.5, "ry": -60},
+			{"m": "cliff_rock", "x": 8.0, "y": -0.3, "z": -13.0, "h": 4.5, "ry": 90},
+			{"m": "rock_largeC", "x": -6.5, "z": -13.5, "h": 2.0, "ry": 20},
+			{"m": "rock_tallB", "x": 12.0, "z": 16.0, "h": 2.6, "ry": -30, "tint": 0.4},
+			{"m": "stone_largeA", "x": -12.5, "z": 6.5, "h": 1.4},
+			{"m": "mushroom_tanGroup", "x": 11.5, "z": 5.5, "h": 0.6},
+		],
+	},
 }
 
 ## z, altura em metros, y da base (negativo = enterrado, o chão esconde),
@@ -139,6 +288,7 @@ var quality := 2
 var env: Environment
 var _t: Dictionary
 var _torch_fx: Array = []
+var _lava: MeshInstance3D
 
 var _cam: Camera3D
 var _sky: MeshInstance3D
@@ -170,18 +320,29 @@ func build(q: int) -> void:
 	_rng.seed = 0x5EEDBA5E
 	_env()
 	_light()
-	if not _t.get("hangar", false):
+	var hangar: bool = _t.get("hangar", false)
+	if not hangar and _t.get("sky", true):
 		_backdrop()
 	_ground()
-	if not _t.get("hangar", false):
+	if not hangar and _t.water.size() > 0:
 		_water()
 	if _t.falls:
 		_falls()
-	if not _t.get("hangar", false):
+	if not hangar and _t.glow.size() > 0:
 		_glow()
 	_props()
-	if _t.get("hangar", false):
+	if hangar:
 		Hangar.build(self, quality)
+	match _t.get("extra", ""):
+		"city": Extras.city(self, quality, _rng)
+		"cave":
+			Extras.cave(self, quality, _rng)
+			for c in get_children():
+				if c.has_meta("lava"):
+					_lava = c
+		"ruins": Extras.ruins(self, quality, _rng)
+		"camp": Extras.camp(self, quality, _rng)
+		"snow": Extras.snow(self, quality, _rng)
 	_air()
 
 
@@ -325,6 +486,8 @@ func _quad(t: Texture2D, mult: float, unshaded := true, repeat := false,
 func _backdrop() -> void:
 	_sky = _quad(tex("sky.png"), _t.sky_mult)
 	_sky.position = Vector3(0, 0, SKY_Z)
+	if not _t.get("layers", true):
+		return
 	for spec in LAYERS:
 		var mi := _quad(tex(spec.tex), spec.k, true, true, float(spec.sw), 1)
 		mi.set_meta("spec", spec)
@@ -377,7 +540,7 @@ func _ground() -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 
-	if _t.get("hangar", false):
+	if _t.get("hangar", false) or not _t.get("fringe", true):
 		return
 	# franja de capim na emenda entre o chão 3D e a mata pintada
 	for zz in [GROUND_FAR + 0.6, WATER_FAR + 1.2]:
@@ -535,6 +698,8 @@ func _air() -> void:
 	if quality >= 1 and _t.rays:
 		_god_rays()
 	_motes()
+	if _t.get("embers", false):
+		_embers()
 	if quality >= 2 and _t.butterflies:
 		_fireflies()
 	if _t.birds:
@@ -701,12 +866,43 @@ func _leaves() -> void:
 	var cit := GradientTexture1D.new()
 	cit.gradient = ci
 	pm.color_initial_ramp = cit
-	var p := _add_particles(pm, tex("leaf.png"), 46 if quality >= 2 else 26, Color(1, 1, 1, 1),
-		0.62, Vector3(0, 13, -2), 12.0, false)
+	var snow: bool = _t.get("snow", false)
+	if snow:
+		pm.angular_velocity_min = 0.0
+		pm.angular_velocity_max = 0.0
+		pm.gravity = Vector3(0.15, -0.5, 0)
+		pm.scale_min = 0.12
+		pm.scale_max = 0.3
+		pm.turbulence_noise_strength = 0.8
+	var p := _add_particles(pm, tex("puff.png" if snow else "leaf.png"),
+		(160 if snow else 46) if quality >= 2 else (80 if snow else 26), Color(1, 1, 1, 1),
+		0.62, Vector3(0, 13, -2), 12.0 if not snow else 16.0, false)
 	var m: StandardMaterial3D = p.material_override
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	m.particles_anim_h_frames = 1
 	m.particles_anim_v_frames = 1
+
+func _embers() -> void:
+	var pm := _box(Vector3(30, 1, 16))
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 30.0
+	pm.initial_velocity_min = 0.4
+	pm.initial_velocity_max = 1.4
+	pm.gravity = Vector3(0.1, 0.5, 0)
+	pm.scale_min = 0.25
+	pm.scale_max = 0.6
+	pm.turbulence_enabled = true
+	pm.turbulence_noise_strength = 1.2
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 0.8, 0.4, 0))
+	g.set_color(1, Color(0.6, 0.1, 0.0, 0))
+	g.add_point(0.15, Color(1.0, 0.7, 0.3, 1))
+	g.add_point(0.7, Color(1.0, 0.3, 0.05, 0.7))
+	var gt := GradientTexture1D.new()
+	gt.gradient = g
+	pm.color_ramp = gt
+	_add_particles(pm, tex("mote.png"), 60 if quality >= 2 else 30, Color(1, 1, 1, 1),
+		0.14, Vector3(0, 1, -22), 7.0)
 
 func _ground_fog() -> void:
 	var pm := _box(Vector3(34, 0.6, 10))
@@ -770,4 +966,11 @@ func step(dt: float) -> void:
 		_falls_anim.uv1_offset.y = fmod(_falls_anim.uv1_offset.y - dt * 1.1, 1.0)
 	for i in _torch_fx.size():
 		var l: OmniLight3D = _torch_fx[i]
+		if l.has_meta("blink"):
+			l.light_energy = 2.5 if fmod(_time, 1.6) < 0.25 else 0.0
+			continue
 		l.light_energy = 1.2 + 0.35 * sin(_time * 9.0 + i * 1.7) + 0.2 * sin(_time * 23.0 + i)
+	if _lava != null:
+		var lm: StandardMaterial3D = _lava.material_override
+		lm.uv1_offset = Vector3(_time * 0.01, _time * 0.004, 0)
+		lm.emission_energy_multiplier = 1.5 + 0.3 * sin(_time * 1.3)

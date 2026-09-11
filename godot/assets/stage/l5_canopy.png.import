@@ -3,23 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c20hvmw54emoq"
-path.s3tc="res://.godot/imported/l5_canopy.png-9fe04c9624498a36c9b62e80839f9cce.s3tc.ctex"
-path.etc2="res://.godot/imported/l5_canopy.png-9fe04c9624498a36c9b62e80839f9cce.etc2.ctex"
+path="res://.godot/imported/l5_canopy.png-9fe04c9624498a36c9b62e80839f9cce.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://assets/stage/l5_canopy.png"
-dest_files=["res://.godot/imported/l5_canopy.png-9fe04c9624498a36c9b62e80839f9cce.s3tc.ctex", "res://.godot/imported/l5_canopy.png-9fe04c9624498a36c9b62e80839f9cce.etc2.ctex"]
+dest_files=["res://.godot/imported/l5_canopy.png-9fe04c9624498a36c9b62e80839f9cce.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=1
 compress/high_quality=false
-compress/lossy_quality=0.7
+compress/lossy_quality=0.82
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1

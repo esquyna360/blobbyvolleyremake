@@ -577,6 +577,8 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 }
 .touch.on { display: flex; }
 .tpad { display: flex; gap: 14px; align-items: flex-end; }
+.tpad.col { flex-direction: column; align-items: center; gap: 10px; }
+.trow { display: flex; gap: 14px; }
 /*
  * Nada de `backdrop-filter` aqui: sobre o canvas do jogo ele reborra a cada
  * quadro, e no celular isso é quadro perdido. Tinta escura também segura o

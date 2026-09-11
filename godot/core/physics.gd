@@ -36,6 +36,7 @@ var super_owner := -1
 var parry_active := PackedInt32Array([0, 0])
 var parry_cd := PackedInt32Array([0, 0])
 var parry_chain := 0
+var hold := PackedInt32Array([0, 0])
 var scores := PackedInt32Array([0, 0])
 
 var crouch := PackedFloat64Array([0.0, 0.0])
@@ -339,11 +340,34 @@ func _try_parry(p: int, raw: PlayerInput, out: EventBuf) -> void:
 	parry_chain = mini(parry_chain + 1, BV.PARRY_CHAIN_MAX)
 	super_owner = p
 	super_frames = BV.SPECIAL_BALL_FRAMES
+	hold[p] = BV.PARRY_HOLD
+	ball_vx = 0.0
+	ball_vy = 0.0
+	ball_spin = 0.0
+	_anchor_held(p)
+	out.push(Ev.PARRY, p, 1.0)
+
+func _anchor_held(p: int) -> void:
+	var dir := 1.0 if p == BV.LEFT else -1.0
+	ball_x = blob_x[p] + dir * (BV.BLOBBY_UPPER_RADIUS + BV.BALL_RADIUS) * 0.55
+	ball_y = upper_y(p) - BV.BALL_RADIUS * 0.9
+
+func holding() -> bool:
+	return hold[BV.LEFT] > 0 or hold[BV.RIGHT] > 0
+
+func _hold_step(p: int, raw: PlayerInput, out: EventBuf) -> void:
+	if hold[p] <= 0:
+		return
+	hold[p] -= 1
+	_anchor_held(p)
+	var held := raw.up or raw.special
+	if held and hold[p] > 0 and stun[p] == 0:
+		return
+	hold[p] = 0
 	_bump_tempo()
 	_aim_special(p, 1.0 + parry_chain * BV.PARRY_BOOST)
 	_scale_ball_v()
-	add_charge(p, BV.SPECIAL_GAIN_TOUCH, out)
-	out.push(Ev.PARRY, p, 1.0)
+	out.push(Ev.SPECIAL_FIRED, p, 0.5)
 
 func _top_ball_collision(p: int) -> bool:
 	var dx := ball_x - blob_x[p]
@@ -567,7 +591,7 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 		stun[BV.LEFT] -= 1
 	if stun[BV.RIGHT] > 0:
 		stun[BV.RIGHT] -= 1
-	if super_frames > 0:
+	if super_frames > 0 and not holding():
 		super_frames -= 1
 		if super_frames == 0:
 			super_owner = -1
@@ -607,7 +631,11 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	_handle_blob(BV.LEFT, el)
 	_handle_blob(BV.RIGHT, er)
 
-	if is_game_running:
+	_hold_step(BV.LEFT, li, out)
+	_hold_step(BV.RIGHT, ri, out)
+	var is_holding := holding()
+
+	if is_game_running and not is_holding:
 		var g := _ball_g()
 		if ball_spin != 0.0:
 			var k := ball_spin * BV.MAGNUS_K * tempo
@@ -631,7 +659,7 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	_try_dive(BV.LEFT, li, out)
 	_try_dive(BV.RIGHT, ri, out)
 
-	if is_ball_valid:
+	if is_ball_valid and not is_holding:
 		_try_parry(BV.LEFT, li, out)
 		_try_parry(BV.RIGHT, ri, out)
 		if not _try_dig(BV.LEFT, out):
@@ -640,8 +668,8 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 			if not _try_dig(BV.RIGHT, out):
 				_handle_blob_ball_collision(BV.RIGHT, out)
 
-	_try_special(BV.LEFT, li, is_ball_valid, ground_l, out)
-	_try_special(BV.RIGHT, ri, is_ball_valid, ground_r, out)
+	_try_special(BV.LEFT, li, is_ball_valid and not is_holding, ground_l, out)
+	_try_special(BV.RIGHT, ri, is_ball_valid and not is_holding, ground_r, out)
 	prev_up[BV.LEFT] = 1 if li.up else 0
 	prev_up[BV.RIGHT] = 1 if ri.up else 0
 	prev_special[BV.LEFT] = 1 if li.special else 0
@@ -651,7 +679,8 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	prev_dive[BV.LEFT] = 1 if li.dive else 0
 	prev_dive[BV.RIGHT] = 1 if ri.dive else 0
 
-	_handle_ball_world_collisions(out)
+	if not is_holding:
+		_handle_ball_world_collisions(out)
 
 	if blob_x[BV.LEFT] + BV.BLOBBY_LOWER_RADIUS > BV.NET_POSITION_X - BV.NET_RADIUS:
 		blob_x[BV.LEFT] = BV.NET_POSITION_X - BV.NET_RADIUS - BV.BLOBBY_LOWER_RADIUS
@@ -695,6 +724,8 @@ func reset_ball(side: int) -> void:
 	parry_active[BV.RIGHT] = 0
 	parry_cd[BV.LEFT] = 0
 	parry_cd[BV.RIGHT] = 0
+	hold[BV.LEFT] = 0
+	hold[BV.RIGHT] = 0
 	stun[BV.LEFT] = 0
 	stun[BV.RIGHT] = 0
 	dig_active[BV.LEFT] = 0

@@ -23,6 +23,10 @@ var _result_title: Label
 var _result_score: Label
 var _result_again: Button
 var _restart: Callable
+var _arcade_tower := -1
+var _arcade_step := 0
+var _result_next: Button
+var _card_step := 0
 
 func _ready() -> void:
 	settings.load_all()
@@ -50,6 +54,7 @@ func _ready() -> void:
 	menu.build(settings)
 	menu.play_bot.connect(_play_bot)
 	menu.play_local.connect(_play_local)
+	menu.play_arcade.connect(_play_arcade)
 	menu.host_room.connect(_host)
 	menu.join_room.connect(_join)
 	menu.quality_changed.connect(_requality)
@@ -69,6 +74,7 @@ func _ready() -> void:
 		_ui.add_child(touch)
 
 	game.match_over.connect(_on_match_over)
+	game.arena.goo.connect(hud.splat)
 	_dev_net()
 	_dev_shot()
 
@@ -88,12 +94,24 @@ func _demo() -> void:
 	if touch != null:
 		touch.visible = false
 
-func _enter_match(left: int, right: int, diff: String, looks: Array) -> void:
+func _set_scene(sc: String) -> void:
+	if sc == "":
+		return
+	settings.scene = sc
+	if Stage.theme != sc:
+		Stage.theme = sc
+		game.reset_arena()
+		game.arena.goo.connect(hud.splat)
+
+func _enter_match(left: int, right: int, diff: String, looks: Array, scene := "",
+		names := ["", ""]) -> void:
 	game.net_side = BV.NO_PLAYER
 	game.link = null
 	game.rb = null
+	_set_scene(scene)
 	game.start(settings.rules, settings.score_to_win, settings.walls, settings.quality,
 		left, right, diff, looks)
+	hud.names = names
 	_finish_enter()
 
 func _finish_enter() -> void:
@@ -110,19 +128,42 @@ func _finish_enter() -> void:
 		touch.visible = true
 		Controls.clear_touch()
 
-func _play_bot(diff: String) -> void:
+func _play_bot(diff: String, scene := "") -> void:
 	settings.difficulty = diff
 	settings.save()
-	_restart = _play_bot.bind(diff)
+	_arcade_tower = -1
+	_restart = _play_bot.bind(diff, scene)
 	game.touch_slot = [0, -1]
-	_enter_match(Game.Source.LOCAL_SOLO, Game.Source.BOT, diff,
-		[settings.look, Looks.roll_look(settings.look[0])])
+	var ch := Roster.scene_char(scene if scene != "" else settings.scene)
+	var foe: Array = ch.look if not ch.is_empty() else Looks.roll_look(settings.look[0])
+	_enter_match(Game.Source.LOCAL_SOLO, Game.Source.BOT, diff, [settings.look, foe], scene,
+		[settings.player_name, ch.name if not ch.is_empty() else "Bot"])
 
-func _play_local() -> void:
-	_restart = _play_local
+func _play_local(scene := "") -> void:
+	_arcade_tower = -1
+	_restart = _play_local.bind(scene)
 	game.touch_slot = [-1, -1]
 	_enter_match(Game.Source.LOCAL_P1, Game.Source.LOCAL_P2, "normal",
-		[settings.look, Looks.roll_look(settings.look[0])])
+		[settings.look, Looks.roll_look(settings.look[0])], scene,
+		[settings.player_name, "P2"])
+
+## Arcade: cada degrau é um personagem no cenário dele, mais forte que o
+## anterior. Perder repete o degrau; ganhar todos fecha a torre.
+func _play_arcade(tower: int) -> void:
+	_arcade_tower = tower
+	_arcade_step = 0
+	_arcade_match()
+
+func _arcade_match() -> void:
+	var steps: Array = Roster.TOWERS[_arcade_tower].steps
+	var ch: Dictionary = Roster.CHARS[steps[_arcade_step]]
+	var diff := Roster.difficulty(_arcade_tower, _arcade_step)
+	_restart = _arcade_match
+	game.touch_slot = [0, -1]
+	_enter_match(Game.Source.LOCAL_SOLO, Game.Source.BOT, diff, [settings.look, ch.look],
+		ch.scene, [settings.player_name, ch.name])
+	hud.card("%s  ·  degrau %d de %d" % [ch.name, _arcade_step + 1, steps.size()],
+		Looks.body_color(ch.look).lightened(0.3), 0.01)
 
 func _host() -> void:
 	link.stop()
@@ -175,22 +216,53 @@ func _on_match_over(winner: int) -> void:
 	var title := ("P1 VENCE" if winner == BV.LEFT else "P2 VENCE") if local2 \
 		else ("VITÓRIA!" if mine else "DERROTA")
 	var col := game.arena.blobs[winner].body_color
-	hud.shout(title, col.lightened(0.3), 3.0)
-	_over_seq(title, col)
+	if game.net_side == BV.NO_PLAYER:
+		game.arena.start_outro(winner)
+	var wname: String = hud.names[winner]
+	if wname == "":
+		wname = ("P1" if winner == BV.LEFT else "P2") if local2 else ("VOCÊ" if mine else "O BOT")
+	_over_seq(title, col, wname, winner)
 
-func _over_seq(title: String, col: Color) -> void:
+func _over_seq(title: String, col: Color, wname: String, winner: int) -> void:
 	var m := game.bv
 	if touch != null:
 		touch.visible = false
 	Controls.clear_touch()
-	await get_tree().create_timer(2.6).timeout
+	var offline := game.net_side == BV.NO_PLAYER
+	if offline:
+		await get_tree().create_timer(2.0).timeout
+		if not _in_match or game.bv != m:
+			return
+		hud.card(wname.to_upper() + (" VENCEU" if wname == "VOCÊ" else " VENCE"), col.lightened(0.3), 2.6)
+		await get_tree().create_timer(2.6).timeout
+	else:
+		hud.shout(title, col.lightened(0.3), 3.0)
+		await get_tree().create_timer(2.6).timeout
 	if not _in_match or game.bv != m:
 		return
 	game.set_paused(true)
 	_result_title.text = title
 	_result_title.add_theme_color_override("font_color", col.lightened(0.3))
 	_result_score.text = "%d  —  %d" % [m.logic.scores[BV.LEFT], m.logic.scores[BV.RIGHT]]
-	_result_again.visible = game.net_side == BV.NO_PLAYER
+	_result_again.visible = offline
+	_result_next.visible = false
+	_result_again.text = "Jogar de novo"
+	if _arcade_tower >= 0:
+		var steps: Array = Roster.TOWERS[_arcade_tower].steps
+		if winner == BV.LEFT:
+			settings.towers[_arcade_tower] = maxi(settings.towers[_arcade_tower], _arcade_step + 1)
+			settings.save()
+			_result_again.visible = false
+			if _arcade_step + 1 < steps.size():
+				var nx: Dictionary = Roster.CHARS[steps[_arcade_step + 1]]
+				_result_next.text = "Próximo: " + nx.name
+				_result_next.visible = true
+			else:
+				_result_title.text = "TORRE CONCLUÍDA"
+				_result_score.text = Roster.TOWERS[_arcade_tower].name + "  ·  %d — %d" % [
+					m.logic.scores[BV.LEFT], m.logic.scores[BV.RIGHT]]
+		else:
+			_result_again.text = "Tentar de novo"
 	_result_ui.visible = true
 	_result_ui.pivot_offset = _result_ui.size * 0.5
 	_result_ui.scale = Vector2.ONE * 0.96
@@ -230,6 +302,14 @@ func _build_result() -> void:
 		if _restart.is_valid():
 			_restart.call())
 	v.add_child(_result_again)
+	_result_next = Button.new()
+	_result_next.text = "Próximo"
+	UiTheme.style(_result_next, Color(1.0, 0.55, 0.25))
+	_result_next.pressed.connect(func():
+		_result_ui.visible = false
+		_arcade_step += 1
+		_arcade_match())
+	v.add_child(_result_next)
 	var q := Button.new()
 	q.text = "Menu"
 	UiTheme.style(q, Color(0.6, 0.65, 0.62))
@@ -244,16 +324,14 @@ func _requality(q: int) -> void:
 	settings.quality = q
 	settings.save()
 	Stage.theme = settings.scene
-	var old := game.arena
-	game.remove_child(old)
-	old.queue_free()
-	game.arena = Arena.new()
-	game.bv = null
 	if _in_match:
-		_demo()
-		_to_menu()
-	else:
-		_demo()
+		game.rebuild_arena(q)
+		game.arena.goo.connect(hud.splat)
+		return
+	game.reset_arena()
+	game.arena.goo.connect(hud.splat)
+	game.bv = null
+	_demo()
 
 func _relook(look: Array) -> void:
 	if game.bv != null:
@@ -261,6 +339,8 @@ func _relook(look: Array) -> void:
 
 func _to_menu() -> void:
 	_paused = false
+	_arcade_tower = -1
+	hud.names = ["", ""]
 	_pause_ui.visible = false
 	_result_ui.visible = false
 	link.stop()
@@ -276,11 +356,20 @@ func _process(dt: float) -> void:
 		hud.update(game.bv, dt)
 		var w := game.bv.world
 		var intro := game.arena.intro_active()
+		var cine := intro or game.arena.outro_active() or game.arena.drama() < 1.0
 		hud.ball_hint(game.arena.ball_screen_hint(Map.gx(w.ball_x), Map.gy(w.ball_y)) \
-			if not intro else Vector3(-1, -1, 0), dt)
+			if not cine else Vector3(-1, -1, 0), dt)
 		hud.modulate.a = clampf(hud.modulate.a + (( -1.0 if intro else 1.0) * dt * 3.0), 0.0, 1.0)
 		if touch != null:
-			touch.visible = not intro and not _paused
+			touch.visible = not cine and not _paused
+		if intro:
+			var it: float = game.arena.intro_t
+			var step := 1 if it >= 1.9 and it < 3.3 else (2 if it >= 3.3 and it < 4.7 else 0)
+			if step != _card_step and step > 0 and hud.names[step - 1] != "":
+				hud.card(hud.names[step - 1], game.arena.blobs[step - 1].body_color.lightened(0.35), 1.3)
+			_card_step = step
+		elif _card_step != 0:
+			_card_step = 0
 		if _intro_was and not intro:
 			hud.shout("VALENDO", UiTheme.GOLD, 1.2)
 		_intro_was = intro
@@ -312,10 +401,10 @@ func _build_pause() -> void:
 	_pause_ui.anchor_right = 0.5
 	_pause_ui.anchor_top = 0.5
 	_pause_ui.anchor_bottom = 0.5
-	_pause_ui.offset_left = -170
-	_pause_ui.offset_right = 170
-	_pause_ui.offset_top = -120
-	_pause_ui.offset_bottom = 120
+	_pause_ui.offset_left = -230
+	_pause_ui.offset_right = 230
+	_pause_ui.offset_top = -210
+	_pause_ui.offset_bottom = 210
 	_pause_ui.add_theme_stylebox_override("panel", UiTheme.wood())
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
@@ -329,6 +418,14 @@ func _build_pause() -> void:
 	UiTheme.style(c, Color(0.45, 0.85, 0.40))
 	c.pressed.connect(func(): _set_pause(false))
 	v.add_child(c)
+	v.add_child(UiTheme.label("Gráficos", 16, Color(1, 1, 1, 0.6)))
+	var qrow := Menu.quality_row(settings, func(q):
+		_requality(q)
+		_pause_ui.visible = false
+		_build_pause_refresh())
+	v.add_child(qrow)
+	v.add_child(Menu.slider("Música", Aud.music_vol, func(x): Aud.set_volume("music", x)))
+	v.add_child(Menu.slider("Efeitos", Aud.sfx_vol, func(x): Aud.set_volume("sfx", x)))
 	var q := Button.new()
 	q.text = "Sair da partida"
 	UiTheme.style(q, Color(0.9, 0.45, 0.35))
@@ -338,6 +435,12 @@ func _build_pause() -> void:
 	v.add_child(q)
 	_pause_ui.visible = false
 	_ui.add_child(_pause_ui)
+
+func _build_pause_refresh() -> void:
+	_ui.remove_child(_pause_ui)
+	_pause_ui.queue_free()
+	_build_pause()
+	_pause_ui.visible = true
 
 func _set_pause(p: bool) -> void:
 	# online não para o mundo: o outro lado continua, então só abre o painel
@@ -355,7 +458,13 @@ func _set_pause(p: bool) -> void:
 func _dev_shot() -> void:
 	var path := ""
 	var wait := 200
+	var every := 0
+	var from := 0
 	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--every="):
+			every = int(a.substr(8))
+		if a.begins_with("--from="):
+			from = int(a.substr(7))
 		if a.begins_with("--scene="):
 			settings.scene = a.substr(8)
 			_requality(settings.quality)
@@ -379,8 +488,13 @@ func _dev_shot() -> void:
 			_dev_bots()
 	if path == "":
 		return
+	var n := 0
 	for i in wait:
 		await get_tree().process_frame
+		if every > 0 and i % every == 0 and i >= from:
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png(path.replace(".png", "_%03d.png" % n))
+			n += 1
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(path)
 	if game.bv != null:

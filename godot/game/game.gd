@@ -35,6 +35,33 @@ var _send_t := 0.0
 var _resim := false
 var _last_winner := BV.NO_PLAYER
 var _slow := 1.0
+var _looks: Array = []
+
+## Cenário ou preset novo no meio da partida: troca só o palco, a simulação
+## nem percebe.
+func rebuild_arena(q: int) -> void:
+	quality = q
+	var walls := arena.walls_on
+	var ls := arena.local_side
+	if arena.get_parent() != null:
+		remove_child(arena)
+	arena.queue_free()
+	arena = Arena.new()
+	add_child(arena)
+	arena.build(q)
+	arena.set_walls(walls)
+	arena.local_side = ls
+	if _looks.size() == 2:
+		arena.set_looks(_looks[0], _looks[1])
+	if bv != null:
+		arena.capture(bv)
+		arena.capture(bv)
+
+func reset_arena() -> void:
+	if arena.get_parent() != null:
+		remove_child(arena)
+	arena.queue_free()
+	arena = Arena.new()
 
 ## No match point, quando a bola cai no lado de quem está perdendo, o tempo
 ## abre: é o lance que decide, e ele merece ser visto.
@@ -73,6 +100,7 @@ func start(rules: String, score_to_win: int, walls: bool, q: int,
 	arena.local_side = net_side if net_side != BV.NO_PLAYER else BV.LEFT
 	var lk: Array = looks if looks.size() == 2 \
 		else [Looks.default_look(BV.LEFT), Looks.default_look(BV.RIGHT)]
+	_looks = lk
 	arena.set_looks(lk[0], lk[1])
 	arena.capture(bv)
 	arena.capture(bv)
@@ -100,7 +128,7 @@ func _process(dt: float) -> void:
 
 	var slow := _slowmo()
 	_slow += (slow - _slow) * (1.0 - exp(-dt * (12.0 if slow < _slow else 4.0)))
-	dt *= _slow
+	dt *= _slow * arena.drama()
 	_acc += minf(dt, 0.25)
 	var n := 0
 	while _acc >= STEP and n < MAX_CATCHUP:

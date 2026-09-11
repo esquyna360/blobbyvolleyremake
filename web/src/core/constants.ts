@@ -46,8 +46,8 @@ export const SQUISH_TOLERANCE = 11
 export const DEFAULT_SCORE_TO_WIN = 15
 
 export const SPECIAL_FULL = 1
-export const SPECIAL_GAIN_TOUCH = 0.055
-export const SPECIAL_GAIN_FRAME = 0.00045
+export const SPECIAL_GAIN_TOUCH = 0.04
+export const SPECIAL_GAIN_FRAME = 0.0003
 export const SPECIAL_REACH = 165
 export const SPECIAL_VELOCITY = BALL_COLLISION_VELOCITY * 2.45
 export const SPECIAL_BALL_FRAMES = 150
@@ -75,6 +75,7 @@ export const PARRY_CD = 58
 export const PARRY_REACH = 112
 export const PARRY_BOOST = 0.1
 export const PARRY_CHAIN_MAX = 4
+export const PARRY_HOLD = 60
 
 /**
  * Agachar. `crouch` é 0..1: sobe enquanto o botão está apertado, desce sozinho.

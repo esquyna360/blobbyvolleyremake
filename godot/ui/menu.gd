@@ -4,8 +4,9 @@ extends Control
 ## Menu em cima da partida de demonstração: o cenário continua rodando atrás,
 ## que é o melhor cartão de visita que esse jogo tem.
 
-signal play_bot(difficulty: String)
-signal play_local()
+signal play_bot(difficulty: String, scene: String)
+signal play_local(scene: String)
+signal play_arcade(tower: int)
 signal host_room()
 signal join_room(address: String)
 signal quality_changed(q: int)
@@ -14,16 +15,20 @@ signal quit_game()
 
 const DIFFS := [["easy", "Fácil"], ["normal", "Normal"], ["hard", "Difícil"], ["insane", "Insano"]]
 const QUALS := ["Baixo", "Médio", "Alto", "Máximo"]
-const SCENES := [["selva", "Selva"], ["praia", "Praia ao pôr do sol"], ["galpao", "Galpão"]]
+const SCENES := [
+	["selva", "Selva"], ["praia", "Praia ao pôr do sol"], ["galpao", "Galpão"],
+	["acampamento", "Acampamento"], ["neve", "Pinhal nevado"], ["telhado", "Telhado"],
+	["ruinas", "Ruínas"], ["caverna", "Caverna de lava"]]
 
 var settings: Settings
 
+var _panel: PanelContainer
 var _root: VBoxContainer
 var _page := "main"
 var _status: Label
 var _ip_edit: LineEdit
-var _preview: SubViewport
-var _preview_blob: BlobView
+var _pending: Callable
+var _stage_cb: Callable
 
 func build(s: Settings) -> void:
 	settings = s
@@ -39,14 +44,14 @@ func build(s: Settings) -> void:
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", UiTheme.panel())
-	panel.custom_minimum_size = Vector2(420, 0)
-	center.add_child(panel)
+	_panel = PanelContainer.new()
+	_panel.add_theme_stylebox_override("panel", UiTheme.panel())
+	_panel.custom_minimum_size = Vector2(420, 0)
+	center.add_child(_panel)
 
 	_root = VBoxContainer.new()
 	_root.add_theme_constant_override("separation", 10)
-	panel.add_child(_root)
+	_panel.add_child(_root)
 
 	_status = UiTheme.label("", 15, Color(1, 1, 1, 0.6))
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -60,9 +65,14 @@ func show_page(p: String) -> void:
 		_root.remove_child(c)
 		if c != _status:
 			c.queue_free()
+	_panel.custom_minimum_size = Vector2(420, 0)
 	match p:
 		"main": _main()
+		"single": _single()
 		"bot": _bot()
+		"stage": _stage()
+		"arcade": _arcade()
+		"register": _register()
 		"net": _net()
 		"look": _look()
 		"options": _options()
@@ -84,21 +94,201 @@ func _btn(text: String, cb: Callable, col := UiTheme.GOLD) -> Button:
 	_root.add_child(b)
 	return b
 
+## Tudo que é partida passa por aqui: sem nome e cara registrados, primeiro
+## o cadastro, depois o que a pessoa queria.
+func _gate(then: Callable) -> void:
+	if settings.player_name.strip_edges() == "":
+		_pending = then
+		show_page("register")
+	else:
+		then.call()
+
 func _main() -> void:
 	_title("BLOBBY SELVA", "volei de praia no meio do mato")
-	_btn("Jogar contra o bot", func(): show_page("bot"))
-	_btn("Dois jogadores aqui", func(): play_local.emit(), UiTheme.LEAF)
-	_btn("Jogar online", func(): show_page("net"), Color(0.36, 0.72, 1.0))
-	_btn("Aparência", func(): show_page("look"), Color(0.9, 0.45, 0.8))
+	if settings.player_name != "":
+		var hi := UiTheme.label("olá, %s" % settings.player_name, 15, Color(1, 1, 1, 0.6))
+		hi.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_root.add_child(hi)
+	_btn("Um jogador", func(): _gate(func(): show_page("single")))
+	_btn("Dois jogadores aqui", func(): _gate(func():
+		_stage_cb = func(sc): play_local.emit(sc)
+		show_page("stage")), UiTheme.LEAF)
+	_btn("Jogar online", func(): _gate(func(): show_page("net")), Color(0.36, 0.72, 1.0))
+	_btn("Nome e aparência", func(): show_page("look"), Color(0.9, 0.45, 0.8))
 	_btn("Gráficos e som", func(): show_page("options"), Color(0.7, 0.75, 0.8))
 	if OS.get_name() != "Web":
 		_btn("Sair", func(): quit_game.emit(), Color(0.8, 0.35, 0.3))
 
-func _bot() -> void:
-	_title("Contra o bot", "o insano simula a bola igual a física de verdade")
-	for d in DIFFS:
-		_btn(d[1], func(): play_bot.emit(d[0]))
+func _single() -> void:
+	_title("Um jogador", "")
+	_btn("Arcade", func(): show_page("arcade"), Color(1.0, 0.55, 0.25))
+	_root.add_child(UiTheme.label("Suba a torre: oito personagens, cada um no seu cenário.", 13,
+		Color(1, 1, 1, 0.5)))
+	_btn("Versus o bot", func(): show_page("bot"))
+	_root.add_child(UiTheme.label("Uma partida só, no cenário que você escolher.", 13,
+		Color(1, 1, 1, 0.5)))
 	_back()
+
+func _bot() -> void:
+	_title("Versus o bot", "o insano simula a bola igual a física de verdade")
+	for d in DIFFS:
+		_btn(d[1], func():
+			_stage_cb = func(sc): play_bot.emit(d[0], sc)
+			show_page("stage"))
+	_back("single")
+
+func _stage() -> void:
+	_title("Cenário", "cada um é a casa de alguém")
+	_panel.custom_minimum_size = Vector2(620, 0)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	for sc in SCENES:
+		var ch := Roster.scene_char(sc[0])
+		var col := Looks.body_color(ch.look) if not ch.is_empty() else UiTheme.GOLD
+		var b := UiTheme.style(Button.new(), col, 18)
+		b.text = "%s\n%s" % [sc[1], ("casa de " + ch.name) if not ch.is_empty() else ""]
+		b.custom_minimum_size = Vector2(290, 0)
+		b.pressed.connect(func():
+			settings.scene = sc[0]
+			settings.save()
+			_stage_cb.call(sc[0]))
+		grid.add_child(b)
+	_root.add_child(grid)
+	_btn("Aleatório", func():
+		var sc: Array = SCENES[randi() % SCENES.size()]
+		settings.scene = sc[0]
+		settings.save()
+		_stage_cb.call(sc[0]), Color(0.7, 0.75, 0.8))
+	_back("single")
+
+## Torres do arcade: a coluna sobe do primeiro adversário ao chefe. Quanto
+## mais alta a torre, mais gente e mais forte no fim.
+func _arcade() -> void:
+	_title("CHOOSE YOUR DESTINY")
+	_panel.custom_minimum_size = Vector2(760, 0)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 22)
+	_root.add_theme_constant_override("separation", 4)
+	for t in Roster.TOWERS.size():
+		var tw: Dictionary = Roster.TOWERS[t]
+		var col := VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_END
+		col.add_theme_constant_override("separation", 2)
+		col.size_flags_vertical = Control.SIZE_SHRINK_END
+		var steps: Array = tw.steps
+		var done: int = settings.towers[t]
+		for k in range(steps.size() - 1, -1, -1):
+			var ch: Dictionary = Roster.CHARS[steps[k]]
+			var cell := PanelContainer.new()
+			var beaten := k < done
+			var sb := UiTheme.panel(
+				Color(0.08, 0.12, 0.10, 0.85) if not beaten else Color(0.20, 0.32, 0.18, 0.85),
+				Looks.body_color(ch.look) if k == done else Color(1, 1, 1, 0.12))
+			sb.content_margin_left = 4
+			sb.content_margin_right = 6
+			sb.content_margin_top = 2
+			sb.content_margin_bottom = 2
+			cell.add_theme_stylebox_override("panel", sb)
+			var hb := HBoxContainer.new()
+			hb.add_theme_constant_override("separation", 6)
+			var pr := Portrait.new(ch.look, ch.mood, 40, BV.RIGHT)
+			hb.add_child(pr)
+			var nl := UiTheme.label(ch.name, 14, Looks.body_color(ch.look).lightened(0.35))
+			nl.custom_minimum_size = Vector2(70, 0)
+			hb.add_child(nl)
+			cell.add_child(hb)
+			col.add_child(cell)
+		var b := UiTheme.style(Button.new(), [UiTheme.LEAF, UiTheme.GOLD, Color(1.0, 0.45, 0.3)][t], 18)
+		b.text = tw.name + ("  ✓" if done >= steps.size() else "")
+		b.pressed.connect(func(): play_arcade.emit(t))
+		col.add_child(b)
+		row.add_child(col)
+	_root.add_child(row)
+	_back("single")
+
+func _register() -> void:
+	_title("Quem é você?", "nome e cara aparecem na torre e no placar")
+	_look_editor(true)
+	_btn("Pronto", func():
+		if settings.player_name.strip_edges() == "":
+			settings.player_name = "Blob"
+		settings.save()
+		if _pending.is_valid():
+			var p := _pending
+			_pending = Callable()
+			p.call()
+		else:
+			show_page("main"))
+	_back()
+
+func _look() -> void:
+	_title("Nome e aparência", "corpo, cabelo e cor do cabelo")
+	_look_editor(true)
+	_back()
+
+func _look_editor(with_name: bool) -> void:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 14)
+	var pr := Portrait.new(settings.look, "smug", 150)
+	hb.add_child(pr)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if with_name:
+		var ne := LineEdit.new()
+		ne.placeholder_text = "seu nome"
+		ne.max_length = 12
+		ne.text = settings.player_name
+		ne.add_theme_font_size_override("font_size", 20)
+		ne.text_changed.connect(func(t): settings.player_name = t.strip_edges())
+		v.add_child(ne)
+	var look: Array = settings.look.duplicate()
+	var names := ["Corpo", "Penteado", "Cor"]
+	var sizes := [Looks.BODY_COLORS.size(), Looks.HAIR_STYLES.size(), Looks.HAIR_COLORS.size()]
+	for i in 3:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var name_l := UiTheme.label(names[i], 15)
+		name_l.custom_minimum_size = Vector2(76, 0)
+		row.add_child(name_l)
+		var value := UiTheme.label(_look_name(i, look[i]), 15, UiTheme.GOLD)
+		value.custom_minimum_size = Vector2(118, 0)
+		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		for d in [-1, 1]:
+			var b := UiTheme.style(Button.new(), Color(0.6, 0.7, 0.65), 15)
+			b.text = "<" if d < 0 else ">"
+			b.pressed.connect(func():
+				look[i] = Looks.widx(look[i] + d, sizes[i])
+				value.text = _look_name(i, look[i])
+				settings.look = look.duplicate()
+				settings.save()
+				pr.set_look(look)
+				look_changed.emit(look))
+			if d < 0:
+				row.add_child(b)
+				row.add_child(value)
+			else:
+				row.add_child(b)
+		v.add_child(row)
+	var roll := UiTheme.style(Button.new(), Color(0.9, 0.45, 0.8), 15)
+	roll.text = "Sortear"
+	roll.pressed.connect(func():
+		settings.look = Looks.roll_look(-1)
+		settings.save()
+		look_changed.emit(settings.look)
+		show_page(_page))
+	v.add_child(roll)
+	hb.add_child(v)
+	_root.add_child(hb)
+
+func _look_name(kind: int, v: int) -> String:
+	match kind:
+		1: return Looks.HAIR_STYLES[Looks.widx(v, Looks.HAIR_STYLES.size())].name
+		2: return Looks.HAIR_COLORS[Looks.widx(v, Looks.HAIR_COLORS.size())].name
+		_: return Looks.BODY_COLORS[Looks.widx(v, Looks.BODY_COLORS.size())].name
 
 func _net() -> void:
 	_title("Online", "IP direto, sem conta e sem servidor no meio")
@@ -125,89 +315,35 @@ func _net() -> void:
 	_root.add_child(_status)
 	_back()
 
-func _look() -> void:
-	_title("Aparência", "corpo, cabelo e cor do cabelo")
-	var look: Array = settings.look.duplicate()
-	var names := ["Corpo", "Penteado", "Cor do cabelo"]
-	var sizes := [Looks.BODY_COLORS.size(), Looks.HAIR_STYLES.size(), Looks.HAIR_COLORS.size()]
-	for i in 3:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		var name_l := UiTheme.label(names[i], 17)
-		name_l.custom_minimum_size = Vector2(150, 0)
-		row.add_child(name_l)
-		var value := UiTheme.label(_look_name(i, look[i]), 17, UiTheme.GOLD)
-		value.custom_minimum_size = Vector2(130, 0)
-		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		for d in [-1, 1]:
-			var b := UiTheme.style(Button.new(), Color(0.6, 0.7, 0.65), 17)
-			b.text = "<" if d < 0 else ">"
-			b.pressed.connect(func():
-				look[i] = Looks.widx(look[i] + d, sizes[i])
-				value.text = _look_name(i, look[i])
-				settings.look = look.duplicate()
-				settings.save()
-				look_changed.emit(look))
-			if d < 0:
-				row.add_child(b)
-				row.add_child(value)
-			else:
-				row.add_child(b)
-		_root.add_child(row)
-	_btn("Sortear", func():
-		settings.look = Looks.roll_look(-1)
-		settings.save()
-		look_changed.emit(settings.look)
-		show_page("look"), Color(0.9, 0.45, 0.8))
-	_back()
-
-func _look_name(kind: int, v: int) -> String:
-	match kind:
-		1: return Looks.HAIR_STYLES[Looks.widx(v, Looks.HAIR_STYLES.size())].name
-		2: return Looks.HAIR_COLORS[Looks.widx(v, Looks.HAIR_COLORS.size())].name
-		_: return Looks.BODY_COLORS[Looks.widx(v, Looks.BODY_COLORS.size())].name
-
 func _options() -> void:
 	_title("Gráficos e som", "o preset baixo roda em celular fraco sem perder o cenário")
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	for q in 4:
-		var b := UiTheme.style(Button.new(),
-			UiTheme.GOLD if q == settings.quality else Color(0.55, 0.62, 0.58), 17)
-		b.text = QUALS[q]
-		b.pressed.connect(func():
-			settings.quality = q
-			settings.save()
-			quality_changed.emit(q)
-			show_page("options"))
-		row.add_child(b)
-	_root.add_child(row)
+	_root.add_child(quality_row(settings, func(q):
+		quality_changed.emit(q)
+		show_page("options")))
 	_root.add_child(UiTheme.label(
 		"Trocar de preset reconstrói o cenário — leva um segundo.", 13,
 		Color(1, 1, 1, 0.5)))
 	_root.add_child(HSeparator.new())
-	_root.add_child(UiTheme.label("Cenário", 22, UiTheme.GOLD))
-	var srow := HBoxContainer.new()
-	srow.add_theme_constant_override("separation", 8)
-	for sc in SCENES:
-		var sb := UiTheme.style(Button.new(),
-			UiTheme.GOLD if sc[0] == settings.scene else Color(0.55, 0.62, 0.58), 17)
-		sb.text = sc[1]
-		sb.pressed.connect(func():
-			settings.scene = sc[0]
-			settings.save()
-			quality_changed.emit(settings.quality)
-			show_page("options"))
-		srow.add_child(sb)
-	_root.add_child(srow)
-	_root.add_child(HSeparator.new())
 	_root.add_child(UiTheme.label("Som", 22, UiTheme.GOLD))
-	_slider("Música", Aud.music_vol, func(v): Aud.set_volume("music", v))
-	_slider("Efeitos", Aud.sfx_vol, func(v): Aud.set_volume("sfx", v))
+	_root.add_child(slider("Música", Aud.music_vol, func(v): Aud.set_volume("music", v)))
+	_root.add_child(slider("Efeitos", Aud.sfx_vol, func(v): Aud.set_volume("sfx", v)))
 	_back()
 
+static func quality_row(s: Settings, cb: Callable) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	for q in 4:
+		var b := UiTheme.style(Button.new(),
+			UiTheme.GOLD if q == s.quality else Color(0.55, 0.62, 0.58), 17)
+		b.text = QUALS[q]
+		b.pressed.connect(func():
+			s.quality = q
+			s.save()
+			cb.call(q))
+		row.add_child(b)
+	return row
 
-func _slider(name: String, value: float, cb: Callable) -> void:
+static func slider(name: String, value: float, cb: Callable) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var l := UiTheme.label(name, 16, Color(0.82, 0.88, 0.84))
@@ -222,11 +358,11 @@ func _slider(name: String, value: float, cb: Callable) -> void:
 	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sl.value_changed.connect(cb)
 	row.add_child(sl)
-	_root.add_child(row)
+	return row
 
-func _back() -> void:
+func _back(to := "main") -> void:
 	_root.add_child(HSeparator.new())
-	_btn("Voltar", func(): show_page("main"), Color(0.6, 0.65, 0.62))
+	_btn("Voltar", func(): show_page(to), Color(0.6, 0.65, 0.62))
 
 func set_status(t: String) -> void:
 	_status.text = t

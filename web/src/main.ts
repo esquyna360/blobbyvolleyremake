@@ -359,7 +359,7 @@ class App {
       return b
     }
     this.touchEls = el('div', { class: 'touch' },
-      el('div', { class: 'tpad' }, mk('◀', 'left'), mk('▶', 'right'), mk('▼', 'down')),
+      el('div', { class: 'tpad col' }, el('div', { class: 'trow' }, mk('◀', 'left'), mk('▶', 'right')), mk('▼', 'down')),
       el('div', { class: 'tpad' }, mk('↘', 'dive'), mk('▲', 'up', true)))
 
     const menu = el('div', { class: 'tmenu', textContent: 'MENU' })
@@ -1167,7 +1167,8 @@ class App {
     // pausa local congela a simulação de verdade; online e transmissão seguem
     // rodando porque o relógio é do outro lado
     const frozen = this.phase === 'paused' && !this.session && !this.spectator && !this.replay
-    const rate = this.replay ? this.replay.speed : 1
+    let rate = this.replay ? this.replay.speed : 1
+    if (!this.session && !this.spectator && !this.replay) rate *= this.stage.timeScale()
     if (frozen) this.acc = 0
     else this.acc += dt * 1000 * rate
     let steps = 0

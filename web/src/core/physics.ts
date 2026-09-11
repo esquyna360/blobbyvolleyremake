@@ -17,7 +17,7 @@ import {
   SPECIAL_RALLY_HOT, SPECIAL_RALLY_MUL, SPECIAL_LEAK,
   SPECIAL_COMEBACK_STEP, SPECIAL_COMEBACK_MIN, SPECIAL_COMEBACK_MAX,
   SPECIAL_DEPTH_JITTER, SPECIAL_ARC_JITTER,
-  PARRY_ACTIVE, PARRY_CD, PARRY_REACH, PARRY_BOOST, PARRY_CHAIN_MAX,
+  PARRY_ACTIVE, PARRY_CD, PARRY_REACH, PARRY_BOOST, PARRY_CHAIN_MAX, PARRY_HOLD,
   CROUCH_RATE, CROUCH_RATE_AIR, CROUCH_RELEASE, CROUCH_DUCK, CROUCH_SLIM,
   CROUCH_SPREAD, CROUCH_SPEED_MUL, CROUCH_FALL_MUL,
   DIG_REACH, DIG_CD, DIG_WINDOW, DIG_VELOCITY, DIG_TARGET_DEPTH, DIG_NET_CLEARANCE,
@@ -65,6 +65,7 @@ export class PhysicWorld {
   parryActive = [0, 0]
   parryCd = [0, 0]
   parryChain = 0
+  hold = [0, 0]
   scores = [0, 0]
 
   crouch = [0, 0]
@@ -389,11 +390,34 @@ export class PhysicWorld {
     this.parryChain = Math.min(this.parryChain + 1, PARRY_CHAIN_MAX)
     this.superOwner = p
     this.superFrames = SPECIAL_BALL_FRAMES
+    this.hold[p] = PARRY_HOLD
+    this.ballVX = 0; this.ballVY = 0; this.ballSpin = 0
+    this.anchorHeld(p)
+    out.push({ event: Ev.PARRY, side: p, intensity: 1 })
+  }
+
+  private anchorHeld(p: Side) {
+    const dir = p === LEFT ? 1 : -1
+    this.ballX = this.blobX[p] + dir * (BLOBBY_UPPER_RADIUS + BALL_RADIUS) * 0.55
+    this.ballY = this.upperY(p) - BALL_RADIUS * 0.9
+  }
+
+  holding(): boolean {
+    return this.hold[LEFT] > 0 || this.hold[RIGHT] > 0
+  }
+
+  /** Parry bem dado segura a bola na mão: solta ao largar o botão ou em 1 s. */
+  private holdStep(p: Side, raw: PlayerInput, out: MatchEvent[]) {
+    if (this.hold[p] <= 0) return
+    this.hold[p]--
+    this.anchorHeld(p)
+    const held = raw.up || raw.special
+    if (held && this.hold[p] > 0 && this.stun[p] === 0) return
+    this.hold[p] = 0
     this.bumpTempo()
     this.aimSpecial(p, 1 + this.parryChain * PARRY_BOOST)
     this.scaleBallV()
-    this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
-    out.push({ event: Ev.PARRY, side: p, intensity: 1 })
+    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 0.5 })
   }
 
   private topBallCollision(p: Side) {
@@ -623,7 +647,7 @@ export class PhysicWorld {
   step(li: PlayerInput, ri: PlayerInput, isBallValid: boolean, isGameRunning: boolean, out: MatchEvent[]) {
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
-    if (this.superFrames > 0 && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
+    if (this.superFrames > 0 && !this.holding() && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
     if (this.diveCd[LEFT] > 0) this.diveCd[LEFT]--
     if (this.diveCd[RIGHT] > 0) this.diveCd[RIGHT]--
     if (this.diveRecover[LEFT] > 0) this.diveRecover[LEFT]--
@@ -647,7 +671,11 @@ export class PhysicWorld {
     this.handleBlob(LEFT, el)
     this.handleBlob(RIGHT, er)
 
-    if (isGameRunning) {
+    this.holdStep(LEFT, li, out)
+    this.holdStep(RIGHT, ri, out)
+    const holding = this.holding()
+
+    if (isGameRunning && !holding) {
       const g = this.ballG()
       // Magnus: a rotação empurra a bola perpendicular ao próprio voo, então
       // ela curva sem ganhar velocidade. Escala com o tempo igual à gravidade.
@@ -672,15 +700,15 @@ export class PhysicWorld {
     this.tryDive(LEFT, li, out)
     this.tryDive(RIGHT, ri, out)
 
-    if (isBallValid) {
+    if (isBallValid && !holding) {
       this.tryParry(LEFT, li, out)
       this.tryParry(RIGHT, ri, out)
       this.tryDig(LEFT, out) || this.handleBlobBallCollision(LEFT, out)
       if (!this.solo) this.tryDig(RIGHT, out) || this.handleBlobBallCollision(RIGHT, out)
     }
 
-    this.trySpecial(LEFT, li, isBallValid, groundL, out)
-    this.trySpecial(RIGHT, ri, isBallValid, groundR, out)
+    this.trySpecial(LEFT, li, isBallValid && !holding, groundL, out)
+    this.trySpecial(RIGHT, ri, isBallValid && !holding, groundR, out)
     this.prevUp[LEFT] = li.up ? 1 : 0
     this.prevUp[RIGHT] = ri.up ? 1 : 0
     this.prevSpecial[LEFT] = li.special ? 1 : 0
@@ -690,7 +718,7 @@ export class PhysicWorld {
     this.prevDive[LEFT] = li.dive ? 1 : 0
     this.prevDive[RIGHT] = ri.dive ? 1 : 0
 
-    this.handleBallWorldCollisions(out)
+    if (!holding) this.handleBallWorldCollisions(out)
 
     if (this.blobX[LEFT] + BLOBBY_LOWER_RADIUS > NET_POSITION_X - NET_RADIUS)
       this.blobX[LEFT] = NET_POSITION_X - NET_RADIUS - BLOBBY_LOWER_RADIUS
@@ -723,6 +751,7 @@ export class PhysicWorld {
     this.parryChain = 0
     this.parryActive[LEFT] = 0; this.parryActive[RIGHT] = 0
     this.parryCd[LEFT] = 0; this.parryCd[RIGHT] = 0
+    this.hold[LEFT] = 0; this.hold[RIGHT] = 0
     this.stun[LEFT] = 0; this.stun[RIGHT] = 0
     this.digActive[LEFT] = 0; this.digActive[RIGHT] = 0
     this.ballOut = 0

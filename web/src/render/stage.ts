@@ -48,6 +48,43 @@ import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './fa
 const REACH_PEAK = 0.88
 
 /** Anel de alcance macio: sem borda, só um halo que some pros dois lados. */
+function glowTexture() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const x = c.getContext('2d')!
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64)
+  g.addColorStop(0, 'rgba(255,255,255,0.9)')
+  g.addColorStop(0.35, 'rgba(255,255,255,0.35)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  x.fillStyle = g
+  x.fillRect(0, 0, 128, 128)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+
+function starTexture() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const x = c.getContext('2d')!
+  x.fillStyle = '#ffe36a'
+  x.strokeStyle = 'rgba(0,0,0,0.55)'
+  x.lineWidth = 3
+  x.beginPath()
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? 28 : 12
+    const a = -Math.PI / 2 + i * Math.PI / 5
+    const px = 32 + Math.cos(a) * r, py = 32 + Math.sin(a) * r
+    if (i === 0) x.moveTo(px, py); else x.lineTo(px, py)
+  }
+  x.closePath()
+  x.stroke()
+  x.fill()
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+
 function softRingTexture() {
   const c = document.createElement('canvas')
   c.width = c.height = 256
@@ -98,6 +135,8 @@ export interface GameRenderer {
   setSolo(on: boolean): void
   /** Faixa-alvo no chão do campo vazio. `null` apaga. */
   setTarget(t: TargetMark | null): void
+  /** Multiplicador do relógio da simulação local (câmera lenta do especial). */
+  timeScale(): number
   /**
    * Texto grande na tela. O 2D desenha dentro do canvas e devolve `true`; o 3D
    * devolve `false` e o HUD segue com o overlay em DOM, que lá não pesa.
@@ -334,6 +373,10 @@ export class Stage implements GameRenderer {
   walls: THREE.Mesh[] = []
   /** [lado][0 especial, 1 mão] — anel discreto de alcance perto da cabeça. */
   private reachRings: THREE.Mesh[] = []
+  private auras: THREE.Sprite[] = []
+  private stars: THREE.Sprite[][] = []
+  private punch = 0
+  private punchSide: Side = LEFT
   private ballSquash = { k: 0, ang: 0 }
   envCube: THREE.CubeTexture | null = null
 
@@ -472,6 +515,30 @@ export class Stage implements GameRenderer {
       m.visible = false
       scene.add(m)
       this.reachRings.push(m)
+    }
+    const glowTex = glowTexture()
+    const starTex = starTexture()
+    for (let i = 0; i < 2; i++) {
+      const a = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex, color: 0xffffff, transparent: true, opacity: 0,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      }))
+      a.renderOrder = 5
+      a.visible = false
+      scene.add(a)
+      this.auras.push(a)
+      const row: THREE.Sprite[] = []
+      for (let k = 0; k < 3; k++) {
+        const st = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: starTex, transparent: true, depthWrite: false,
+        }))
+        st.scale.setScalar(0.34)
+        st.renderOrder = 7
+        st.visible = false
+        scene.add(st)
+        row.push(st)
+      }
+      this.stars.push(row)
     }
 
     this.particles = createParticles(this.quality.particles)
@@ -750,6 +817,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
         case Ev.SPECIAL_FIRED: {
           const p = e.side as Side
           const bx = gx(w.ballX), by = gy(w.ballY)
+          if (e.intensity >= 1) { this.punch = 0.5; this.punchSide = p }
           this.trauma = Math.min(1, this.trauma + 0.75)
           this.hitstop = Math.max(this.hitstop, 0.11)
           this.aberration = Math.max(this.aberration, 2.2)
@@ -999,7 +1067,49 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       mat.opacity += (want - mat.opacity) * Math.min(1, dt * 9)
       m.visible = mat.opacity > 0.004
       m.position.set(x, y, 0)
+
+      const cy = gy(gyp)
+      const a = this.auras[i]
+      const am = a.material as THREE.SpriteMaterial
+      const col = this.blobs[i].visual.uniforms.uColor.value as THREE.Color
+      am.color.copy(col).lerp(new THREE.Color(1, 1, 1), 0.35)
+      const wantA = on ? 0.55 + Math.sin(this.time * 5.2) * 0.12 : 0
+      am.opacity += (wantA - am.opacity) * Math.min(1, dt * 8)
+      a.visible = am.opacity > 0.004
+      const sc = 3.0 + Math.sin(this.time * 3.1) * 0.25
+      a.scale.set(sc, sc * 1.15, 1)
+      a.position.set(x, cy + 0.2, -0.3)
+      if (on && Math.random() < dt * 6) {
+        this.particles.burst({
+          x: x + (Math.random() - 0.5) * 1.6, y: cy + Math.random() * 1.4, z: (Math.random() - 0.5) * 1.2,
+          count: 2, speed: 0.6, spread: 3.14, up: 1.2, life: 0.7, size: 0.035,
+          color: am.color, drag: 1.5, colorJitter: 0.2,
+        })
+      }
+
+      const stunned = w.stun[i] > 0 && !hidden
+      for (let k = 0; k < 3; k++) {
+        const st = this.stars[i][k]
+        st.visible = stunned
+        if (!stunned) continue
+        const ang = this.time * 5.5 + k * 2.094
+        st.position.set(x + Math.cos(ang) * 0.75, y + 0.95 + Math.sin(ang * 2) * 0.08, Math.sin(ang) * 0.5)
+        const p = 0.3 + Math.sin(this.time * 9 + k) * 0.05
+        st.scale.set(p, p, 1)
+      }
     }
+  }
+
+  private punchK() {
+    const t = 0.5 - this.punch
+    if (t < 0.08) return t / 0.08
+    if (this.punch < 0.14) return this.punch / 0.14
+    return 1
+  }
+
+  /** Multiplicador de tempo da simulação local: 0.2 durante o zoom do especial. */
+  timeScale() {
+    return this.punch > 0.14 ? 0.2 : 1
   }
 
   private updateBlob(i: Side, alpha: number, dt: number, match: Match) {
@@ -1192,6 +1302,19 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.camera.lookAt(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0)
     this.camera.rotation.z += shr
     this.camera.fov = CAM_FOV - Math.min(this.ballSpeed, 22) * 0.036
+    if (this.punch > 0) {
+      this.punch = Math.max(0, this.punch - dt)
+      const k = this.punchK() * this.punchK()
+      const i = this.punchSide
+      const hx = gx(THREE.MathUtils.lerp(p.px[i], c.px[i], alpha))
+      const hy = gy(THREE.MathUtils.lerp(p.py[i], c.py[i], alpha) - BLOBBY_UPPER_SPHERE)
+      const target = new THREE.Vector3(hx + (i === LEFT ? 0.9 : -0.9), hy + 0.35, 4.2)
+      this.camera.position.lerp(target, k)
+      const look = new THREE.Vector3(hx, hy + 0.1, 0)
+      const cur = new THREE.Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0).lerp(look, k)
+      this.camera.lookAt(cur)
+      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 30, k)
+    }
     this.camera.updateProjectionMatrix()
 
     this.sun.target.position.set(this.camTargetX * 0.5, 2, 0)
