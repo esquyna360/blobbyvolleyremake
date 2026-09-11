@@ -195,7 +195,8 @@ export class Selva2D {
 
   private falls(c: CanvasRenderingContext2D, v: View) {
     const { horizon, shore, scale, time, ox } = v
-    const cx = ox + NET_POSITION_X * scale + (v.pan + v.sway) * v.cw * 0.9
+    const back = this.layers[4]
+    const cx = ox + NET_POSITION_X * scale - (v.pan + v.sway) * back.px * v.cw * 2.2
     const cliff = this.img.cliff
     const cw0 = 240 * scale, ch0 = cw0 * (cliff.naturalHeight / cliff.naturalWidth)
     const base = horizon + 8 * scale

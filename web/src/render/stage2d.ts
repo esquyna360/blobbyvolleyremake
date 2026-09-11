@@ -160,6 +160,8 @@ export class Stage2D implements GameRenderer {
   private wallsOn = true
   /** quanto de fora-da-linha o enquadramento está abrindo agora, em unidades da física */
   private frameExtra = 0
+  /** bola alta afasta a câmera: o chão fica no lugar e o céu abre em cima */
+  private zoom = 1
   private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
   private fills = [bodyHex(defaultLook(LEFT)), bodyHex(defaultLook(RIGHT))]
   private darks = [shade(bodyHex(defaultLook(LEFT)), 0.55), shade(bodyHex(defaultLook(RIGHT)), 0.55)]
@@ -190,6 +192,7 @@ export class Stage2D implements GameRenderer {
     this.canvas.style.width = `${w}px`
     this.canvas.style.height = `${h}px`
     this.applyFrame(true)
+    this.buildSpecks()
   }
 
   /**
@@ -198,7 +201,7 @@ export class Stage2D implements GameRenderer {
    * Na quadra aberta a margem cresce só enquanto alguém está fora da linha.
    */
   private applyFrame(force = false) {
-    const s = Math.min(this.cw / (RIGHT_PLANE + 90 + this.frameExtra * 2), this.ch / 640)
+    const s = Math.min(this.cw / (RIGHT_PLANE + 90 + this.frameExtra * 2), this.ch / 640) * this.zoom
     if (!force && Math.abs(s - this.scale) < 1e-4) return
     this.scale = s
     this.ox = (this.cw - RIGHT_PLANE * s) / 2
@@ -217,7 +220,10 @@ export class Stage2D implements GameRenderer {
     ramp(b, horizon, shore, d.mid, step)
     ramp(b, shore, this.ch, d.ground, step)
     this.bands = b
+  }
 
+  private buildSpecks() {
+    const d = this.scene.d2
     this.specks = []
     for (let i = 0; i < d.stars; i++) {
       this.specks.push({
@@ -235,6 +241,7 @@ export class Stage2D implements GameRenderer {
     if (id === 'selva' && !this.selva) this.selva = new Selva2D(this.lite)
     this.depth = getDepth(this.scene.depth)
     this.buildBands()
+    this.buildSpecks()
   }
 
   /**
@@ -1653,6 +1660,11 @@ export class Stage2D implements GameRenderer {
       Math.abs(w.blobX[RIGHT] - NET_POSITION_X)) - half
     const want = Math.max(0, Math.min(OPEN_MARGIN, far + 24))
     this.frameExtra += (want - this.frameExtra) * (1 - Math.exp(-dt * (want > this.frameExtra ? 5.5 : 1.4)))
+    const base = Math.min(this.cw / (RIGHT_PLANE + 90 + this.frameExtra * 2), this.ch / 640)
+    const top = by - BALL_RADIUS * 2.2
+    const fit = (this.ch * 0.86 - this.ch * 0.06) / Math.max(1, GROUND + 44 - top)
+    const wantZoom = Math.max(0.55, Math.min(1, fit / base))
+    this.zoom += (wantZoom - this.zoom) * (1 - Math.exp(-dt * (wantZoom < this.zoom ? 7 : 1.1)))
     this.applyFrame()
     // o 3D passeia a câmera atrás da bola e balança de leve parado; aqui a
     // quadra é fixa, então o mesmo passeio vira só este número
