@@ -15,9 +15,10 @@ import { Stage2D } from './render/stage2d.ts'
 import { StagePixel } from './render/stagepixel.ts'
 import { Hud } from './ui/hud.ts'
 import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
-import { PadNav } from './ui/pad.ts'
 import type { GameConfig, ResultInfo, ResultSide } from './ui/menu.ts'
-import { InputManager, P1, P2, SOLO } from './ui/input.ts'
+import { InputManager, P1, P2, SOLO, keyName } from './ui/input.ts'
+import { PadNav, PAD_NAME, padMap } from './ui/pad.ts'
+import { Tutorial, TUT_STEPS } from './core/tutorial.ts'
 import { NetSession, passHash } from './net/session.ts'
 import { createManualTransport, createRoomTransport, ensureIce, hasTurn, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
@@ -46,6 +47,7 @@ import { ONLY_3D, PIXEL_ONLY, PLATFORM } from './core/platform.ts'
 type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
 const isTouch = matchMedia('(pointer: coarse)').matches
+if (isTouch) document.body.classList.add('tap')
 const NO_EVENTS: readonly MatchEvent[] = []
 
 const QUALITY_ORDER: GameConfig['quality'][] = ['min', 'cpu', 'low', 'medium', 'high', 'ultra']
@@ -143,7 +145,7 @@ class App {
     if (savedArena === 'wide' || savedArena === 'default') this.cfg.arena = savedArena
     const savedScene = localStorage.getItem('bv.scene')
     if (savedScene && savedScene in SCENES) this.cfg.scene = savedScene as SceneId
-    this.cfg.walls = localStorage.getItem('bv.walls') !== '0'
+    this.cfg.walls = true
     this.cfg.look = loadLook()
     setArena(this.cfg.arena)
     syncArena()
@@ -176,10 +178,8 @@ class App {
       onSaveReplay: () => this.uploadReplay(),
       onScene: id => this.applyScene(id),
       onLook: look => { this.cfg.look = look; this.applyLooks() },
-      onWalls: on => {
-        localStorage.setItem('bv.walls', on ? '1' : '0')
-        this.applyWalls(on)
-      },
+      onTutorial: c => this.startTutorial(c),
+      onControlsChanged: () => this.refreshTouchLabels(),
       onCreateRoom: (code, pass, c, pub) => void this.openRoom(code, pass, c, pub),
       onJoinRoom: (code, pass, c) => void this.joinRoom(code, pass, c),
       onManual: (host, c) => this.startManual(host, c),
@@ -224,8 +224,25 @@ class App {
   private fpsFrames = 0
   private autoDrops = 0
 
+  /**
+   * O jogo é sempre deitado. Celular em pé gira a tela inteira 90° por CSS:
+   * canvas e interface passam a medir a altura por largura, e o resto do jogo
+   * nem fica sabendo. Layout de celular vem de classe no body, não de media
+   * query, porque a media query enxerga o viewport de pé.
+   */
   private resize() {
-    this.stage.setSize(innerWidth, innerHeight)
+    const rot = isTouch && innerHeight > innerWidth
+    const w = rot ? innerHeight : innerWidth
+    const h = rot ? innerWidth : innerHeight
+    document.body.classList.toggle('rot', rot)
+    for (const n of [this.canvas, this.ui]) {
+      n.style.width = rot ? `${w}px` : ''
+      n.style.height = rot ? `${h}px` : ''
+    }
+    document.body.classList.toggle('phone', h < 520 || w < 900)
+    document.body.classList.toggle('narrow', w < 620)
+    this.hud.setViewport(w, h)
+    this.stage.setSize(w, h)
   }
 
   /**
@@ -236,6 +253,7 @@ class App {
   private wireBigText() {
     this.hud.bigSink = (t, k, ms, c) => this.stage.bigText(t, k, ms, c)
     this.hud.bigClear = () => this.stage.clearBigs()
+    this.hud.calloutSink = (side, t, c) => this.stage.callout(side, t, c)
   }
 
   private applyLooks() {
@@ -359,23 +377,86 @@ class App {
     }
   }
 
+  private stickEl: HTMLElement | null = null
+  private specialBtn: HTMLElement | null = null
+  private touchBtns: HTMLElement[] = []
+
+  /**
+   * Toque: analógico na esquerda, quatro botões na direita como num controle.
+   * A pula, X bate, B mergulha, Y especial — e o Y só acende com a barra cheia
+   * ou com um especial vindo (reversal).
+   */
   private buildTouch() {
     if (!isTouch) return
-    const mk = (label: string, key: 'left' | 'right' | 'up' | 'down' | 'dive', big = false) => {
-      const b = el('div', { class: `tbtn${big ? ' big' : ''}${key === 'dive' ? ' dive' : ''}`, textContent: label })
+    const t = this.input.touch
+    const mk = (key: 'up' | 'hit' | 'dive' | 'special', letter: string, label: string) => {
+      const b = el('div', { class: `tbtn ${key}` }, el('b', { textContent: letter }), el('small', { textContent: label }))
       const on = (v: boolean) => (e: Event) => {
         e.preventDefault()
-        this.input.touch[key] = v
+        if (v && b.classList.contains('off')) return
+        t[key] = v
         b.classList.toggle('press', v)
       }
       b.addEventListener('touchstart', on(true), { passive: false })
       b.addEventListener('touchend', on(false), { passive: false })
       b.addEventListener('touchcancel', on(false), { passive: false })
+      this.touchBtns.push(b)
       return b
     }
+    const knob = el('div', { class: 'knob' })
+    const stick = el('div', { class: 'stick' }, knob)
+    let id = -1
+    let cx = 0, cy = 0
+    const R = 46
+    const put = (dx: number, dy: number) => {
+      const d = Math.hypot(dx, dy) || 1
+      const k = Math.min(1, d / R)
+      const nx = (dx / d) * k, ny = (dy / d) * k
+      knob.style.transform = `translate(${Math.round(nx * R)}px, ${Math.round(ny * R)}px)`
+      t.left = nx < -0.32
+      t.right = nx > 0.32
+      t.down = ny > 0.42
+      t.stickUp = ny < -0.42
+    }
+    const release = () => {
+      id = -1
+      knob.style.transform = ''
+      t.left = false; t.right = false; t.down = false; t.stickUp = false
+      stick.classList.remove('press')
+    }
+    stick.addEventListener('touchstart', e => {
+      e.preventDefault()
+      if (id >= 0) return
+      const touch = e.changedTouches[0]
+      id = touch.identifier
+      const r = stick.getBoundingClientRect()
+      cx = r.left + r.width / 2; cy = r.top + r.height / 2
+      stick.classList.add('press')
+      put(...this.stickDelta(touch.clientX - cx, touch.clientY - cy))
+    }, { passive: false })
+    stick.addEventListener('touchmove', e => {
+      e.preventDefault()
+      for (const touch of Array.from(e.changedTouches)) {
+        if (touch.identifier !== id) continue
+        put(...this.stickDelta(touch.clientX - cx, touch.clientY - cy))
+      }
+    }, { passive: false })
+    const end = (e: TouchEvent) => {
+      e.preventDefault()
+      for (const touch of Array.from(e.changedTouches)) if (touch.identifier === id) release()
+    }
+    stick.addEventListener('touchend', end, { passive: false })
+    stick.addEventListener('touchcancel', end, { passive: false })
+    this.stickEl = stick
+
+    this.specialBtn = mk('special', 'Y', 'especial')
     this.touchEls = el('div', { class: 'touch' },
-      el('div', { class: 'tpad col' }, el('div', { class: 'trow' }, mk('◀', 'left'), mk('▶', 'right')), mk('▼', 'down')),
-      el('div', { class: 'tpad' }, mk('↘', 'dive'), mk('▲', 'up', true)))
+      stick,
+      el('div', { class: 'abxy' },
+        this.specialBtn,
+        mk('hit', 'X', 'bater'),
+        mk('dive', 'B', 'mergulho'),
+        mk('up', 'A', 'pular')))
 
     const menu = el('div', { class: 'tmenu', textContent: 'MENU' })
     const openMenu = (e: Event) => {
@@ -403,11 +484,42 @@ class App {
     this.ui.append(this.touchEls, menu, emotes)
   }
 
+  /** Tela girada: o toque chega no eixo do aparelho, o analógico vive no eixo do jogo. */
+  private stickDelta(dx: number, dy: number): [number, number] {
+    return document.body.classList.contains('rot') ? [-dy, dx] : [dx, dy]
+  }
+
+  private refreshTouchLabels() { /* rótulos do toque são fixos; teclado e controle vêm do menu */ }
+
+  /** Nome do botão de cada ação pra quem está jogando agora: toque, controle ou teclado. */
+  private buttonNames(): Record<string, string> {
+    if (isTouch) return { move: 'analógico', jump: 'A', hit: 'X', dive: 'B', special: 'Y', down: 'analógico pra baixo' }
+    if (PadNav.present()) {
+      const m = padMap()
+      const n = (i: number) => PAD_NAME[i] ?? `botão ${i}`
+      return { move: 'direcional', jump: n(m.jump), hit: n(m.hit), dive: n(m.dive), special: n(m.special), down: 'baixo' }
+    }
+    const k = (a: keyof typeof P1) => keyName(P1[a][0] ?? '')
+    return { move: `${k('left')} e ${k('right')}`, jump: k('up'), hit: k('hit'), dive: k('dive'), special: k('special'), down: k('down') }
+  }
+
+  /** Botões que dependem do estado: o Y só vale com barra cheia ou especial chegando. */
+  private tickTouchState(m: Match) {
+    const me = this.localSide
+    const w = m.world
+    this.input.aimMode = w.hitCharge[me] > 0
+    if (!this.specialBtn) return
+    const on = w.charge[me] >= 1 || (w.superFrames > 0 && w.superOwner !== me) || w.hold[me] > 0
+    this.specialBtn.classList.toggle('off', !on)
+    if (!on && this.input.touch.special) { this.input.touch.special = false; this.specialBtn.classList.remove('press') }
+    this.stickEl?.classList.toggle('aim', this.input.aimMode)
+  }
+
   private setTouchVisible(v: boolean) {
     const play = v && isTouch && !this.viewing
     this.touchEls?.classList.toggle('on', play)
     this.touchMenu?.classList.toggle('on', v && isTouch)
-    this.touchEmotes?.classList.toggle('on', play)
+    this.touchEmotes?.classList.toggle('on', play && !this.tutorial)
   }
 
   // ---------- lifecycle ----------
@@ -448,20 +560,6 @@ class App {
   }
 
   /**
-   * Paredes são regra da simulação. Trocar no meio de uma partida local vale na
-   * hora, mas invalida a gravação: o replay só guarda inputs.
-   */
-  private applyWalls(on: boolean) {
-    this.cfg.walls = on
-    this.stage.setWalls(on)
-    const m = this.match
-    if (m && !this.viewing && !this.session && !this.drill && m.world.walls !== on) {
-      m.world.walls = on
-      this.recBroken = true
-    }
-  }
-
-  /**
    * Cenário troca na hora. Os antigos são só pintura; os novos carregam regra,
    * e regra em partida corrente vira física nova no meio do ponto — então nesse
    * caso a troca só vale a partir da próxima partida.
@@ -485,6 +583,7 @@ class App {
     this.applyArena(cfg.arena)
     this.closeSession()
     this.clearDrill()
+    this.clearTutorial()
     this.demoBot = null
     this.match = this.newMatch(cfg, LEFT)
     this.localSide = LEFT
@@ -584,6 +683,95 @@ class App {
     this.begin()
   }
 
+  // ---------- tutorial ----------
+
+  private tutorial: Tutorial | null = null
+  private tutEl: HTMLElement | null = null
+  private tutShown = ''
+
+  startTutorial(cfg: GameConfig) {
+    this.cfg = cfg
+    this.applyScene(cfg.scene)
+    this.closeSession()
+    this.clearDrill()
+    this.demoBot = null
+    this.bot = null
+    this.botMood = null
+    this.botLook = null
+    this.localSide = LEFT
+    const m = new Match(DRILL_RULES, DRILL_RULES.scoreToWin, NO_PLAYER, true)
+    m.world.solo = true
+    this.match = m
+    this.rec.reset()
+    this.recBroken = true
+    this.recSaved = true
+    this.tutorial = new Tutorial()
+    this.tutShown = ''
+    this.stage.setWalls(true)
+    this.stage.setSolo(true)
+    this.stage.setTarget(null)
+    this.p1Look = null
+    this.applyLooks()
+    this.hud.setDrill(true)
+    this.hud.setNames('', '')
+    this.hud.setRule('TUTORIAL', '')
+    this.hud.setLives(0)
+    this.hud.showNet(null)
+    this.hud.root.classList.add('tut-on')
+    if (!this.tutEl) {
+      this.tutEl = el('div', { class: 'tut' })
+      this.ui.append(this.tutEl)
+    }
+    this.tutEl.style.display = ''
+    this.stage.capture(m)
+    this.stage.capture(m)
+    this.begin()
+    this.tutTick()
+  }
+
+  private clearTutorial() {
+    if (!this.tutorial) return
+    this.tutorial = null
+    this.stage.setSolo(false)
+    this.hud.setDrill(false)
+    this.hud.root.classList.remove('tut-on')
+    if (this.tutEl) this.tutEl.style.display = 'none'
+  }
+
+  private tutTick() {
+    const t = this.tutorial
+    if (!t || !this.tutEl) return
+    const r = t.takeResult()
+    if (r > 0) { this.audio.point(true); this.hud.banner(t.count >= t.need ? 'BOA!' : `${t.count} / ${t.need}`, 700, '#5cf08a') }
+    else if (r < 0) this.audio.point(false)
+    if (t.done) { this.tutEnd(); return }
+    const st = TUT_STEPS[t.step]
+    const key = `${t.step}:${t.count}`
+    if (key === this.tutShown) return
+    this.tutShown = key
+    const names = this.buttonNames()
+    const text = st.text.replace(/\{(\w+)\}/g, (_, k: string) => names[k] ?? k)
+    this.tutEl.replaceChildren(
+      el('div', { class: 'tut-step', textContent: `${t.step + 1} / ${TUT_STEPS.length}` }),
+      el('div', { class: 'tut-title', textContent: st.title }),
+      el('div', { class: 'tut-text', textContent: text }),
+      el('div', { class: 'tut-count', textContent: st.need > 1 ? `${t.count} / ${st.need}` : '' }))
+  }
+
+  private tutEnd() {
+    if (this.phase !== 'playing') return
+    this.phase = 'over'
+    try { localStorage.setItem('bv.tutorial', '1') } catch { /* sem storage */ }
+    this.audio.finish(true)
+    this.hud.banner('TUTORIAL COMPLETO', 2200, '#ffd257')
+    setTimeout(() => {
+      if (this.phase !== 'over') return
+      this.setTouchVisible(false)
+      this.hud.clearFx()
+      this.menu.drillResult('PRONTO PRA QUADRA', 'todos os golpes na mão', '#ffd257', () => this.startTutorial(this.cfg))
+    }, 2000)
+  }
+
   private clearDrill() {
     if (!this.drill) return
     this.drill = null
@@ -668,6 +856,7 @@ class App {
   quitToMenu() {
     this.arcade = null
     this.clearDrill()
+    this.clearTutorial()
     this.leaveWatch(false)
     this.leaveReplay(false)
     this.closeSession()
@@ -675,7 +864,7 @@ class App {
     this.hud.root.style.opacity = '0'
     this.hud.showNet(null)
     this.setTouchVisible(false)
-    this.applyWalls(localStorage.getItem('bv.walls') !== '0')
+    this.clearTutorial()
     this.startDemo()
     this.menu.show()
     this.menu.main()
@@ -848,7 +1037,6 @@ class App {
       walls: cfg.walls,
       look: cfg.look,
       onArena: id => this.applyArena(id),
-      onWalls: on => this.applyWalls(on),
       scene: cfg.scene,
       onScene: id => { if (id in SCENES) this.applyScene(id as SceneId) },
       scoreToWin: cfg.scoreToWin,
@@ -918,7 +1106,7 @@ class App {
       const mine = this.input.read(SOLO, 0, true)
       return this.localSide === LEFT ? [mine, NO_INPUT] : [NO_INPUT, mine]
     }
-    if (this.bot || this.drill) return [this.input.read(SOLO, 0, true), NO_INPUT]
+    if (this.bot || this.drill || this.tutorial) return [this.input.read(SOLO, 0, true), NO_INPUT]
     return [this.input.read(P1, 0), this.input.read(P2, 1)]
   }
 
@@ -968,11 +1156,12 @@ class App {
     m.step(li, ri)
     // a bola reposta é um salto, não um movimento: capturar duas vezes iguala
     // o quadro anterior ao de agora e a interpolação não risca a tela
-    const jump = this.drill?.after(m) ?? false
-    if (!this.demoBot && !this.drill) this.rec.put(f, packInput(li), packInput(ri))
+    const jump = this.drill?.after(m) ?? this.tutorial?.after(m, li) ?? false
+    if (!this.demoBot && !this.drill && !this.tutorial) this.rec.put(f, packInput(li), packInput(ri))
     this.stage.capture(m)
     if (jump) this.stage.capture(m)
     this.drillTick()
+    this.tutTick()
     this.stage.onEvents(m, m.events)
     this.audio.onEvents(m.events, m.world, this.demoBot ? NO_PLAYER : this.localSide)
     this.uiEvents(m.events)
@@ -1151,10 +1340,22 @@ class App {
       if (id >= 0) setTimeout(() => this.sendEmote(RIGHT, id), 260 + Math.random() * 320)
     }
     for (const e of events) {
-      if (e.event === Ev.FATALITY) this.hud.fatality()
-      else if (e.event === Ev.PARRY) this.hud.parry()
-      else if (e.event === Ev.SCORE) this.audio.duckMusic(1.3)
-      else if (e.event === Ev.BALL_OUT) this.hud.banner('FORA!', 900, '#ff8a7a')
+      const side = e.side as Side
+      switch (e.event) {
+        case Ev.FATALITY: this.hud.fatality(); break
+        case Ev.PARRY: this.hud.callout(side, 'PARRY', '#8fe4ff'); break
+        case Ev.REVERSAL: this.hud.callout(side, 'REVERSAL', '#ff8a2b'); break
+        case Ev.DIG: this.hud.callout(side, 'MANCHETE', '#cfe9ff'); break
+        case Ev.DROP: this.hud.callout(side, 'DEIXADINHA', '#f2ddaa'); break
+        case Ev.DIVE_HIT: this.hud.callout(side, 'MERGULHO', '#9dff8f'); break
+        case Ev.TRIP: this.hud.callout(side, 'TROPEÇOU', '#ff8a7a'); break
+        case Ev.HIT:
+          if (e.intensity >= 0.99) this.hud.callout(side, 'PANCADA', '#ffd257')
+          else if (this.match && this.match.world.blobY[side] < 380 && this.match.world.ballVY > 0) this.hud.callout(side, 'CORTADA', '#ffffff')
+          break
+        case Ev.SCORE: this.audio.duckMusic(1.3); break
+        case Ev.BALL_OUT: this.hud.banner('FORA!', 900, '#ff8a7a'); break
+      }
     }
   }
 
@@ -1302,6 +1503,7 @@ class App {
       this.stage.render(m, alpha, dt)
       if (this.stage instanceof StagePixel) this.hud.root.style.opacity = this.stage.introActive() ? '0' : '1'
       if (this.drill) this.drillScore[0] = this.drill.hits
+      if (!this.viewing) this.tickTouchState(m)
       this.hud.update(this.drill ? this.drillScore : m.logic.scores,
         m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
       this.hud.ballHint(this.phase === 'playing' ? this.stage.ballHint(m) : null, dt)

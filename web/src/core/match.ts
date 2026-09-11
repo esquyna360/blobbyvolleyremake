@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 26
-export const STATE_INTS = 46
+export const STATE_INTS = 60
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -66,8 +66,8 @@ export class Match {
     if (tf) {
       const [ll, lr, lu] = tf(LEFT, li.left, li.right, li.up)
       const [rl, rr, ru] = tf(RIGHT, ri.left, ri.right, ri.up)
-      l = { left: ll, right: lr, up: lu, special: li.special, down: li.down, dive: li.dive }
-      r = { left: rl, right: rr, up: ru, special: ri.special, down: ri.down, dive: ri.dive }
+      l = { left: ll, right: lr, up: lu, special: li.special, down: li.down, dive: li.dive, hit: li.hit }
+      r = { left: rl, right: rr, up: ru, special: ri.special, down: ri.down, dive: ri.dive, hit: ri.hit }
     }
 
     w.scores[0] = g.scores[0]; w.scores[1] = g.scores[1]
@@ -83,6 +83,9 @@ export class Match {
         case Ev.PARRY:
         case Ev.DIG:
         case Ev.DIVE_HIT:
+        case Ev.HIT:
+        case Ev.DROP:
+        case Ev.REVERSAL:
         case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
           g.onBallHitsGround(e.side as Side)
@@ -144,6 +147,13 @@ export class Match {
     i[41] = w.ballOut
     i[42] = w.prevDive[0]; i[43] = w.prevDive[1]
     i[44] = w.hold[0]; i[45] = w.hold[1]
+    i[46] = w.hitCharge[0]; i[47] = w.hitCharge[1]
+    i[48] = w.hitAimX[0]; i[49] = w.hitAimX[1]
+    i[50] = w.hitAimY[0]; i[51] = w.hitAimY[1]
+    i[52] = w.hitLag[0]; i[53] = w.hitLag[1]
+    i[54] = w.prevHit[0]; i[55] = w.prevHit[1]
+    i[56] = w.revActive[0]; i[57] = w.revActive[1]
+    i[58] = w.revCd[0]; i[59] = w.revCd[1]
     f[24] = w.tempo; f[25] = w.ballSpin
   }
 
@@ -182,6 +192,13 @@ export class Match {
     w.ballOut = i[41]
     w.prevDive[0] = i[42]; w.prevDive[1] = i[43]
     w.hold[0] = i[44]; w.hold[1] = i[45]
+    w.hitCharge[0] = i[46]; w.hitCharge[1] = i[47]
+    w.hitAimX[0] = i[48]; w.hitAimX[1] = i[49]
+    w.hitAimY[0] = i[50]; w.hitAimY[1] = i[51]
+    w.hitLag[0] = i[52]; w.hitLag[1] = i[53]
+    w.prevHit[0] = i[54]; w.prevHit[1] = i[55]
+    w.revActive[0] = i[56]; w.revActive[1] = i[57]
+    w.revCd[0] = i[58]; w.revCd[1] = i[59]
     w.tempo = f[24]; w.ballSpin = f[25]
     w.rally = g.rally
     w.matchPoint = this.atMatchPoint()

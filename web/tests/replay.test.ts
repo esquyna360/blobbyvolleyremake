@@ -12,7 +12,7 @@ function rng(seed: number) {
 }
 
 const bits = (r: () => number) =>
-  packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12, dive: r() < 0.06 })
+  packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12, dive: r() < 0.06, hit: r() < 0.1 })
 
 /**
  * O arquivo guarda só os inputs. Se a simulação não for determinística de ponta

@@ -646,6 +646,7 @@ export class Stage2D implements GameRenderer {
     return true
   }
 
+  callout() { return false }
   clearBigs() { this.bigs.length = 0 }
 
   private drawBigs() {

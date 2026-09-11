@@ -8,7 +8,7 @@ import type { ArenaId } from '../core/constants.ts'
 import { SCENE_LIST } from '../render/scenes.ts'
 import type { SceneId } from '../render/scenes.ts'
 import { runDiag } from '../net/diag.ts'
-import { leaderboard, myRank } from '../net/rank.ts'
+import { account, leaderboard, myRank, signIn, signOut, signUp } from '../net/rank.ts'
 import { onlineReplays } from '../net/replays.ts'
 import type { ReplayCard } from '../net/replays.ts'
 import type { RankRow } from '../net/rank.ts'
@@ -21,6 +21,10 @@ import { getScene } from '../render/scenes.ts'
 import { ROSTER, fighterById } from '../core/roster.ts'
 import type { Fighter } from '../core/roster.ts'
 import type { PadAction } from './pad.ts'
+import { PAD_NAME, padMap, pressedButton, resetPad, setPadButton } from './pad.ts'
+import type { PadMap } from './pad.ts'
+import { ACTIONS, ACTION_LABEL, KEYS, keyName, resetKeys, setKey } from './input.ts'
+import type { Action } from './input.ts'
 import { drillBest } from '../core/drill.ts'
 import { ONLY_3D, PIXEL_ONLY } from '../core/platform.ts'
 
@@ -63,11 +67,6 @@ export const DEFAULT_CONFIG: GameConfig = {
   scene: 'praia', walls: true, look: defaultLook(0), p1: null, p2: null,
 }
 
-const WALL_OPTS: ['on' | 'off', string, string][] = [
-  ['on', 'Com parede', 'a bola quica de volta e o rally segue'],
-  ['off', 'Quadra aberta', 'dá pra sair da linha; fora é só quando a bola cai fora'],
-]
-
 const DIFFS: [Difficulty, string, string][] = [
   ['easy', 'Fácil', ''],
   ['normal', 'Normal', ''],
@@ -105,7 +104,8 @@ export interface MenuHandlers {
   onJoinRoom(code: string, pass: string, cfg: GameConfig): void
   onScene(id: SceneId): void
   onLook(look: PlayerLook): void
-  onWalls(on: boolean): void
+  onTutorial(cfg: GameConfig): void
+  onControlsChanged(): void
   onManual(asHost: boolean, cfg: GameConfig): {
     local: Promise<string>
     accept(remote: string): Promise<void>
@@ -272,13 +272,6 @@ export class Menu {
       el('b', { textContent: name }), el('small', { textContent: desc }))
   }
 
-  /** Uma linha do rodapé: coluna de teclas, coluna do que elas fazem. */
-  private keyRow(keys: string[], text: string) {
-    return el('div', { class: 'fk' },
-      el('span', { class: 'kk' }, ...keys.map(k => el('kbd', { textContent: k }))),
-      el('span', { textContent: text }))
-  }
-
   private portraitCanvas() {
     return el('canvas', { class: 'portrait' }) as HTMLCanvasElement
   }
@@ -440,27 +433,12 @@ export class Menu {
           this.act('ONLINE', 'sala aberta, sala com código, assistir e replays',
             () => this.online()),
           el('div', { class: 'minor' },
+            this.item('TUTORIAL', 'aprende cada golpe, um de cada vez', () => this.handlers.onTutorial(this.cfg),
+              localStorage.getItem('bv.tutorial') ? '' : 'new'),
             this.item('MEU PERFIL', 'nome, cor e cabelo do seu blob', () => this.blobby()),
-            this.item('MINIGAMES', 'treinos de um jogador só', () => this.minigames()),
             this.item('RANKING', 'só partida online pontua', () => this.ranking()),
-            this.item('AJUSTES', 'regras, arena, som', () => this.settings())),
-          this.tipLine(TOUCH
-            ? '▲ pula · dois toques no ar = especial · ▼ manchete, segurar agacha · ↘ se joga'
-            : 'passa o cursor numa opção pra ver o que ela faz'))),
-      el('div', { class: 'homefoot' }, ...(TOUCH ? [
-        this.keyRow(['◀', '▶'], 'anda'),
-        this.keyRow(['▲'], 'pula — dois toques no ar = especial'),
-        this.keyRow(['▼'], 'toque = manchete, segurar = agachar'),
-        this.keyRow(['↘'], 'se joga pro lado'),
-        this.keyRow(['MENU'], 'pausa e volta'),
-      ] : [
-        this.keyRow(['A', 'D', 'W', 'S'], 'jogador 1'),
-        this.keyRow(['←', '→', '↑', '↓'], 'jogador 2'),
-        this.keyRow(['S'], 'toque = manchete, segurar = agachar'),
-        this.keyRow(['E', 'CTRL'], 'se joga pro lado'),
-        this.keyRow(['1', '5'], 'emotes'),
-        this.keyRow(['ESC'], 'pausa e volta'),
-      ])),
+            this.item('AJUSTES', 'regras, controles, som', () => this.settings())),
+          this.tipLine(TOUCH ? '' : 'passa o cursor numa opção pra ver o que ela faz'))),
     )
     this.runPortrait(cv)
   }
@@ -605,6 +583,7 @@ export class Menu {
     const commit = () => { saveLook(look); this.handlers.onLook(look) }
     const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16, class: 'nome' })
     nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby'; localStorage.setItem('bv.name', cfg.name) })
+    const acct = el('div', { class: 'acct' }, el('p', { class: 'hint center', textContent: 'conta: verificando…' }))
 
     this.panel(
       this.title('MEU PERFIL'),
@@ -618,10 +597,53 @@ export class Menu {
             v => { look.hair = Number(v); commit() }),
           this.opt('Cor do cabelo', pick(HAIR_COLORS), String(look.hairColor),
             v => { look.hairColor = Number(v); commit() }))),
+      acct,
       this.tipLine('é você no arcade, no versus e no online'),
       this.back(() => this.main()),
     )
     this.runPortrait(cv)
+    void account().then(a => this.accountBox(acct, a?.name ?? null, nameIn))
+  }
+
+  /**
+   * Conta com usuário e senha: o mesmo rating em qualquer PC. Sem conta o
+   * aparelho joga e pontua sozinho; criar a conta leva o que já tem junto.
+   */
+  private accountBox(box: HTMLElement, name: string | null, nameIn: HTMLInputElement) {
+    clear(box)
+    if (name) {
+      this.cfg.name = name
+      nameIn.value = name
+      nameIn.setAttribute('disabled', '')
+      localStorage.setItem('bv.name', name)
+      box.append(
+        el('h2', { class: 'sec', textContent: 'Conta' }),
+        el('p', { class: 'hint center', textContent: `conectado como ${name} · o ranking usa esse nome em qualquer PC` }),
+        el('div', { class: 'grid' },
+          el('button', { class: 'ghost center small', onclick: () => {
+            void signOut().then(() => { nameIn.removeAttribute('disabled'); this.accountBox(box, null, nameIn) })
+          } }, 'Sair da conta')))
+      return
+    }
+    const user = el('input', { type: 'text', maxLength: 16, placeholder: 'usuário', autocapitalize: 'off', spellcheck: false })
+    const pass = el('input', { type: 'password', maxLength: 64, placeholder: 'senha' })
+    const status = el('div', { class: 'status' })
+    const go = async (fn: typeof signIn) => {
+      status.textContent = '…'
+      const r = await fn(user.value, pass.value)
+      if (!r.ok) { status.textContent = r.error; return }
+      this.accountBox(box, r.name, nameIn)
+    }
+    pass.addEventListener('keydown', e => { if (e.key === 'Enter') void go(signIn) })
+    box.append(
+      el('h2', { class: 'sec', textContent: 'Conta (opcional)' }),
+      el('p', { class: 'hint center', textContent: 'sem conta você já pontua neste aparelho. com conta, o rating te segue em qualquer PC.' }),
+      el('div', { class: 'row' }, user, pass),
+      el('div', { class: 'grid two', style: 'margin-top:8px' },
+        el('button', { class: 'primary', onclick: () => void go(signIn) }, 'ENTRAR'),
+        el('button', { class: 'center', onclick: () => void go(signUp) }, 'CRIAR CONTA')),
+      status,
+      el('p', { class: 'hint center', textContent: 'não tem recuperação de senha: anota.' }))
   }
 
   /** Só as online, e só as que alguém escolheu gravar. */
@@ -704,9 +726,9 @@ export class Menu {
               RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
               cfg.ruleId,
               v => { cfg.ruleId = v; cfg.scoreToWin = RULES.find(r => r.id === v)!.scoreToWin }),
-            this.opt('Arena', ARENAS, cfg.arena, v => { cfg.arena = v }),
-            this.opt('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
-              v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }))),
+            this.opt('Arena', ARENAS, cfg.arena, v => { cfg.arena = v })),
+          el('div', { class: 'list' },
+            this.item('CONTROLES', 'teclado dos dois jogadores e botões do controle', () => this.controls()))),
         el('div', {},
           el('h2', { class: 'sec', textContent: 'Som' }),
           el('div', { class: 'opts' }, ...this.volumeRows()),
@@ -719,6 +741,85 @@ export class Menu {
       this.tipLine('trilha e efeitos são sintetizados pelo próprio jogo'),
       this.back(() => this.main()),
     )
+  }
+
+  /**
+   * Mapear botões. Clica na tecla, aperta a nova. No controle, aperta o botão
+   * que quer. Uma tecla só serve pra uma ação: mapear tira ela de onde estava.
+   */
+  private capturing: (() => void) | null = null
+
+  controls() {
+    this.currentScreen = () => this.controls()
+    this.capturing?.()
+    this.capturing = null
+    const keyCol = (player: 0 | 1) => {
+      const rows = ACTIONS.map(a => {
+        const cur = KEYS[player][a][0]
+        const btn = el('button', { class: 'kbtn', textContent: cur ? keyName(cur) : '—' })
+        btn.onclick = () => this.captureKey(btn, player, a)
+        return el('div', { class: 'krow' }, el('span', { class: 'lab', textContent: ACTION_LABEL[a] }), btn)
+      })
+      return el('div', {}, el('h2', { class: 'sec', textContent: player === 0 ? 'Teclado · jogador 1' : 'Teclado · jogador 2' }),
+        el('div', { class: 'kmap' }, ...rows))
+    }
+    const pm = padMap()
+    const padRows = (['jump', 'hit', 'dive', 'special'] as (keyof PadMap)[]).map(a => {
+      const lbl = { jump: 'pular', hit: 'bater', dive: 'mergulhar', special: 'especial' }[a]
+      const btn = el('button', { class: 'kbtn', textContent: pm[a] >= 0 ? (PAD_NAME[pm[a]] ?? `botão ${pm[a]}`) : '—' })
+      btn.onclick = () => this.capturePad(btn, a)
+      return el('div', { class: 'krow' }, el('span', { class: 'lab', textContent: lbl }), btn)
+    })
+    this.panel(
+      this.title('CONTROLES', 'direcional e analógico andam; armando a batida, eles miram'),
+      el('div', { class: 'cols three' },
+        keyCol(0), keyCol(1),
+        el('div', {}, el('h2', { class: 'sec', textContent: 'Controle' }),
+          el('div', { class: 'kmap' }, ...padRows),
+          el('div', { class: 'tipline', textContent: 'direcional e analógico esquerdo andam' }))),
+      el('div', { class: 'grid two' },
+        el('button', { onclick: () => { resetKeys(); resetPad(); this.handlers.onControlsChanged(); this.controls() } }, 'PADRÃO'),
+        el('button', { class: 'center', onclick: () => this.settings() }, 'Voltar')),
+      this.tipLine('clica numa tecla e aperta a nova · ESC cancela'),
+    )
+    this.escBack = () => this.settings()
+  }
+
+  private captureKey(btn: HTMLElement, player: 0 | 1, a: Action) {
+    this.capturing?.()
+    btn.textContent = '...'
+    btn.classList.add('wait')
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      stop()
+      if (e.code === 'Escape') { this.controls(); return }
+      setKey(player, a, e.code)
+      this.handlers.onControlsChanged()
+      this.controls()
+    }
+    const stop = () => { removeEventListener('keydown', onKey, true); this.capturing = null }
+    addEventListener('keydown', onKey, true)
+    this.capturing = stop
+  }
+
+  private capturePad(btn: HTMLElement, a: keyof PadMap) {
+    this.capturing?.()
+    btn.textContent = '...'
+    btn.classList.add('wait')
+    let raf = 0
+    let armed = pressedButton() < 0
+    const poll = () => {
+      const b = pressedButton()
+      if (b < 0) armed = true
+      else if (armed) { stop(); setPadButton(a, b); this.handlers.onControlsChanged(); this.controls(); return }
+      raf = requestAnimationFrame(poll)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.code === 'Escape') { e.stopPropagation(); stop(); this.controls() } }
+    const stop = () => { cancelAnimationFrame(raf); removeEventListener('keydown', onKey, true); this.capturing = null }
+    addEventListener('keydown', onKey, true)
+    raf = requestAnimationFrame(poll)
+    this.capturing = stop
   }
 
   online() {
@@ -985,8 +1086,6 @@ export class Menu {
         this.item('CONTINUAR', '', () => this.handlers.onResume?.(), 'lead'),
         this.item('SAIR PRO MENU', 'a partida em andamento se perde', () => this.handlers.onQuit?.())),
       el('div', { class: 'opts' },
-        this.opt('Paredes', WALL_OPTS, this.cfg.walls ? 'on' : 'off',
-          v => this.handlers.onWalls(v === 'on')),
         PIXEL_ONLY ? null : this.opt('Gráficos', QUALITIES, this.cfg.quality,
           v => { this.cfg.quality = v; this.handlers.onQuality(v) }),
         ...this.volumeRows()),
@@ -1065,15 +1164,15 @@ export class Menu {
   }
 
   /** Fim do minigame: número, recorde, de novo. */
-  drillResult(title: string, subtitle: string, color: string) {
-    this.currentScreen = () => this.drillResult(title, subtitle, color)
+  drillResult(title: string, subtitle: string, color: string, again?: () => void) {
+    this.currentScreen = () => this.drillResult(title, subtitle, color, again)
     this.show()
     this.panel(
       el('div', { class: 'brand' },
         el('h1', { textContent: title, style: `background:none;-webkit-text-fill-color:${color};color:${color}` }),
         el('p', { textContent: subtitle })),
       el('div', { class: 'grid' },
-        el('button', { class: 'primary', onclick: () => this.handlers.onStart(this.cfg) }, 'DE NOVO'),
+        el('button', { class: 'primary', onclick: () => again ? again() : this.handlers.onStart(this.cfg) }, 'DE NOVO'),
         el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Menu')),
     )
   }

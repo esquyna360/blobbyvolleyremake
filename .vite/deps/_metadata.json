@@ -2,7 +2,105 @@
   "hash": "3765eccb",
   "configHash": "fee0cc89",
   "lockfileHash": "e3b0c442",
-  "browserHash": "7b94cc0d",
-  "optimized": {},
-  "chunks": {}
+  "browserHash": "99e59997",
+  "optimized": {
+    "three": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/build/three.module.js",
+      "file": "three.js",
+      "fileHash": "5d0d06a6",
+      "needsInterop": false
+    },
+    "three/addons/postprocessing/EffectComposer.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/postprocessing/EffectComposer.js",
+      "file": "three_addons_postprocessing_EffectComposer__js.js",
+      "fileHash": "ef1e1678",
+      "needsInterop": false
+    },
+    "three/addons/postprocessing/RenderPass.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/postprocessing/RenderPass.js",
+      "file": "three_addons_postprocessing_RenderPass__js.js",
+      "fileHash": "9c85d313",
+      "needsInterop": false
+    },
+    "three/addons/postprocessing/UnrealBloomPass.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js",
+      "file": "three_addons_postprocessing_UnrealBloomPass__js.js",
+      "fileHash": "88311b8f",
+      "needsInterop": false
+    },
+    "three/addons/postprocessing/ShaderPass.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/postprocessing/ShaderPass.js",
+      "file": "three_addons_postprocessing_ShaderPass__js.js",
+      "fileHash": "a15ec726",
+      "needsInterop": false
+    },
+    "three/addons/postprocessing/OutputPass.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/postprocessing/OutputPass.js",
+      "file": "three_addons_postprocessing_OutputPass__js.js",
+      "fileHash": "d54627de",
+      "needsInterop": false
+    },
+    "three/addons/postprocessing/SMAAPass.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/postprocessing/SMAAPass.js",
+      "file": "three_addons_postprocessing_SMAAPass__js.js",
+      "fileHash": "9794cf2f",
+      "needsInterop": false
+    },
+    "trystero/supabase": {
+      "src": "../../web/node_modules/.pnpm/trystero@0.21.8_patch_hash=0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f_286f6546a6b71589aa8b66317ea7a1bd/node_modules/trystero/src/supabase.js",
+      "file": "trystero_supabase.js",
+      "fileHash": "fd8fc6b9",
+      "needsInterop": false
+    },
+    "trystero/mqtt": {
+      "src": "../../web/node_modules/.pnpm/trystero@0.21.8_patch_hash=0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f_286f6546a6b71589aa8b66317ea7a1bd/node_modules/trystero/src/mqtt.js",
+      "file": "trystero_mqtt.js",
+      "fileHash": "a51c2416",
+      "needsInterop": false
+    },
+    "trystero/torrent": {
+      "src": "../../web/node_modules/.pnpm/trystero@0.21.8_patch_hash=0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f_286f6546a6b71589aa8b66317ea7a1bd/node_modules/trystero/src/torrent.js",
+      "file": "trystero_torrent.js",
+      "fileHash": "2fd55d05",
+      "needsInterop": false
+    },
+    "trystero/nostr": {
+      "src": "../../web/node_modules/.pnpm/trystero@0.21.8_patch_hash=0f996a67be939374c9fb8781108d984800a87165aa5490f6091c582d151f_286f6546a6b71589aa8b66317ea7a1bd/node_modules/trystero/src/nostr.js",
+      "file": "trystero_nostr.js",
+      "fileHash": "0c0cb544",
+      "needsInterop": false
+    },
+    "three/addons/utils/BufferGeometryUtils.js": {
+      "src": "../../web/node_modules/.pnpm/three@0.180.0/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js",
+      "file": "three_addons_utils_BufferGeometryUtils__js.js",
+      "fileHash": "650d3668",
+      "needsInterop": false
+    },
+    "@supabase/supabase-js": {
+      "src": "../../web/node_modules/.pnpm/@supabase+supabase-js@2.116.0/node_modules/@supabase/supabase-js/dist/index.mjs",
+      "file": "@supabase_supabase-js.js",
+      "fileHash": "5e0bedda",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-OFCKYZYL": {
+      "file": "chunk-OFCKYZYL.js"
+    },
+    "chunk-WRK7SOSL": {
+      "file": "chunk-WRK7SOSL.js"
+    },
+    "chunk-EGYF5VYZ": {
+      "file": "chunk-EGYF5VYZ.js"
+    },
+    "chunk-47ARM5TX": {
+      "file": "chunk-47ARM5TX.js"
+    },
+    "chunk-XDJLQOG3": {
+      "file": "chunk-XDJLQOG3.js"
+    },
+    "chunk-E7KDQNNU": {
+      "file": "chunk-E7KDQNNU.js"
+    }
+  }
 }

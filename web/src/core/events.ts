@@ -24,6 +24,11 @@ export const enum Ev {
   APEX_HIT = 20,
   BALL_OUT = 21,
   SPECIAL_HOLD = 22,
+  HIT = 23,
+  DROP = 24,
+  REVERSAL = 25,
+  REVERSAL_TRY = 26,
+  TRIP = 27,
 }
 
 /** O rollback marca eventos vistos com `1 << ev` num Int32Array: nada acima de 30. */

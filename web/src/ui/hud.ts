@@ -72,10 +72,8 @@ export class Hud {
 
     this.fillL = el('i')
     this.fillR = el('i')
-    this.barL = el('div', { class: 'charge l' }, this.fillL,
-      el('u'), el('b', { textContent: 'ESPECIAL' }))
-    this.barR = el('div', { class: 'charge r' }, this.fillR,
-      el('u'), el('b', { textContent: 'ESPECIAL' }))
+    this.barL = el('div', { class: 'charge l' }, this.fillL)
+    this.barR = el('div', { class: 'charge r' }, this.fillR)
 
     const left = el('div', { class: 'side l' }, this.nameL, this.ptsL,
       el('div', { class: 'touches' }, ...this.touchesL))
@@ -104,13 +102,17 @@ export class Hud {
     parent.append(this.root, this.netbar, this.fpsEl)
   }
 
+  private vw = innerWidth
+  private vh = innerHeight
+  setViewport(w: number, h: number) { this.vw = w; this.vh = h }
+
   /** Bola fora da tela: seta apontando pra onde ela está. */
   ballHint(h: [number, number, boolean] | null, dt: number) {
     const off = !!h && h[2]
     this.markA += ((off ? 1 : 0) - this.markA) * (1 - Math.exp(-dt * 10))
     this.markEl.style.opacity = String(this.markA)
     if (!h || !off) return
-    const vw = innerWidth, vh = innerHeight
+    const vw = this.vw, vh = this.vh
     const x = Math.max(8, Math.min(vw - 68, h[0] - 30))
     const y = Math.max(68, Math.min(vh - 48, h[1] - 6))
     this.markEl.style.transform = `translate(${x}px, ${y}px) rotate(${h[1] < 0 ? 0 : (h[0] < 0 ? -90 : 90)}deg)`
@@ -173,8 +175,6 @@ export class Hud {
         if (ready !== this.lastReady[i]) {
           this.lastReady[i] = ready
           bar.classList.toggle('ready', ready)
-          const lbl = bar.querySelector('b')
-          if (lbl) lbl.textContent = ready ? 'PRONTO' : 'ESPECIAL'
         }
       }
     }
@@ -270,17 +270,17 @@ export class Hud {
     setTimeout(() => b.remove(), ms + 450)
   }
 
-  /** Parry certo: PARRY azul celeste estourando no meio da tela. */
-  parry() {
-    if (this.bigSink?.('PARRY', 'parry', 1100, '#cdf3ff')) return
+  /** Golpe com nome (PARRY, MANCHETE...) aparece do lado de quem fez. */
+  calloutSink: ((side: Side, text: string, color: string) => boolean) | null = null
+
+  callout(side: Side, text: string, color: string) {
+    if (this.calloutSink?.(side, text, color)) return
     const host = this.root.parentElement!
-    host.querySelector('.parry')?.remove()
-    const ov = el('div', { class: 'parry' },
-      el('div', { class: 'parry-flash' }),
-      el('div', { class: 'parry-ring' }),
-      el('div', { class: 'parry-word', textContent: 'PARRY' }))
-    host.append(ov)
-    setTimeout(() => ov.remove(), 1100)
+    host.querySelector(`.callout.${side === LEFT ? 'l' : 'r'}`)?.remove()
+    const c = el('div', { class: `callout ${side === LEFT ? 'l' : 'r'}`, textContent: text })
+    c.style.color = color
+    host.append(c)
+    setTimeout(() => c.remove(), 1000)
   }
 
   fatality() {
@@ -318,7 +318,7 @@ export class Hud {
   clearFx() {
     const host = this.root.parentElement
     if (!host) return
-    for (const n of host.querySelectorAll('.parry, .fatality, .banner')) n.remove()
+    for (const n of host.querySelectorAll('.parry, .fatality, .banner, .callout')) n.remove()
     this.bigClear?.()
     this.rallyShown = -1
     this.rallyRec = false

@@ -571,33 +571,101 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 
 /* ---------- touch controls ---------- */
 .touch {
-  position: absolute; bottom: 0; left: 0; right: 0; height: 42vh;
+  position: absolute; bottom: 0; left: 0; right: 0; height: 50%;
   display: none; justify-content: space-between; align-items: flex-end;
-  padding: 20px 22px calc(20px + var(--sa-b));
+  padding: 16px 22px calc(18px + var(--sa-b));
 }
 .touch.on { display: flex; }
-.tpad { display: flex; gap: 14px; align-items: flex-end; }
-.tpad.col { flex-direction: column; align-items: center; gap: 10px; }
-.trow { display: flex; gap: 14px; }
 /*
  * Nada de `backdrop-filter` aqui: sobre o canvas do jogo ele reborra a cada
  * quadro, e no celular isso é quadro perdido. Tinta escura também segura o
  * contraste contra a areia clara, que o vidro translúcido não segurava.
  */
+.stick {
+  position: relative; width: 150px; height: 150px; border-radius: 50%;
+  background: rgba(8,12,20,0.38); border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  display: grid; place-items: center;
+}
+.stick::before {
+  content: ''; position: absolute; inset: 22%; border-radius: 50%;
+  border: 1px dashed rgba(255,255,255,0.18);
+}
+.stick.aim { border-color: rgba(255,210,87,0.9); box-shadow: 0 0 16px rgba(255,210,87,0.45); }
+.stick.aim::before { border-color: rgba(255,210,87,0.5); }
+.knob {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(255,255,255,0.32); border: 1px solid rgba(255,255,255,0.5);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  transition: transform 40ms linear;
+}
+.stick.press .knob { background: rgba(255,255,255,0.5); transition: none; }
+.abxy { position: relative; width: 210px; height: 210px; }
+.abxy .tbtn { position: absolute; }
+.abxy .tbtn.special { top: 0; left: 50%; transform: translateX(-50%); }
+.abxy .tbtn.hit { top: 50%; left: 0; transform: translateY(-50%); }
+.abxy .tbtn.dive { top: 50%; right: 0; transform: translateY(-50%); }
+.abxy .tbtn.up { bottom: 0; left: 50%; transform: translateX(-50%); }
 .tbtn {
-  width: 78px; height: 78px; border-radius: 26px;
+  width: 68px; height: 68px; border-radius: 50%;
   background: rgba(8,12,20,0.44); border: 1px solid rgba(255,255,255,0.3);
   box-shadow: 0 2px 12px rgba(0,0,0,0.4);
-  display: grid; place-items: center; font-size: 26px; color: var(--ink);
-  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  color: var(--ink); text-shadow: 0 1px 3px rgba(0,0,0,0.85);
 }
-.tbtn.big {
-  width: 104px; height: 104px; border-radius: 34px;
-  background: rgba(255,205,70,0.82); border-color: rgba(255,238,190,0.9);
-  color: #21170a; text-shadow: none;
+.tbtn b { font-size: 22px; line-height: 1; }
+.tbtn small { font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
+.tbtn.up { background: rgba(120,200,90,0.55); border-color: rgba(200,255,180,0.8); }
+.tbtn.hit { background: rgba(70,140,230,0.55); border-color: rgba(190,225,255,0.85); }
+.tbtn.dive { background: rgba(230,80,80,0.5); border-color: rgba(255,190,190,0.85); }
+.tbtn.special { background: rgba(255,205,70,0.82); border-color: rgba(255,238,190,0.9); color: #21170a; text-shadow: none; }
+.tbtn.special.off { opacity: 0.28; filter: saturate(0.2); }
+.tbtn.press { background: rgba(255,255,255,0.55) !important; }
+.abxy .tbtn.press { scale: 0.92; }
+
+/* ---------- tutorial ---------- */
+.tut {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  max-width: min(560px, 70%); padding: 8px 14px; border-radius: 12px;
+  background: rgba(8,12,20,0.7); border: 1px solid rgba(255,255,255,0.18);
+  text-align: center; pointer-events: none; z-index: 30;
+  display: flex; flex-direction: column; gap: 2px;
 }
-.tbtn.dive { background: rgba(70,150,230,0.62); border-color: rgba(190,225,255,0.9); }
-.tbtn.press { background: rgba(255,255,255,0.5); transform: scale(0.94); }
+.tut-step { font-size: 9px; letter-spacing: 0.2em; color: var(--dim); }
+.tut-title { font-size: 15px; letter-spacing: 0.14em; color: var(--accent); font-weight: 800; }
+.tut-text { font-size: 12.5px; color: var(--ink); line-height: 1.45; }
+.tut-count { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.hud.tut-on .score-card { display: none; }
+body.pixel .tut { border: 2px solid #3a4258; border-radius: 0; background: #101422; box-shadow: 4px 4px 0 #000; }
+body.pixel .tut-text { font-size: 9px; line-height: 1.7; }
+body.pixel .tut-title { font-size: 11px; letter-spacing: 0; }
+body.pixel .tut-step, body.pixel .tut-count { font-size: 7px; letter-spacing: 0; font-family: inherit; }
+
+/* ---------- nome do golpe, do lado de quem fez ---------- */
+.callout {
+  position: absolute; top: 28%; width: 50%; text-align: center; pointer-events: none;
+  font-size: 30px; font-weight: 900; letter-spacing: 0.14em;
+  text-shadow: 0 3px 0 rgba(0,0,0,0.6), 0 0 18px rgba(0,0,0,0.5);
+  animation: pop .45s cubic-bezier(.2,1.7,.4,1), fadeout .3s ease .7s forwards;
+  transform-origin: center;
+}
+.callout.l { left: 0; }
+.callout.r { right: 0; }
+body.pixel .callout { font-family: inherit; font-size: 22px; letter-spacing: 0; text-shadow: 3px 3px 0 #000; }
+
+/* ---------- controles ---------- */
+.cols.three { grid-template-columns: repeat(3, 1fr); }
+.kmap { display: flex; flex-direction: column; gap: 2px; }
+.krow { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 2px 4px; }
+.krow .lab { font-size: 11px; color: var(--muted); }
+.kbtn {
+  min-width: 78px; padding: 5px 8px; font: inherit; font-size: 11px; letter-spacing: 0.06em;
+  color: var(--ink); background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 6px; cursor: pointer;
+}
+.kbtn:hover, .kbtn:focus-visible { background: rgba(255,255,255,0.14); outline: none; }
+.kbtn.wait { border-color: var(--accent); color: var(--accent); }
+.item.new::after { content: 'NOVO'; margin-left: 8px; font-size: 8px; letter-spacing: 0.16em; color: var(--accent); }
 
 .tmenu {
   position: absolute;
@@ -630,7 +698,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 }
 .corner kbd { font-family: 'JetBrains Mono', monospace; background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 5px; }
 
-@media (max-width: 620px) {
+body.narrow {
   .overlay { padding: calc(14px + var(--sa-t)) 14px calc(14px + var(--sa-b)); }
   .panel { width: 100%; }
   .grid.four { grid-template-columns: repeat(2, 1fr); }
@@ -680,7 +748,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
     top: calc(8px + var(--sa-t)); left: 10px;
   }
   /* os dois moram no mesmo canto: com FPS ligado o netbar desce */
-  body.fps-on .netbar { top: calc(29px + var(--sa-t)); }
+  &.fps-on .netbar { top: calc(29px + var(--sa-t)); }
 
   .charge {
     bottom: calc(6px + var(--sa-b));
@@ -695,7 +763,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 }
 
 /* celular deitado: pouca altura e muita largura — vira duas colunas */
-@media (max-height: 620px) and (orientation: landscape) {
+body.phone {
   .overlay { padding: 10px 16px; }
   .panel { width: min(880px, 100%); }
   .brand { margin-bottom: 8px; }
@@ -764,9 +832,94 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   .charge.l { left: calc(10px + var(--sa-l)); }
   .charge.r { right: calc(10px + var(--sa-r)); }
   .charge b { display: none; }
-  .touch { height: 54vh; padding: 14px 18px calc(28px + var(--sa-b)); }
-  .tbtn { width: 62px; height: 62px; border-radius: 20px; font-size: 21px; }
-  .tbtn.big { width: 80px; height: 80px; border-radius: 26px; }
+  .touch { height: 60%; padding: 10px 14px 14px; }
+  .stick { width: 118px; height: 118px; }
+  .knob { width: 50px; height: 50px; }
+  .abxy { width: 168px; height: 168px; }
+  .tbtn { width: 54px; height: 54px; }
+  .tbtn b { font-size: 17px; }
+  .tbtn small { display: none; }
+  .tut { top: 4px; max-width: min(460px, 56%); padding: 5px 9px; }
+  .tut-text { font-size: 10.5px; }
+  .tut-title { font-size: 11px; }
+  .callout { top: 24%; font-size: 20px; }
+
+  /* menus de celular: tudo menor e lado a lado, nada empilhado pra fora da tela */
+  .panel > * { max-width: 560px; }
+  .panel > .select, .panel > .levels, .panel > .sf, .panel > .cols,
+  .panel:has(> .select) > .brand.head, .panel:has(> .levels) > .brand.head,
+  .panel:has(> .cols) > .brand.head { max-width: 100%; }
+  .brand.head h1 { font-size: 22px; }
+  .brand.head p { font-size: 10px; margin-top: 3px; }
+  .select { grid-template-columns: 150px 1fr; gap: 10px; }
+  .fcard .portrait.big { width: 96px; height: 96px; }
+  .fcard .fname { font-size: 13px; margin-top: 0; }
+  .fcard .ftitle { font-size: 10px; }
+  .fcard .fhome { font-size: 8.5px; }
+  .fcard .fbio { font-size: 10px; min-height: 0; margin: 2px 0 4px; }
+  .fcard .primary { padding: 8px 10px; font-size: 12px; }
+  .roster { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .cell { padding: 3px 2px 3px; gap: 0; }
+  .cell .portrait.mini { width: 40px; height: 40px; }
+  .cell small { font-size: 8px; }
+  .rostercol .tipline { margin-top: 2px; }
+  .levels { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .level { padding: 4px; gap: 1px; }
+  .level b { font-size: 10px; }
+  .level small { font-size: 8.5px; line-height: 1.3; }
+  .sf { gap: 4px; }
+  .sf-head h1 { font-size: 22px; }
+  .sf-score { font-size: 14px; margin-top: 0; }
+  .sf-body { gap: 10px; }
+  .sf-win .portrait.win { width: 96px; height: 96px; }
+  .sf-lose .portrait.lose { width: 64px; height: 64px; }
+  .sf-win b { font-size: 12px; }
+  .sf-lose b { font-size: 10px; }
+  .sf-win .quote { font-size: 11px; line-height: 1.35; }
+  .sf-lose small { font-size: 9.5px; }
+  .sf .grid button { padding: 8px 10px; font-size: 12px; }
+  .dress { grid-template-columns: 110px 1fr; gap: 4px 16px; }
+  .dress .portrait { width: 110px; }
+  .acct .row { grid-template-columns: 1fr 1fr; }
+  .acct .hint, .acct .tipline { font-size: 10px; margin: 3px 0; }
+  .opt { padding: 2px 6px; }
+  .val { padding: 4px 2px; min-width: 90px; }
+  .arw { padding: 4px 0; }
+  .cols.three { grid-template-columns: 1fr 1fr 1fr; }
+  .kbtn { min-width: 60px; padding: 3px 6px; font-size: 10px; }
+  .krow { padding: 1px 0; }
+}
+
+/* placar de celular: o tema pixel tinha número de 28px por cima do de 19 */
+body.pixel.phone .side .pts { font-size: 15px; text-shadow: 2px 2px 0 #000; }
+body.pixel.phone .side .name { font-size: 6px; }
+body.pixel.phone .score-card { padding: 4px 8px; gap: 8px; }
+body.pixel.phone .hud { padding: calc(4px + var(--sa-t)) 8px 0; }
+body.pixel.phone .charge { height: 10px; }
+body.phone.tap .charge { width: 18vw; bottom: calc(8px + var(--sa-b)); }
+body.phone.tap .charge.l { left: calc(50% - 18vw - 8px); }
+body.phone.tap .charge.r { right: calc(50% - 18vw - 8px); }
+body.pixel.phone .brand h1 { font-size: 20px; }
+body.pixel.phone .brand.head h1 { font-size: 18px; }
+body.pixel.phone .panel { font-size: 9px; }
+body.pixel.phone .act { padding: 8px 10px; font-size: 11px; }
+body.pixel.phone .act.go { font-size: 13px; padding: 10px; }
+body.pixel.phone .item { padding: 6px 8px; font-size: 9px; }
+body.pixel.phone .fcard .fname { font-size: 11px; }
+body.pixel.phone .fcard .fbio, body.pixel.phone .level small, body.pixel.phone .sf-win .quote { font-size: 8px; }
+body.pixel.phone .cell small, body.pixel.phone .fcard .fhome { font-size: 6px; }
+body.pixel.phone .level b, body.pixel.phone .fcard .ftitle { font-size: 8px; }
+body.pixel.phone .sf-head h1 { font-size: 20px; }
+body.pixel.phone .tut-text { font-size: 8px; line-height: 1.6; }
+body.pixel.phone .tut-title { font-size: 9px; }
+body.pixel.phone .tut-step, body.pixel.phone .tut-count { font-size: 7px; }
+body.pixel.phone .callout { font-size: 16px; }
+body.pixel.phone .kbtn { font-size: 8px; }
+
+/* celular em pé: a tela inteira gira e o jogo continua deitado */
+body.rot #gl, body.rot #ui {
+  transform-origin: 0 0;
+  transform: rotate(90deg) translate(0, -100%);
 }
 
 /* ---------- parry ---------- */
@@ -1405,3 +1558,9 @@ body.pixel .sf-win .quote { font-size: 9px; line-height: 1.8; }
 body.pixel .sf-lose small { font-size: 7px; font-style: normal; }
 body.pixel .sf-lose .portrait.lose { filter: none; opacity: 1; }
 body.pixel .rank-row .tag { font-size: 6px; }
+
+.acct { margin-top: 10px; }
+.acct .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.acct .row input { width: 100%; }
+.acct .hint { margin: 6px 0; }
+body.pixel .acct input { font-family: inherit; font-size: 9px; border: 2px solid #3a4258; background: #0a0d16; }

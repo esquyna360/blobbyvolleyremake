@@ -4,7 +4,7 @@ import {
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
   DIVE_SPEED, OPEN_MARGIN, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
-  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, other,
+  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, HIT_REACH, HIT_TAP, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -53,6 +53,8 @@ const PARAMS: Record<Difficulty, Params> = {
     attack: 1, parry: 0.94, offsets: 22, clear: 18, foeLead: 10,
   },
 }
+
+const NONE: PlayerInput = { left: false, right: false, up: false, special: false, down: false, dive: false, hit: false }
 
 const HORIZON = 200
 const px = new Float64Array(HORIZON + 2)
@@ -206,6 +208,9 @@ export class Bot {
   private spHold = 0
   private diveHeld = false
   private digLock = 0
+  /** Carga da batida: frames segurando e a mira escolhida ao armar. */
+  private hitHold = 0
+  private hitAim: [number, number] = [0, 0]
 
   private params: Params
   constructor(side: Side, diff: Difficulty = 'normal', seed = 12345, style: Partial<Params> = {}) {
@@ -239,8 +244,13 @@ export class Bot {
     if (this.digLock > 0) this.digLock--
 
     if (w.stun[me] > 0) {
-      this.upHeld = false; this.spHeld = false; this.diveHeld = false
-      return { left: false, right: false, up: false, special: false, down: false, dive: false }
+      this.upHeld = false; this.spHeld = false; this.diveHeld = false; this.hitHold = 0
+      return { ...NONE }
+    }
+
+    if (this.hitHold > 0) {
+      const swing = this.swingStep(w, me, p)
+      if (swing) return swing
     }
 
     if (--this.cool <= 0) {
@@ -257,13 +267,12 @@ export class Bot {
     if (diveDir !== 0) {
       this.diveHeld = true
       this.upHeld = false; this.spHeld = false
-      return {
-        left: diveDir < 0, right: diveDir > 0, up: false, special: false, down: false, dive: true,
-      }
+      return { ...NONE, left: diveDir < 0, right: diveDir > 0, dive: true }
     }
     this.diveHeld = false
 
     const down = this.wantDown(w, me, onGround, p)
+    const dig = down
 
     let target = this.clampX(this.plan.standX + this.aim)
     if (!g.isBallValid) target = this.clampX(NET_POSITION_X - this.dir * (RIGHT_PLANE * 0.24))
@@ -278,8 +287,43 @@ export class Bot {
     if (w.hold[me] > 0) up = false
     this.upHeld = up
 
-    const special = this.wantSpecial(w, me, onGround, p)
-    return { left, right, up, special, down, dive: false }
+    const incoming = w.superFrames > 0 && w.superOwner !== me
+    const parry = incoming ? this.wantParry(w, me, p) : false
+    const special = incoming ? false : this.wantSpecial(w, me, onGround, p)
+    const hit = parry || dig || (!incoming && this.wantHit(w, me, onGround, p))
+    if (hit && !parry && !dig) return { ...NONE, hit: true, left: this.hitAim[0] < 0, right: this.hitAim[0] > 0, up: this.hitAim[1] < 0, down: this.hitAim[1] > 0 }
+    return { left, right, up, special, down, dive: false, hit }
+  }
+
+  /**
+   * Batida: com a bola chegando e o apoio já tomado, arma o golpe e solta quando
+   * ela entra no raio. No ar mira pra baixo (cortada), no chão pra frente.
+   */
+  private wantHit(w: Match['world'], me: Side, onGround: boolean, p: Params) {
+    if (w.hitCharge[me] > 0 || w.hitLag[me] > 0 || w.hold[me] > 0) return false
+    const mine = this.dir * (w.ballX - NET_POSITION_X) < 0
+    if (!mine || w.ballVY < -2) return false
+    const t = this.plan.hitT
+    if (t > 16 || t < 3) return false
+    if (Math.abs(this.plan.standX + this.aim - w.blobX[me]) > 6) return false
+    if (this.plan.jumpAt > 0) return false
+    if (this.rng() > p.attack * 0.9) return false
+    const back = this.rng() < 0.12
+    this.hitAim = [back ? -this.dir : this.dir, onGround ? (this.rng() < 0.5 ? -1 : 0) : 1]
+    this.hitHold = 1
+    return true
+  }
+
+  private swingStep(w: Match['world'], me: Side, _p: Params): PlayerInput | null {
+    if (w.hitCharge[me] === 0 && this.hitHold > 2) { this.hitHold = 0; return null }
+    this.hitHold++
+    const dx = w.ballX - w.blobX[me]
+    const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
+    const near = dx * dx + dy * dy < HIT_REACH * HIT_REACH * 0.62
+    const give = this.hitHold > 40
+    const release = (near && this.hitHold > HIT_TAP + 2) || give
+    if (release) this.hitHold = 0
+    return { ...NONE, hit: !release, left: this.hitAim[0] < 0, right: this.hitAim[0] > 0, up: this.hitAim[1] < 0, down: this.hitAim[1] > 0 }
   }
 
   /**

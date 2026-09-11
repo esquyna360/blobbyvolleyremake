@@ -20,14 +20,19 @@ import {
   PARRY_ACTIVE, PARRY_CD, PARRY_REACH, PARRY_BOOST, PARRY_CHAIN_MAX, PARRY_HOLD,
   CROUCH_RATE, CROUCH_RATE_AIR, CROUCH_RELEASE, CROUCH_DUCK, CROUCH_SLIM,
   CROUCH_SPREAD, CROUCH_SPEED_MUL, CROUCH_FALL_MUL,
-  DIG_REACH, DIG_CD, DIG_WINDOW, DIG_VELOCITY, DIG_TARGET_DEPTH, DIG_NET_CLEARANCE,
-  DIG_TIME_MIN, DIG_TIME_STEP, DIG_TIME_STEPS, DIG_GAIN,
+  DIG_REACH, DIG_CD, DIG_WINDOW, DIG_GAIN, DIG_UP, DIG_FORWARD,
+  HIT_REACH, HIT_CHARGE_MAX, HIT_TAP, HIT_V_MIN, HIT_V_MAX, HIT_LAG, HIT_GAIN, TRIP_FRAMES, TRIP_PUSH,
+  DROP_VELOCITY, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE, DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS,
+  REVERSAL_ACTIVE, REVERSAL_CD, REVERSAL_BOOST,
 } from './constants.ts'
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
 import { NO_INPUT } from './input.ts'
 import type { PlayerInput } from './input.ts'
+
+/** Blob travado na carga: só o botão de bater segue vivo. */
+const LOCKED: PlayerInput = { ...NO_INPUT, hit: true }
 
 export class PhysicWorld {
   blobX = [NET_POSITION_X * 0.5, NET_POSITION_X * 1.5]
@@ -72,6 +77,15 @@ export class PhysicWorld {
   prevDown = [0, 0]
   digCd = [0, 0]
   digActive = [0, 0]
+
+  /** Batida: frames segurando (0 = solto), mira do direcional, recuperação. */
+  hitCharge = [0, 0]
+  hitAimX = [0, 0]
+  hitAimY = [0, 0]
+  hitLag = [0, 0]
+  prevHit = [0, 0]
+  revActive = [0, 0]
+  revCd = [0, 0]
 
   /**
    * Paredes laterais. Ligadas, a bola quica e o rally continua. Desligadas, a
@@ -276,12 +290,6 @@ export class PhysicWorld {
     if (held) this.crouch[p] = Math.min(1, this.crouch[p] + (ground ? CROUCH_RATE : CROUCH_RATE_AIR))
     else this.crouch[p] = Math.max(0, this.crouch[p] - CROUCH_RELEASE)
 
-    // baixo + lado no chão é mergulho, não manchete: sem esse corte a manchete
-    // pega a bola de 128px de distância e o mergulho nunca serve pra nada
-    if (raw.down && this.prevDown[p] === 0 && this.stun[p] <= 0 && this.digCd[p] === 0) {
-      this.digActive[p] = DIG_WINDOW
-      this.digCd[p] = DIG_CD
-    }
   }
 
   /** Manchete: bola perto e o botão apertado agora, devolve num arco alto e lento. */
@@ -298,8 +306,10 @@ export class PhysicWorld {
     this.digActive[p] = 0
     this.digCd[p] = DIG_CD
     this.bumpTempo()
-    this.aimShotScaled(p, DIG_VELOCITY, 0, DIG_TARGET_DEPTH, DIG_NET_CLEARANCE,
-      DIG_TIME_MIN, DIG_TIME_STEP, DIG_TIME_STEPS, 2)
+    const dir = p === LEFT ? 1 : -1
+    this.ballVX = dir * DIG_FORWARD * this.tempo
+    this.ballVY = -DIG_UP * this.tempo
+    this.ballSpin = 0
     this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.lowerR(p))
     this.addCharge(p, DIG_GAIN, out)
     out.push({ event: Ev.DIG, side: p, intensity: 1 })
@@ -346,8 +356,7 @@ export class PhysicWorld {
     if (!isBallValid || this.stun[p] > 0) return
     if (this.superFrames > 0 && this.superOwner !== p) return
     if (this.charge[p] < SPECIAL_FULL) return
-    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
-    if (!pressed) return
+    if (!(raw.special && this.prevSpecial[p] === 0)) return
     if (wasGround) return
 
     const nx = this.ballX - this.blobX[p]
@@ -369,11 +378,49 @@ export class PhysicWorld {
   }
 
 
-  /** Especial vindo em cima: apertar pra cima na hora certa devolve a bola mais forte. */
+  private incoming(p: Side) { return this.superFrames > 0 && this.superOwner !== p }
+
+  private nearHead(p: Side, reach: number) {
+    const dx = this.ballX - this.blobX[p]
+    const dy = this.ballY - this.upperY(p)
+    return dx * dx + dy * dy <= reach * reach
+  }
+
+  /**
+   * Reversal: o botão de especial na hora exata em que o especial chega devolve
+   * ele na hora, ainda mais forte. Não segura a bola: sai no mesmo frame.
+   */
+  private tryReversal(p: Side, raw: PlayerInput, out: MatchEvent[]) {
+    if (this.stun[p] > 0 || !this.incoming(p)) return
+    const pressed = raw.special && this.prevSpecial[p] === 0
+    if (pressed && this.revCd[p] === 0 && this.revActive[p] === 0) {
+      this.revActive[p] = REVERSAL_ACTIVE
+      this.revCd[p] = REVERSAL_CD
+      out.push({ event: Ev.REVERSAL_TRY, side: p, intensity: 0 })
+    }
+    if (this.revActive[p] <= 0) return
+    const closing = p === LEFT ? this.ballVX < 0 : this.ballVX > 0
+    if (!closing || !this.nearHead(p, PARRY_REACH)) return
+    this.revActive[p] = 0
+    this.revCd[p] = 0
+    this.parryChain = Math.min(this.parryChain + 1, PARRY_CHAIN_MAX)
+    this.superOwner = p
+    this.superFrames = SPECIAL_BALL_FRAMES
+    this.hold[p] = 0
+    this.hitCharge[p] = 0
+    this.ballSpin = 0
+    this.anchorHeld(p)
+    this.bumpTempo()
+    this.aimSpecial(p, REVERSAL_BOOST + this.parryChain * PARRY_BOOST)
+    this.scaleBallV()
+    out.push({ event: Ev.REVERSAL, side: p, intensity: 1 })
+  }
+
+  /** Especial vindo em cima: o botão de bater na hora certa segura a bola e devolve mais forte. */
   private tryParry(p: Side, raw: PlayerInput, out: MatchEvent[]) {
     if (this.stun[p] > 0) return
     if (this.superFrames <= 0 || this.superOwner === p) return
-    const pressed = (raw.up && this.prevUp[p] === 0) || (raw.special && this.prevSpecial[p] === 0)
+    const pressed = raw.hit && this.prevHit[p] === 0
     if (pressed && this.parryCd[p] === 0 && this.parryActive[p] === 0) {
       this.parryActive[p] = PARRY_ACTIVE
       this.parryCd[p] = PARRY_CD
@@ -411,13 +458,110 @@ export class PhysicWorld {
     if (this.hold[p] <= 0) return
     this.hold[p]--
     this.anchorHeld(p)
-    const held = raw.up || raw.special
+    const held = raw.hit || raw.special
     if (held && this.hold[p] > 0 && this.stun[p] === 0) return
     this.hold[p] = 0
     this.bumpTempo()
     this.aimSpecial(p, 1 + this.parryChain * PARRY_BOOST)
     this.scaleBallV()
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: this.parryChain > 0 ? 0.5 : 1 })
+  }
+
+  charging(p: Side) { return this.hitCharge[p] > 0 }
+
+  /** Direção da mira em unidades de quadra: sem direcional, pra frente e pra cima. */
+  aimVector(p: Side): [number, number] {
+    const dir = p === LEFT ? 1 : -1
+    const ax = this.hitAimX[p], ay = this.hitAimY[p]
+    let x: number, y: number
+    if (ax === 0 && ay === 0) { x = dir; y = -0.55 }
+    else if (ay === 0) { x = ax; y = -0.18 }
+    else if (ax === 0) { x = dir * 0.16; y = ay < 0 ? -1 : 0.8 }
+    else { x = ax; y = ay < 0 ? -0.75 : 0.7 }
+    const l = Math.hypot(x, y)
+    return [x / l, y / l]
+  }
+
+  /**
+   * Botão de bater. Apertar com baixo segurado arma a manchete. Apertar solto
+   * começa a carga: o blob para, o direcional mira, e soltar com a bola no raio
+   * é a batida. Soltar longe da bola não custa nada.
+   */
+  private hitStep(p: Side, raw: PlayerInput, isBallValid: boolean, out: MatchEvent[]) {
+    if (this.hitLag[p] > 0) this.hitLag[p]--
+    const busy = this.stun[p] > 0 || this.diveFrames[p] > 0 || this.diveRecover[p] > 0
+    if (this.hitCharge[p] > 0) {
+      this.hitAimX[p] = raw.left !== raw.right ? (raw.right ? 1 : -1) : 0
+      this.hitAimY[p] = raw.up !== raw.down ? (raw.up ? -1 : 1) : 0
+      if (this.hitCharge[p] < HIT_CHARGE_MAX) this.hitCharge[p]++
+      if (busy || this.incoming(p)) { this.hitCharge[p] = 0; return }
+      if (raw.hit) return
+      const c = this.hitCharge[p]
+      this.hitCharge[p] = 0
+      if (isBallValid) this.swing(p, c, out)
+      return
+    }
+    if (!raw.hit || this.prevHit[p] !== 0 || busy || this.hitLag[p] > 0 || this.incoming(p)) return
+    if (this.hold[p] > 0) return
+    if (raw.down) {
+      if (this.digCd[p] === 0) { this.digActive[p] = DIG_WINDOW; this.digCd[p] = DIG_CD }
+      return
+    }
+    this.hitCharge[p] = 1
+    this.hitAimX[p] = raw.left !== raw.right ? (raw.right ? 1 : -1) : 0
+    this.hitAimY[p] = 0
+  }
+
+  private swing(p: Side, charge: number, out: MatchEvent[]) {
+    if (this.superFrames > 0) return
+    const cy = this.upperY(p)
+    const dx = this.ballX - this.blobX[p]
+    const dy = this.ballY - cy
+    const d2 = dx * dx + dy * dy
+    if (d2 > HIT_REACH * HIT_REACH) return
+    this.hitLag[p] = HIT_LAG
+    this.bumpTempo()
+    this.ballSpin = 0
+    if (charge <= HIT_TAP) {
+      this.aimShotScaled(p, DROP_VELOCITY, 0, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE,
+        DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS, 7)
+      this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.upperR(p))
+      this.addCharge(p, DIG_GAIN, out)
+      out.push({ event: Ev.DROP, side: p, intensity: 1 })
+      return
+    }
+    const k = Math.min(1, (charge - HIT_TAP) / (HIT_CHARGE_MAX - HIT_TAP))
+    const [nx, ny] = this.aimVector(p)
+    const v = (HIT_V_MIN + (HIT_V_MAX - HIT_V_MIN) * k) * this.tempo
+    this.ballVX = nx * v
+    this.ballVY = ny * v
+    this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.upperR(p))
+    this.ballX += this.ballVX
+    this.ballY += this.ballVY
+    this.addCharge(p, HIT_GAIN, out)
+    out.push({ event: Ev.HIT, side: p, intensity: k })
+  }
+
+  /** Bola no corpo no meio da carga: o golpe some e o blob vai ao chão. */
+  private trip(p: Side, out: MatchEvent[]) {
+    const dir = p === LEFT ? 1 : -1
+    this.hitCharge[p] = 0
+    this.diveRecover[p] = TRIP_FRAMES
+    this.diveDir[p] = -dir
+    this.blobVX[p] = -dir * TRIP_PUSH * this.tempo
+    out.push({ event: Ev.TRIP, side: p, intensity: 1 })
+  }
+
+  /** Tutorial: um especial vindo do lado `from`, sem ninguém lá pra bater. */
+  launchSpecial(from: Side) {
+    this.superFrames = SPECIAL_BALL_FRAMES
+    this.superOwner = from
+    this.parryChain = 0
+    this.ballX = from === LEFT ? NET_POSITION_X * 0.5 : NET_POSITION_X * 1.5
+    this.ballY = 300
+    this.ballSpin = 0
+    this.aimSpecial(from)
+    this.scaleBallV()
   }
 
   private topBallCollision(p: Side) {
@@ -556,6 +700,7 @@ export class PhysicWorld {
 
     out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity })
     this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
+    if (this.hitCharge[p] > 0) this.trip(p, out)
 
     if (this.superFrames > 0) {
       if (this.superOwner !== p) {
@@ -660,14 +805,23 @@ export class PhysicWorld {
     if (this.digCd[RIGHT] > 0) this.digCd[RIGHT]--
     if (this.digActive[LEFT] > 0) this.digActive[LEFT]--
     if (this.digActive[RIGHT] > 0) this.digActive[RIGHT]--
+    if (this.revActive[LEFT] > 0) this.revActive[LEFT]--
+    if (this.revActive[RIGHT] > 0) this.revActive[RIGHT]--
+    if (this.revCd[LEFT] > 0) this.revCd[LEFT]--
+    if (this.revCd[RIGHT] > 0) this.revCd[RIGHT]--
 
-    const el = this.stun[LEFT] > 0 ? NO_INPUT : li
-    const er = this.stun[RIGHT] > 0 ? NO_INPUT : ri
     const groundL = this.blobHitGround(LEFT)
     const groundR = this.blobHitGround(RIGHT)
 
-    this.tryCrouch(LEFT, li)
-    this.tryCrouch(RIGHT, ri)
+    this.hitStep(LEFT, li, isBallValid && !this.holding(), out)
+    this.hitStep(RIGHT, ri, isBallValid && !this.holding(), out)
+
+    // armando a batida o blob fica plantado: o direcional é mira, não passo
+    const el = this.stun[LEFT] > 0 ? NO_INPUT : this.hitCharge[LEFT] > 0 ? LOCKED : li
+    const er = this.stun[RIGHT] > 0 ? NO_INPUT : this.hitCharge[RIGHT] > 0 ? LOCKED : ri
+
+    this.tryCrouch(LEFT, el)
+    this.tryCrouch(RIGHT, er)
     this.handleBlob(LEFT, el)
     this.handleBlob(RIGHT, er)
 
@@ -697,10 +851,12 @@ export class PhysicWorld {
       if (this.charge[RIGHT] >= SPECIAL_FULL) this.charge[RIGHT] = Math.max(0, this.charge[RIGHT] - SPECIAL_LEAK)
     }
 
-    this.tryDive(LEFT, li, out)
-    this.tryDive(RIGHT, ri, out)
+    this.tryDive(LEFT, el, out)
+    this.tryDive(RIGHT, er, out)
 
     if (isBallValid && !holding) {
+      this.tryReversal(LEFT, li, out)
+      this.tryReversal(RIGHT, ri, out)
       this.tryParry(LEFT, li, out)
       this.tryParry(RIGHT, ri, out)
       this.tryDig(LEFT, out) || this.handleBlobBallCollision(LEFT, out)
@@ -717,6 +873,8 @@ export class PhysicWorld {
     this.prevDown[RIGHT] = ri.down ? 1 : 0
     this.prevDive[LEFT] = li.dive ? 1 : 0
     this.prevDive[RIGHT] = ri.dive ? 1 : 0
+    this.prevHit[LEFT] = li.hit ? 1 : 0
+    this.prevHit[RIGHT] = ri.hit ? 1 : 0
 
     if (!holding) this.handleBallWorldCollisions(out)
 
@@ -756,6 +914,10 @@ export class PhysicWorld {
     this.digActive[LEFT] = 0; this.digActive[RIGHT] = 0
     this.ballOut = 0
     this.digCd[LEFT] = 0; this.digCd[RIGHT] = 0
+    this.hitCharge[LEFT] = 0; this.hitCharge[RIGHT] = 0
+    this.hitLag[LEFT] = 0; this.hitLag[RIGHT] = 0
+    this.revActive[LEFT] = 0; this.revActive[RIGHT] = 0
+    this.revCd[LEFT] = 0; this.revCd[RIGHT] = 0
     this.diveFrames[LEFT] = 0; this.diveFrames[RIGHT] = 0
     this.diveRecover[LEFT] = 0; this.diveRecover[RIGHT] = 0
     this.diveCd[LEFT] = 0; this.diveCd[RIGHT] = 0

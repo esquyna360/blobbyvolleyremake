@@ -96,13 +96,38 @@ export const CROUCH_FALL_MUL = 0.8
 export const DIG_REACH = 128
 export const DIG_CD = 26
 export const DIG_WINDOW = 7
-export const DIG_VELOCITY = BALL_COLLISION_VELOCITY * 1.05
-export const DIG_TARGET_DEPTH = 0.52
-export const DIG_NET_CLEARANCE = 10
-export const DIG_TIME_MIN = 34
-export const DIG_TIME_STEP = 3
-export const DIG_TIME_STEPS = 26
 export const DIG_GAIN = 0.03
+/** A manchete levanta a bola reta no próprio campo, na altura de uma cortada. */
+export const DIG_UP = 12.6
+export const DIG_FORWARD = 1.4
+
+/**
+ * Batida. Segurar o botão arma o golpe e trava o blob; o direcional vira mira.
+ * Soltar com a bola no raio manda ela na direção da mira, mais forte quanto
+ * mais tempo segurou. Toque rápido é deixadinha.
+ */
+export const HIT_REACH = 118
+export const HIT_CHARGE_MAX = 40
+export const HIT_TAP = 7
+export const HIT_V_MIN = BALL_COLLISION_VELOCITY * 0.9
+export const HIT_V_MAX = BALL_COLLISION_VELOCITY * 1.8
+export const HIT_LAG = 12
+export const HIT_GAIN = 0.05
+/** Bola no corpo enquanto arma a batida: o blob cai e fica um instante no chão. */
+export const TRIP_FRAMES = 30
+export const TRIP_PUSH = 2.6
+
+export const DROP_VELOCITY = BALL_COLLISION_VELOCITY * 0.66
+export const DROP_TARGET_DEPTH = 0.14
+export const DROP_NET_CLEARANCE = 6
+export const DROP_TIME_MIN = 30
+export const DROP_TIME_STEP = 3
+export const DROP_TIME_STEPS = 24
+
+/** Reversal: especial devolvido com o botão de especial na hora exata. */
+export const REVERSAL_ACTIVE = 4
+export const REVERSAL_CD = 70
+export const REVERSAL_BOOST = 1.35
 
 /**
  * Spin. A velocidade horizontal do blob no instante do toque vira rotação, e

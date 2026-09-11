@@ -148,6 +148,8 @@ export interface GameRenderer {
    */
   bigText(text: string, kind: BigKind, ms: number, color?: string): boolean
   clearBigs(): void
+  /** Nome do golpe do lado de quem fez. `true` se desenhou dentro do canvas. */
+  callout(side: Side, text: string, color: string): boolean
   capture(match: Match): void
   onEvents(match: Match, events: MatchEvent[]): void
   render(match: Match, alpha: number, dt: number): void
@@ -674,6 +676,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
    * dele, a sombra e o alcance. A física já ignora o lado com `world.solo`.
    */
   bigText() { return false }
+  callout() { return false }
   clearBigs() { /* o 3D não desenha texto no canvas */ }
 
   setSolo(on: boolean) { this.solo = on }

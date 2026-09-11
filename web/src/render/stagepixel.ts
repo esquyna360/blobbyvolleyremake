@@ -3,7 +3,7 @@ import {
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
-  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH,
+  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH, HIT_CHARGE_MAX,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -31,6 +31,7 @@ interface Dust { x: number; y: number; vx: number; vy: number; life: number; max
 interface Ring { x: number; y: number; r: number; max: number; life: number; color: string; w?: number; flat?: boolean }
 interface Pop { side: Side; id: number; life: number; max: number; seed: number }
 interface Big { text: string; kind: BigKind; color: string; life: number; max: number }
+interface Callout { side: Side; text: string; color: string; life: number }
 interface Cols { base: string; hi: string; dk: string; dk2: string }
 
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
@@ -111,6 +112,7 @@ export class StagePixel implements GameRenderer {
   private trail: { x: number; y: number; life: number }[] = []
   private pops: Pop[] = []
   private bigs: Big[] = []
+  private callouts: Callout[] = []
   private pendingBigs: Big[] = []
   private craters: { x: number; r: number; life: number }[] = []
   private scorch: { x: number; r: number; life: number }[] = []
@@ -443,6 +445,52 @@ export class StagePixel implements GameRenderer {
           this.burst(bx + dir * 24, by + 10, 20, 190, '#e6d6b4', 0.85)
           break
         }
+        case Ev.HIT: {
+          const p = e.side as Side
+          const inten = 0.4 + e.intensity * 0.6
+          this.trauma = Math.min(1, this.trauma + 0.3 * inten)
+          this.hitstop = Math.max(this.hitstop, e.intensity >= 0.99 ? 0.07 : 0.03)
+          this.blobKick[p] = Math.max(this.blobKick[p], 0.6)
+          this.burst(w.ballX, w.ballY, Math.floor(20 + 30 * inten), 260 * inten, '#ffffff', 0.4)
+          this.burst(w.ballX, w.ballY, 16, 200 * inten, this.light(p), 0.5)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 8, max: 90 + 110 * inten, life: 0, color: '#ffffff', w: 2 })
+          this.squashBall(w, 0.16 + 0.12 * inten)
+          break
+        }
+        case Ev.DROP: {
+          const p = e.side as Side
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 70, life: 0, color: '#cfe9ff' })
+          this.burst(w.ballX, w.ballY, 10, 120, '#ffffff', 0.9)
+          this.blobKick[p] = Math.max(this.blobKick[p], 0.3)
+          break
+        }
+        case Ev.REVERSAL_TRY: {
+          const p = e.side as Side
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 6, max: 64, life: 0, color: '#ff8a2b' })
+          break
+        }
+        case Ev.REVERSAL: {
+          const p = e.side as Side
+          this.trauma = 1
+          this.flash = Math.max(this.flash, 0.5)
+          this.hitstop = Math.max(this.hitstop, 0.18)
+          this.aber = Math.max(this.aber, 1.2)
+          this.blobFlash[p] = 1
+          this.blobKick[p] = 1
+          this.burst(w.ballX, w.ballY, 100, 600, '#ff8a2b', 0.3)
+          this.burst(w.ballX, w.ballY, 50, 720, '#fff6d8', 0.15)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 10, max: 300, life: 0, color: '#ffb347', w: 2 })
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 190, life: -0.08, color: '#ffffff' })
+          break
+        }
+        case Ev.TRIP: {
+          const p = e.side as Side
+          this.trauma = Math.min(1, this.trauma + 0.2)
+          this.blobKick[p] = 1
+          this.burst(w.blobX[p], GROUND + 4, 22, 220, this.px.pal.sand1, 0.8)
+          this.faces[p].set('sad', 1.2, 6)
+          break
+        }
         case Ev.BALL_OUT: {
           this.trauma = Math.min(1, this.trauma + 0.08)
           this.burst(w.ballX, w.ballY, 16, 180, '#ff8a7a', 0.5)
@@ -496,11 +544,70 @@ export class StagePixel implements GameRenderer {
     return true
   }
 
-  clearBigs() { this.bigs.length = 0; this.pendingBigs.length = 0 }
+  clearBigs() { this.bigs.length = 0; this.pendingBigs.length = 0; this.callouts.length = 0 }
+
+  callout(side: Side, text: string, color: string) {
+    this.callouts = this.callouts.filter(c => c.side !== side)
+    this.callouts.push({ side, text, color, life: 0 })
+    return true
+  }
+
+  private calloutsDraw() {
+    const g = this.g
+    for (const c of this.callouts) {
+      const inK = Math.min(1, c.life / 0.18)
+      const alpha = c.life > 0.75 ? 1 - (c.life - 0.75) / 0.25 : 1
+      const sc = inK < 1 ? 3 : 2
+      const x = Math.round(this.W * (c.side === LEFT ? 0.25 : 0.75))
+      const y = Math.round(this.H * 0.3 - (1 - inK) * 6)
+      const w = textWidth(c.text, sc)
+      g.globalAlpha = Math.max(0, alpha)
+      g.fillStyle = 'rgba(10,8,14,0.55)'
+      g.fillRect(x - Math.round(w / 2) - 3, y - 3, w + 6, FONT_H * sc + 6)
+      g.fillStyle = c.color
+      g.fillRect(x - Math.round(w / 2) - 3, y + FONT_H * sc + 2, w + 6, 1)
+      pxText(g, c.text, x, y, c.color, sc, '#1a1620')
+    }
+    g.globalAlpha = 1
+  }
+
+  /** Armando a batida: braços erguidos e a mira em pontinhos, mais longa quanto mais carga. */
+  private aimLine(p: Side, x: number, y: number, w: Match['world']) {
+    const g = this.g
+    const [nx, ny] = w.aimVector(p)
+    const k = Math.min(1, w.hitCharge[p] / HIT_CHARGE_MAX)
+    const cx = this.X(x), cy = this.Y(y) - Math.round(this.S(BLOBBY_UPPER_SPHERE))
+    const len = this.S(40 + 70 * k)
+    const col = k >= 0.999 ? '#ffd257' : '#ffffff'
+    g.globalAlpha = 0.85
+    g.fillStyle = col
+    const n = Math.max(3, Math.round(len / 4))
+    const ph = Math.floor(this.time * 14) % 3
+    for (let i = 1; i <= n; i++) {
+      if ((i + ph) % 3) continue
+      const t = (i / n) * len
+      g.fillRect(Math.round(cx + nx * t), Math.round(cy + ny * t), 1, 1)
+    }
+    const tx = Math.round(cx + nx * len), ty = Math.round(cy + ny * len)
+    g.fillRect(tx - 1, ty, 3, 1); g.fillRect(tx, ty - 1, 1, 3)
+    // braços: dois tracinhos pra cima, tremendo quando a carga enche
+    const c = this.cols[p]
+    const jit = k >= 0.999 ? Math.round(Math.sin(this.time * 40)) : 0
+    const ru = this.S(BLOBBY_UPPER_RADIUS)
+    for (const sgn of [-1, 1]) {
+      const ax = Math.round(cx + sgn * ru * 0.9), ay = Math.round(cy - ru * 0.2 + jit)
+      g.fillStyle = c.dk
+      g.fillRect(ax, ay - Math.round(ru * 0.9 * (0.4 + 0.6 * k)), 2, Math.round(ru * 0.9 * (0.4 + 0.6 * k)))
+      g.fillStyle = c.hi
+      g.fillRect(ax, ay - Math.round(ru * 0.9 * (0.4 + 0.6 * k)) - 1, 2, 2)
+    }
+    g.globalAlpha = 1
+  }
 
   private step(dt: number) {
     this.targetFlash = Math.max(0, this.targetFlash - dt * 1.6)
     if (this.bigs.length) this.bigs = this.bigs.filter(b => { b.life += dt; return b.life < b.max })
+    if (this.callouts.length) this.callouts = this.callouts.filter(c => { c.life += dt; return c.life < 1 })
     this.time += dt
     for (const f of this.faces) f.update(dt, this.tension, false)
     if (this.pops.length) this.pops = this.pops.filter(e => { e.life += dt; return e.life < e.max })
@@ -1139,6 +1246,7 @@ export class StagePixel implements GameRenderer {
       const px = L(p.px[s], q.px[s]), py = L(p.py[s], q.py[s])
       if (!this.off(s) && w.stun[s] === 0 && this.intro < 0) this.reach(px, py, w.charge[s] >= SPECIAL_FULL)
       if (w.digActive[s] > 0) this.digSwipe(s, px, py, w.digActive[s] / DIG_WINDOW)
+      if (w.hitCharge[s] > 0 && this.intro < 0) this.aimLine(s, px, py, w)
       const air = w.diveFrames[s] > 0
       const target = air ? 1 : Math.min(1, w.diveRecover[s] / (DIVE_RECOVER * 0.7))
       const rate = target > this.diveK[s] ? 15 : 6.5
@@ -1190,6 +1298,7 @@ export class StagePixel implements GameRenderer {
     }
     const fl = Math.max(this.flash, this.cut)
     if (fl > 0.01) { g.globalAlpha = Math.min(1, fl); g.fillStyle = '#ffffff'; g.fillRect(0, 0, this.W, this.H); g.globalAlpha = 1 }
+    this.calloutsDraw()
     this.bigsDraw()
 
     this.screen.imageSmoothingEnabled = false

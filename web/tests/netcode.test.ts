@@ -5,7 +5,7 @@ import { Ev } from '../src/core/events.ts'
 import { Rollback } from '../src/net/rollback.ts'
 import {
   BALL_COLLISION_VELOCITY, BALL_RADIUS, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, RIGHT_PLANE,
-  SPECIAL_CAP, SPECIAL_FULL, SPECIAL_VELOCITY, LEFT_PLANE, OPEN_MARGIN,
+  SPECIAL_CAP, SPECIAL_FULL, LEFT_PLANE, OPEN_MARGIN,
 } from '../src/core/constants.ts'
 import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
 
@@ -18,7 +18,7 @@ function rng(seed: number) {
 }
 
 function randomBits(r: () => number) {
-  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12, dive: r() < 0.06 })
+  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12, dive: r() < 0.06, hit: r() < 0.1 })
 }
 
 test('simulation is deterministic for the same input stream', () => {
@@ -121,8 +121,8 @@ test('rollback never exceeds the configured window', () => {
 
 test('special state survives save/restore', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false }
-  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false }
+  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false, hit: false }
+  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false, hit: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_CAP
@@ -133,11 +133,12 @@ test('special state survives save/restore', () => {
   m.logic.isBallValid = true
   m.logic.isGameRunning = true
 
+  const SP = { ...NONE, special: true }
   m.step(UP, NONE)
   m.step(NONE, NONE)
   m.world.ballX = m.world.blobX[LEFT] + 30
   m.world.ballY = m.world.blobY[LEFT] - 110
-  m.step(UP, NONE)
+  m.step(SP, NONE)
   assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), true)
   assert.equal(m.world.hold[LEFT] > 0, true)
   m.step(NONE, NONE)
@@ -154,10 +155,10 @@ test('special state survives save/restore', () => {
   assert.equal(m.world.superOwner, LEFT)
 })
 
-test('special only fires on a second jump press in the air', () => {
+test('especial só sai pelo botão de especial, e só no ar', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false }
-  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false }
+  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false, hit: false }
+  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false, hit: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_CAP
@@ -166,9 +167,90 @@ test('special only fires on a second jump press in the air', () => {
   m.logic.isBallValid = true
   m.logic.isGameRunning = true
 
-  m.step(UP, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false)
+  m.step({ ...NONE, special: true }, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), false, 'especial no chão')
   assert.ok(m.world.charge[LEFT] >= SPECIAL_FULL, 'barra queimada sem disparar')
+  m.step(UP, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), false, 'pular não é especial')
+  m.step({ ...NONE, special: true }, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), true, 'especial no ar não saiu')
+})
+
+test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {
+  const m = new Match('default', 15, LEFT)
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 200
+  w.ballX = 900; w.ballY = 100; w.ballVX = 0; w.ballVY = 0
+  const HOLD = { ...NO_INPUT, hit: true, right: true, up: true }
+  m.step(HOLD, NO_INPUT)
+  assert.ok(w.charging(LEFT), 'não armou')
+  for (let f = 0; f < 20; f++) m.step(HOLD, NO_INPUT)
+  assert.equal(w.blobX[LEFT], 200, 'andou armando a batida')
+  assert.equal(w.blobHitGround(LEFT), true, 'pulou armando a batida')
+  m.step(NO_INPUT, NO_INPUT)
+  assert.ok(!w.charging(LEFT))
+  assert.equal(m.events.some(e => e.event === Ev.HIT), false, 'bateu sem bola no raio')
+
+  w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0
+  for (let f = 0; f < 25; f++) { m.step(HOLD, NO_INPUT); w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0 }
+  m.step({ ...NO_INPUT, right: true, up: true }, NO_INPUT)
+  assert.ok(m.events.some(e => e.event === Ev.HIT), 'batida não saiu')
+  assert.ok(w.ballVX > 0 && w.ballVY < 0, `mira errada: ${w.ballVX} ${w.ballVY}`)
+  const speed = Math.hypot(w.ballVX, w.ballVY)
+  assert.ok(speed > BALL_COLLISION_VELOCITY * 1.2, `batida fraca: ${speed}`)
+})
+
+test('toque rápido é deixadinha; bola no corpo armando derruba', () => {
+  const m = new Match('default', 15, LEFT)
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 330
+  w.ballX = 360; w.ballY = w.upperY(LEFT) - 60; w.ballVX = 0; w.ballVY = 0
+  m.step({ ...NO_INPUT, hit: true }, NO_INPUT)
+  m.step({ ...NO_INPUT, hit: true }, NO_INPUT)
+  m.step(NO_INPUT, NO_INPUT)
+  assert.ok(m.events.some(e => e.event === Ev.DROP), 'deixadinha não saiu')
+  assert.ok(w.ballVX > 0, 'deixadinha não foi pra frente')
+  assert.ok(Math.hypot(w.ballVX, w.ballVY) < BALL_COLLISION_VELOCITY, 'deixadinha forte demais')
+
+  const t = new Match('default', 15, LEFT)
+  const tw = t.world
+  t.logic.isBallValid = true
+  t.logic.isGameRunning = true
+  tw.blobX[LEFT] = 200
+  tw.ballX = 200; tw.ballY = tw.upperY(LEFT) - 90; tw.ballVX = 0; tw.ballVY = 6
+  let tripped = false
+  for (let f = 0; f < 30 && !tripped; f++) {
+    t.step({ ...NO_INPUT, hit: true }, NO_INPUT)
+    tripped = t.events.some(e => e.event === Ev.TRIP)
+  }
+  assert.ok(tripped, 'não caiu')
+  assert.ok(!tw.charging(LEFT))
+  assert.ok(tw.diveRecover[LEFT] > 0, 'não ficou no chão')
+})
+
+test('reversal devolve o especial na hora, mais forte', () => {
+  const m = new Match('default', 15, LEFT)
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 220
+  w.launchSpecial(RIGHT)
+  assert.equal(w.superOwner, RIGHT)
+  let done = false
+  for (let f = 0; f < 200 && !done; f++) {
+    const dx = w.ballX - w.blobX[LEFT], dy = w.ballY - w.upperY(LEFT)
+    const near = dx * dx + dy * dy < 100 * 100 && w.ballVX < 0
+    m.step(near ? { ...NO_INPUT, special: true } : NO_INPUT, NO_INPUT)
+    done = m.events.some(e => e.event === Ev.REVERSAL)
+  }
+  assert.ok(done, 'reversal não saiu')
+  assert.equal(w.superOwner, LEFT)
+  assert.ok(w.ballVX > 0, 'reversal não voltou pro outro lado')
+  assert.ok(Math.hypot(w.ballVX, w.ballVY) > BALL_COLLISION_VELOCITY * 1.6, `reversal fraco: ${Math.hypot(w.ballVX, w.ballVY)}`)
 })
 
 /**
@@ -252,7 +334,7 @@ test('mergulho estica o alcance e sobrevive ao save/restore', () => {
 })
 
 /** Manchete devolve a bola pro outro lado e conta como toque. */
-test('manchete cruza a rede e conta no rally', () => {
+test('manchete é baixo + bater e levanta a bola no próprio campo', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world
   m.logic.isBallValid = true
@@ -261,14 +343,13 @@ test('manchete cruza a rede e conta no rally', () => {
   w.ballX = 210; w.ballY = 430; w.ballVX = -3; w.ballVY = 4
   const rally = m.logic.rally
   m.step({ ...NO_INPUT, down: true }, NO_INPUT)
+  assert.ok(!m.events.some(e => e.event === Ev.DIG), 'baixo sozinho não é manchete')
+  m.step({ ...NO_INPUT, down: true, hit: true }, NO_INPUT)
 
   assert.ok(m.events.some(e => e.event === Ev.DIG), 'manchete não saiu')
-  assert.ok(w.ballVX > 0, `manchete não foi pro outro lado: vx ${w.ballVX}`)
+  assert.ok(w.ballVY < -8, `manchete não levantou: vy ${w.ballVY}`)
+  assert.ok(w.ballVX > 0 && w.ballVX < 3, `manchete tem que ficar no meu campo: vx ${w.ballVX}`)
   assert.equal(m.logic.rally, rally + 1, 'manchete não contou no rally')
-
-  const speed = Math.sqrt(w.ballVX * w.ballVX + w.ballVY * w.ballVY)
-  assert.ok(speed > BALL_COLLISION_VELOCITY * 0.8, `manchete fraca demais: ${speed}`)
-  assert.ok(speed < SPECIAL_VELOCITY * 0.8, `manchete perto demais do especial: ${speed}`)
   assert.equal(w.superFrames, 0, 'manchete não pode virar bola de especial')
 })
 
@@ -332,7 +413,7 @@ test('quadra aberta: fora é cair fora, não cruzar a linha', () => {
 test('quadra aberta deixa o blob sair da linha; com parede ele para nela', () => {
   const go = (walls: boolean) => {
     const m = new Match('default', 15, LEFT, walls)
-    const left = packInput({ left: true, right: false, up: false, special: false, down: false, dive: false })
+    const left = packInput({ left: true, right: false, up: false, special: false, down: false, dive: false, hit: false })
     for (let f = 0; f < 220; f++) m.step(unpackInput(left), NO_INPUT)
     return m.world.blobX[LEFT]
   }
