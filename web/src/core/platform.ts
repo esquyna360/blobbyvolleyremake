@@ -22,7 +22,7 @@ function detect(): Platform {
 
 export const PLATFORM: Platform = detect()
 export const NATIVE = PLATFORM !== 'web'
-/** No app o 2D não existe: quem instala o jogo tem GPU. */
-export const ONLY_3D = PLATFORM === 'android'
-/** No navegador só existe o pixel art; 2D e 3D ficam no código, fora do menu. */
-export const PIXEL_ONLY = PLATFORM === 'web'
+/** Só o desktop ainda oferece o 3D; 2D nunca entra no menu dele. */
+export const ONLY_3D = false
+/** Navegador e Android são só pixel art; 2D e 3D ficam no código, fora do menu. */
+export const PIXEL_ONLY = PLATFORM !== 'desktop'

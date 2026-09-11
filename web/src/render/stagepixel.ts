@@ -174,16 +174,22 @@ export class StagePixel implements GameRenderer {
     addEventListener('pointerdown', this.onPointer)
   }
 
+  /**
+   * Um pixel do mundo vira sempre um número inteiro de pixels físicos: com
+   * fator quebrado, colunas vizinhas saem com larguras diferentes e a imagem
+   * fica irregular. O mundo cresce alguns pixels pra fechar a tela.
+   */
   setSize(w: number, h: number) {
-    this.cw = Math.max(1, Math.round(w))
-    this.ch = Math.max(1, Math.round(h))
+    const dpr = Math.max(1, Math.min(4, devicePixelRatio || 1))
+    this.cw = Math.max(1, Math.round(w * dpr))
+    this.ch = Math.max(1, Math.round(h * dpr))
     this.canvas.width = this.cw
     this.canvas.height = this.ch
     this.canvas.style.width = `${w}px`
     this.canvas.style.height = `${h}px`
-    const aspect = this.cw / this.ch
-    this.H = VH
-    this.W = clamp(Math.round(VH * aspect), 240, 640)
+    const k = Math.max(1, Math.floor(this.ch / VH))
+    this.H = Math.ceil(this.ch / k)
+    this.W = clamp(Math.ceil(this.cw / k), 240, 720)
     this.world.width = this.W
     this.world.height = this.H
     this.g.imageSmoothingEnabled = false

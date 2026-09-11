@@ -203,6 +203,8 @@ class App {
       else if (this.phase === 'paused') this.resume()
       else this.menu.escape()
     }
+    // botão voltar do Android chega por aqui; no menu principal não faz nada
+    ;(window as unknown as { blobbyBack: () => void }).blobbyBack = () => this.input.onPause?.()
     // mouse de volta: o realce de foco é do controle, não fica sobrando na tela
     addEventListener('pointerdown', () => document.body.classList.remove('padnav'))
 

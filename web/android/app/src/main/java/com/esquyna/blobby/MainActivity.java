@@ -37,6 +37,13 @@ public class MainActivity extends BridgeActivity {
         immersive();
     }
 
+    /** Voltar é pausa/voltar de menu, nunca fechar o jogo no meio do rally. */
+    @Override
+    public void onBackPressed() {
+        WebView w = getBridge().getWebView();
+        if (w != null) w.evaluateJavascript("window.blobbyBack&&window.blobbyBack()", null);
+    }
+
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);

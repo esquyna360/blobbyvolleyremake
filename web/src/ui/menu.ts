@@ -1157,21 +1157,26 @@ export class Menu {
       : r.kind === 'arcade' ? (r.arcade?.won ? `VITÓRIA ${r.arcade.index + 1}/${r.arcade.total}` : 'DERROTA')
       : (r.winner.fighter || r.kind === 'online' ? `${r.winner.name.toUpperCase()} VENCE` : 'VITÓRIA')
     const iLost = r.kind !== 'local' && (r.kind === 'arcade' ? !r.arcade?.won : r.loser.fighter === null)
+    // no celular a tabela vai no meio, entre os dois: sobra altura pros botões
+    const phone = document.body.classList.contains('phone')
+    const stats = this.statsTable(r)
+    const win = el('div', { class: 'sf-win' },
+      winCv,
+      el('b', { textContent: r.winner.name.toUpperCase() }),
+      el('p', { class: 'quote', textContent: `“${r.winner.quote}”` }))
+    const lose = el('div', { class: 'sf-lose' },
+      loseCv,
+      el('b', { textContent: r.loser.name.toUpperCase() }),
+      el('small', { textContent: r.loser.quote }))
     this.panel(
       el('div', { class: `sf ${iLost ? 'lost' : 'won'}` },
         el('div', { class: 'sf-head' },
           el('h1', { textContent: headline }),
           el('div', { class: 'sf-score mono', textContent: `${r.scoreL} — ${r.scoreR}` })),
-        el('div', { class: 'sf-body' },
-          el('div', { class: 'sf-win' },
-            winCv,
-            el('b', { textContent: r.winner.name.toUpperCase() }),
-            el('p', { class: 'quote', textContent: `“${r.winner.quote}”` })),
-          el('div', { class: 'sf-lose' },
-            loseCv,
-            el('b', { textContent: r.loser.name.toUpperCase() }),
-            el('small', { textContent: r.loser.quote }))),
-        this.statsTable(r)),
+        phone
+          ? el('div', { class: 'sf-body three' }, win, stats, lose)
+          : el('div', { class: 'sf-body' }, win, lose),
+        phone ? '' : stats),
       el('div', { class: 'grid' }, ...buttons),
       status,
     )
