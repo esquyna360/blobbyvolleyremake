@@ -52,15 +52,15 @@ export interface GameConfig {
 export interface ResultSide { name: string; look: PlayerLook; quote: string; fighter: Fighter | null }
 export const STAT_ROWS: [keyof MatchStats, string][] = [
   ['parry', 'Parries'], ['special', 'Especiais'], ['converted', 'Especiais convertidos'], ['lost', 'Especiais perdidos'],
-  ['double', 'Double specials'], ['hit', 'Cortadas'], ['drop', 'Deixadinhas'], ['lob', 'Lobs'], ['dig', 'Manchetes'], ['dive', 'Mergulhos'],
+  ['double', 'Double specials'], ['hit', 'Cortadas'], ['drop', 'Deixadinhas'], ['dig', 'Manchetes'], ['dive', 'Mergulhos'],
 ]
 export interface MatchStats {
   parry: number[]; special: number[]; converted: number[]; lost: number[]; double: number[]
-  hit: number[]; drop: number[]; lob: number[]; dig: number[]; dive: number[]
+  hit: number[]; drop: number[]; dig: number[]; dive: number[]
 }
 export const newStats = (): MatchStats => ({
   parry: [0, 0], special: [0, 0], converted: [0, 0], lost: [0, 0], double: [0, 0],
-  hit: [0, 0], drop: [0, 0], lob: [0, 0], dig: [0, 0], dive: [0, 0],
+  hit: [0, 0], drop: [0, 0], dig: [0, 0], dive: [0, 0],
 })
 export interface ResultInfo {
   stats: MatchStats

@@ -1361,7 +1361,6 @@ class App {
         case Ev.REVERSAL: st.double[side]++; st.special[side]++; this.specialOwner = side; this.hud.callout(side, 'DOUBLE SPECIAL', '#ff8a2b'); break
         case Ev.DIG: st.dig[side]++; this.hud.callout(side, 'MANCHETE', '#cfe9ff'); break
         case Ev.DROP: st.drop[side]++; this.hud.callout(side, 'DEIXADINHA', '#f2ddaa'); break
-        case Ev.LOB: st.lob[side]++; this.hud.callout(side, 'LOB', '#f2ddaa'); break
         case Ev.DIVE_HIT: this.hud.callout(side, 'MERGULHO', '#9dff8f'); break
         case Ev.HIT:
           if (e.intensity >= 0.99) this.hud.callout(side, 'PANCADA', '#ffd257')

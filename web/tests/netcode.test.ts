@@ -6,7 +6,7 @@ import { Rollback } from '../src/net/rollback.ts'
 import {
   BALL_COLLISION_VELOCITY, BALL_RADIUS, BLOBBY_SPEED, LEFT, NO_PLAYER, RIGHT, RIGHT_PLANE,
   SPECIAL_CAP, SPECIAL_FULL, LEFT_PLANE, OPEN_MARGIN,
-  GROUND_PLANE_HEIGHT,
+  GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, NET_POSITION_X,
 } from '../src/core/constants.ts'
 import { NO_INPUT, packInput, unpackInput } from '../src/core/input.ts'
 
@@ -182,36 +182,43 @@ test('especial sai no chão e vai na direção da mira', () => {
   assert.ok(m.world.charge[LEFT] < 0.01, 'barra não gastou')
 })
 
-test('lob: segurar entre deixadinha e forte emite LOB; cortada no ar tem prioridade', () => {
-  const run = (frames: number, inAir: boolean) => {
+test('deixadinha: toque curto; com frente vai pro fundo; cortada no ar tem prioridade', () => {
+  const run = (frames: number, inAir: boolean, fwd: boolean) => {
     const m = new Match('default', 3, LEFT)
     const w = m.world
     m.logic.isBallValid = true
     m.logic.isGameRunning = true
     w.blobX[LEFT] = 260
+    w.blobX[RIGHT] = 845
     if (inAir) { w.blobY[LEFT] = GROUND_PLANE_HEIGHT - 120; w.blobVY[LEFT] = 0 }
     w.ballX = 900; w.ballY = 100; w.ballVX = 0; w.ballVY = 0
-    const HOLD = { ...NO_INPUT, hit: true, right: true, down: inAir }
+    const HOLD = { ...NO_INPUT, hit: true, right: fwd, down: inAir }
     for (let f = 0; f < frames; f++) {
       m.step(HOLD, NO_INPUT)
-      w.ballX = 290; w.ballY = w.upperY(LEFT) - 60; w.ballVX = 0; w.ballVY = 0
+      w.ballX = 290; w.ballY = w.upperY(LEFT) - 110; w.ballVX = 0; w.ballVY = 0
       if (inAir) { w.blobY[LEFT] = GROUND_PLANE_HEIGHT - 120; w.blobVY[LEFT] = 0 }
     }
     m.step(NO_INPUT, NO_INPUT)
-    return m.events.map(e => e.event)
+    const ev = m.events.map(e => e.event)
+    let f = 0
+    while (f < 400 && w.ballY < GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS - 2) { m.step(NO_INPUT, NO_INPUT); f++ }
+    return { ev, land: w.ballX }
   }
-  assert.ok(run(4, false).includes(Ev.DROP), 'toque curto não deu deixadinha')
-  assert.ok(run(15, false).includes(Ev.LOB), 'segurar médio não deu lob')
-  assert.ok(run(40, false).includes(Ev.HIT), 'segurar longo não deu batida')
-  assert.ok(run(10, true).includes(Ev.HIT), 'no ar mirando pra baixo tem que ser cortada')
+  const plain = run(4, false, false)
+  assert.ok(plain.ev.includes(Ev.DROP), 'toque curto não deu deixadinha')
+  assert.ok(plain.land > NET_POSITION_X, 'deixadinha não passou a rede')
+  const deep = run(4, false, true)
+  assert.ok(deep.ev.includes(Ev.DROP), 'deixadinha pra frente virou outra coisa')
+  assert.ok(deep.land > plain.land + 80, `deixadinha pra frente não foi mais fundo: ${deep.land} vs ${plain.land}`)
+  assert.ok(run(40, false, false).ev.includes(Ev.HIT), 'segurar longo não deu batida')
+  assert.ok(run(10, true, false).ev.includes(Ev.HIT), 'no ar mirando pra baixo tem que ser cortada')
 
   const m = new Match('default', 3, LEFT)
   for (let f = 0; f < 5; f++) m.step(NO_INPUT, NO_INPUT)
-  for (let f = 0; f < 15; f++) m.step({ ...NO_INPUT, hit: true }, NO_INPUT)
+  for (let f = 0; f < 4; f++) m.step({ ...NO_INPUT, hit: true, right: true }, NO_INPUT)
   m.step(NO_INPUT, NO_INPUT)
-  assert.ok(m.events.some(e => e.event === Ev.LOB), 'lob no saque não saiu')
-  assert.equal(m.logic.isGameRunning, true, 'lob no saque não começou o rally')
-  assert.equal(m.logic.touches[LEFT], 1, 'lob não contou como toque')
+  assert.ok(m.events.some(e => e.event === Ev.DROP), 'deixadinha no saque não saiu')
+  assert.equal(m.logic.isGameRunning, true, 'deixadinha no saque não começou o rally')
 })
 
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {

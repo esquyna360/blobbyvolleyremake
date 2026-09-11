@@ -131,14 +131,11 @@ export const DROP_TIME_MIN = 30
 export const DROP_TIME_STEP = 3
 export const DROP_TIME_STEPS = 24
 
-/** Lob: segurar um pouco mais que a deixadinha. Passa por cima de quem pula na rede. */
-export const LOB_MAX = 22
-export const LOB_VELOCITY = BALL_COLLISION_VELOCITY * 1.25
-export const LOB_TARGET_DEPTH = 0.62
-export const LOB_NET_CLEARANCE = 150
-export const LOB_TIME_MIN = 30
-export const LOB_TIME_STEP = 3
-export const LOB_TIME_STEPS = 20
+/** Deixadinha com direção: frente vai pro fundo em parábola, cima sobe e cai perto da rede. */
+export const DROP_DEEP_VELOCITY = BALL_COLLISION_VELOCITY * 1.25
+export const DROP_DEEP_DEPTH = 0.78
+export const DROP_DEEP_CLEARANCE = 120
+export const DROP_UP_CLEARANCE = 110
 
 /** Reversal: especial devolvido com o botão de especial na hora exata. */
 export const REVERSAL_ACTIVE = 4

@@ -473,8 +473,7 @@ export class StagePixel implements GameRenderer {
           this.squashBall(w, 0.16 + 0.12 * inten)
           break
         }
-        case Ev.DROP:
-        case Ev.LOB: {
+        case Ev.DROP: {
           const p = e.side as Side
           this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 70, life: 0, color: '#cfe9ff' })
           this.burst(w.ballX, w.ballY, 10, 120, '#ffffff', 0.9)

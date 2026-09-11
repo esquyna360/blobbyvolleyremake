@@ -29,7 +29,6 @@ export const enum Ev {
   REVERSAL = 25,
   REVERSAL_TRY = 26,
   REVERSAL_SPIN = 27,
-  LOB = 28,
 }
 
 /** O rollback marca eventos vistos com `1 << ev` num Int32Array: nada acima de 30. */
