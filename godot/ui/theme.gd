@@ -14,6 +14,21 @@ static func panel(bg := Color(0.04, 0.07, 0.05, 0.80), border := Color(1, 1, 1, 
 	s.set_content_margin_all(18)
 	return s
 
+static func wood() -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0.27, 0.16, 0.08, 0.90)
+	s.border_color = Color(0.78, 0.58, 0.30)
+	s.set_border_width_all(3)
+	s.set_corner_radius_all(20)
+	s.content_margin_left = 16
+	s.content_margin_right = 16
+	s.content_margin_top = 6
+	s.content_margin_bottom = 8
+	s.shadow_color = Color(0, 0, 0, 0.35)
+	s.shadow_size = 8
+	s.shadow_offset = Vector2(0, 4)
+	return s
+
 static func button(base: Color) -> Array:
 	var out := []
 	for k in 3:

@@ -7,11 +7,13 @@ extends Node3D
 const CAM_FOV := 27.5
 const CAM_FOV_MIN := 26.7
 const CAM_Z := 28.2
-const CAM_Z_MAX := 47.0
+const CAM_Z_MAX := 56.0
+const CAM_TOP_MIN := 11.8
+const CAM_TOP_PAD := 2.2
 const CAM_MARGIN := 1.4
 const CAM_LOOK := 0.14
-const CAM_EYE_Y := 4.35
-const CAM_LOOK_Y := 2.9
+const CAM_EYE_Y := 7.6
+const CAM_LOOK_Y := 3.3
 const OPEN_HALF := BV.OPEN_MARGIN * Map.S
 
 const EMOJI := ["laugh", "cry", "rage", "finger", "taunt"]
@@ -42,6 +44,7 @@ var ball_speed := 0.0
 var _cam_target_x := 0.0
 var _cam_z := CAM_Z
 var _cam_span := 0.0
+var _cam_top := CAM_TOP_MIN
 var _open_extra := 0.0
 var _shake_seed := 0.0
 var _squash_k := 0.0
@@ -422,8 +425,11 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 ## paredes entrarem. O que sobrar de folga é o quanto ela ainda anda de lado.
 func _fit_arena(aspect: float) -> void:
 	var need := Map.court_half_w() * (1.0 + CAM_LOOK) + CAM_MARGIN + _open_extra
-	var ht := tan(CAM_FOV_MIN * PI / 360.0) * maxf(0.5, aspect)
-	_cam_z = minf(CAM_Z_MAX, maxf(CAM_Z, need / ht))
+	var vt := tan(CAM_FOV_MIN * PI / 360.0)
+	var ht := vt * maxf(0.5, aspect)
+	# a bola alta puxa a câmera pra trás em vez de sair pelo teto da tela
+	var zv := (_cam_top - CAM_LOOK_Y) / vt
+	_cam_z = minf(CAM_Z_MAX, maxf(maxf(CAM_Z, need / ht), zv))
 	_cam_span = maxf(0.0, _cam_z * ht - need)
 
 func render(m: BVMatch, alpha: float, dt: float) -> void:
@@ -451,6 +457,8 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var want_open := maxf(0.0, minf(OPEN_HALF, far + 0.5))
 	var open_rate := 5.5 if want_open > _open_extra else 1.4
 	_open_extra += (want_open - _open_extra) * (1.0 - exp(-dt * open_rate))
+	var want_top := maxf(CAM_TOP_MIN, by + CAM_TOP_PAD)
+	_cam_top += (want_top - _cam_top) * (1.0 - exp(-dt * (7.0 if want_top > _cam_top else 1.1)))
 	_fit_arena(aspect)
 
 	_cam_target_x = lerpf(_cam_target_x, bx * 0.30, 1.0 - exp(-dt * 3.2))

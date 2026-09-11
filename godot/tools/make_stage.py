@@ -1,10 +1,10 @@
-"""Gera as camadas pintadas do cenario de selva.
+"""Gera as camadas pintadas do cenario de selva, em estilo cartoon de dia.
 
-Composicao: o fundo e claro e luminoso, e o que vem na frente e silhueta cada
-vez mais escura ate o primeiro plano quase preto. Sem esse degrau de valor a
-mata vira uma parede so. Cada camada apoia numa linha de base que, no mundo, e
-o y=0 -- o chao esconde o que sobra embaixo, entao os vaos entre as moitas
-deixam ver a camada de tras.
+Composicao: ceu claro e quente no fundo, mata em verdes que escurecem
+conforme se aproximam, lago com cachoeira atras da quadra, e primeiro plano
+colorido (tronco, samambaia, cipo com flor) emoldurando a tela. Cada camada
+apoia numa linha de base que, no mundo, e o y=0 -- o chao esconde o que sobra
+embaixo, entao os vaos entre as moitas deixam ver a camada de tras.
 """
 import math, os, sys
 import numpy as np
@@ -12,21 +12,30 @@ from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from stagelib import *  # noqa
+from stagelib import _oval
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "stage")
 os.makedirs(OUT, exist_ok=True)
 
 W = 2048
-MIST = hexc("#d9ecab")
-SUN = hexc("#fdfacb")
-RIM_WARM = hexc("#f2fbb4")
-RIM_COOL = hexc("#9fe6c2")
-SUN_U = 0.44  # onde a clareira abre; tudo que e luz aponta pra ca
-BURY = 0.12  # fracao da altura que fica enterrada abaixo do y=0
+MIST = hexc("#e6f2dc")
+SUN = hexc("#fff7cf")
+SUN_U = 0.5
+BURY = 0.12
+PADK = 1.05
+
+PINK = hexc("#ff6f9f")
+ORANGE = hexc("#ffa53a")
+YELLOW = hexc("#ffe066")
+WHITE = hexc("#fff8ec")
 
 
 def lighten(c, k):
     return tuple(min(255, int(v + (255 - v) * k)) for v in c[:3]) + (c[3],)
+
+
+def darken(c, k):
+    return tuple(int(v * (1 - k)) for v in c[:3]) + (c[3],)
 
 
 def save(img, name):
@@ -34,59 +43,61 @@ def save(img, name):
     print("  ", name, img.size)
 
 
+def pad_v(img, side="top"):
+    """Faixa transparente na borda. A textura repete no eixo x, entao o mipmap
+    tambem enrola no y e puxa o lado cheio para o lado vazio: a sobra some com
+    a folga, e o quad cresce o mesmo tanto para ela ficar fora da tela."""
+    w, h = img.size
+    n = int(round(h * (PADK - 1.0)))
+    out = new(w, h + n)
+    out.paste(img, (0, n if side == "top" else 0))
+    return out
+
+
 def env(u, dip=0.45, width=0.24):
-    """Clareira: a mata abaixa no meio da tela pra luz passar atras dos blobs."""
+    """Clareira: a mata abaixa no meio pra cachoeira e o ceu aparecerem."""
     return 1.0 - dip * math.exp(-(((u - SUN_U) / width) ** 2))
 
 
-# ------------------------------------------------------------------ ceu
+# ------------------------------------------------------------- desenho
 
-def make_sky():
-    h = 1024
-    stops = [(0.00, hexc("#04161a")), (0.26, hexc("#0d3a34")),
-             (0.50, hexc("#2c7354")), (0.72, hexc("#8ec06c")),
-             (0.88, hexc("#d8e8a4")), (1.00, hexc("#eef5c6"))]
-    y = np.linspace(0, 1, h, dtype=np.float32)
-    col = np.zeros((h, 3), np.float32)
-    for i in range(len(stops) - 1):
-        y0, c0 = stops[i]
-        y1, c1 = stops[i + 1]
-        m = (y >= y0) & (y <= y1)
-        t = ((y[m] - y0) / (y1 - y0))[:, None]
-        col[m] = np.array(c0[:3], np.float32) * (1 - t) + np.array(c1[:3], np.float32) * t
-    a = np.repeat(col[:, None, :], W, axis=1)
-
-    rng = np.random.default_rng(7)
-    yy, xx = np.mgrid[0:h, 0:W].astype(np.float32)
-    for (cx, cy, r, s) in [(SUN_U, 0.36, 0.95, 1.20), (SUN_U, 0.36, 0.34, 1.15),
-                           (SUN_U, 0.36, 0.13, 1.70), (0.84, 0.54, 0.50, 0.34)]:
-        dx = (xx / W - cx) * 2.1
-        dy = (yy / h - cy)
-        g = np.clip(1.0 - np.sqrt(dx * dx + dy * dy) / r, 0, 1) ** 2.3
-        a += np.array(SUN[:3], np.float32) * (g * s)[..., None]
-
-    for i in range(11):
-        ang = -0.30 + i * 0.062 + rng.uniform(-0.012, 0.012)
-        wdt = 0.012 + rng.random() * 0.030
-        st = 0.30 + rng.random() * 0.55
-        du = (xx / W - SUN_U) - (yy / h - 0.36) * math.tan(ang) * 0.9
-        fall = np.clip((yy / h - 0.30) / 0.66, 0, 1) ** 0.7
-        beam = np.exp(-((du / wdt) ** 2)) * fall * (1.0 - np.clip((yy / h - 0.86) / 0.14, 0, 1))
-        a += np.array(SUN[:3], np.float32) * (beam * st)[..., None]
-
-    n = vnoise(h, W, 260, 4, rng)
-    band = np.clip((y[:, None] - 0.22) / 0.78, 0, 1) ** 1.1
-    a += np.array(MIST[:3], np.float32) * ((n - 0.46) * 1.25 * band)[..., None]
-    a = np.clip(a, 0, 255)
-    img = Image.fromarray(np.dstack([a.astype(np.uint8), np.full((h, W), 255, np.uint8)]))
-    return grain(img, 0.04, rng, 2.0)
+def leaf2(d, x, y, L, w, ang, base, hi, notch=0.16, vein=True):
+    """Folha com luz: a metade de cima clareia e a nervura escurece. Sem isso
+    a folha e um recorte chapado."""
+    big_leaf(d, x, y, L, w, ang, base, notch=notch)
+    ca, sa = math.cos(ang), math.sin(ang)
+    nx, ny = -sa, ca
+    off = w * 0.16
+    big_leaf(d, x - nx * off, y - ny * off, L * 0.92, w * 0.62, ang, hi, notch=notch)
+    if vein:
+        d.line([(x + L * 0.04 * ca, y + L * 0.04 * sa), (x + L * 0.92 * ca, y + L * 0.92 * sa)],
+               fill=darken(base, 0.25), width=max(1, int(w * 0.05)))
 
 
-# ------------------------------------------------------------- vegetacao
+def fern2(d, x, y, size, ang, base, hi, rng, n=7):
+    fern(d, x, y, size, ang, base, rng, n=n)
+    fern(d, x, y - size * 0.05, size * 0.86, ang, hi, rng, n=n)
+
+
+def flower(d, x, y, r, col, core=YELLOW, petals=5):
+    for i in range(petals):
+        a = i * 2 * math.pi / petals
+        _oval(d, x + math.cos(a) * r * 0.55, y + math.sin(a) * r * 0.55,
+              r * 0.5, r * 0.34, a, col)
+    d.ellipse([x - r * 0.28, y - r * 0.28, x + r * 0.28, y + r * 0.28], fill=core)
+
+
+def bark(d, x0, x1, y0, y1, col, rng, n):
+    """Ranhuras verticais no tronco."""
+    for _ in range(n):
+        x = rng.uniform(x0, x1)
+        y = rng.uniform(y0, y1)
+        L = rng.uniform(40, 160)
+        ww = rng.uniform(2, 6)
+        d.line([(x, y), (x + rng.uniform(-8, 8), y + L)], fill=col, width=int(ww))
+
 
 def palm(d, x, base, h, col, rng, lean, fronds=13, canopy=0.34):
-    """Palmeira: folha arqueada que cai. Pouca folha e pouco arco vira
-    cogumelo -- foi o que apareceu nas primeiras versoes."""
     tw = max(3.0, h * rng.uniform(0.026, 0.044))
     trunk(d, x, base, h, tw, col, rng, lean, taper=0.55)
     tx, ty = x + lean * h, base - h
@@ -106,8 +117,6 @@ def broadleaf_tree(d, x, base, h, col, rng, lean, canopy=0.34):
 
 
 def trunk_row(d, w, base, top, col, rng, n, tw, lean, canopy=0.0):
-    """Fileira de troncos altos. A vertical repetida contra a luz e o que
-    identifica floresta -- massa de folha sozinha vira nuvem verde."""
     for i in range(n):
         x = (i + rng.uniform(-0.46, 0.46)) * w / n
         hh = (base - top) * rng.uniform(0.78, 1.06)
@@ -121,7 +130,7 @@ def trunk_row(d, w, base, top, col, rng, n, tw, lean, canopy=0.0):
                                      lobes=18, r=cr * 0.34), x, w)
 
 
-def bush_row(d, w, base, col, rng, n, scale, dip, gap=0.0):
+def bush_row(d, w, base, col, rng, n, scale, dip, gap=0.0, hi=None):
     for i in range(n):
         x = (i + rng.uniform(-0.42, 0.42)) * w / n
         if rng.random() < gap:
@@ -129,18 +138,24 @@ def bush_row(d, w, base, col, rng, n, scale, dip, gap=0.0):
         s = scale * env(x / w, dip) * rng.uniform(0.7, 1.35)
         wrapped(lambda xx: clump(d, xx, base - s * 0.34, s * 2.2, s * 1.25,
                                  col, rng, lobes=24, r=s * 0.30), x, w)
+        if hi:
+            wrapped(lambda xx: clump(d, xx, base - s * 0.62, s * 1.5, s * 0.7,
+                                     hi, rng, lobes=14, r=s * 0.24), x, w)
 
 
-def fern_row(d, w, base, col, rng, n, scale, dip, gap=0.0):
+def fern_row(d, w, base, col, rng, n, scale, dip, gap=0.0, hi=None):
     for i in range(n):
         x = (i + rng.uniform(-0.45, 0.45)) * w / n
         if rng.random() < gap:
             continue
         s = scale * env(x / w, dip) * rng.uniform(0.75, 1.3)
-        wrapped(lambda xx: fern(d, xx, base, s, -math.pi / 2, col, rng, n=7), x, w)
+        if hi:
+            wrapped(lambda xx: fern2(d, xx, base, s, -math.pi / 2, col, hi, rng, n=7), x, w)
+        else:
+            wrapped(lambda xx: fern(d, xx, base, s, -math.pi / 2, col, rng, n=7), x, w)
 
 
-def moss_curtain(d, w, top, col, rng, n, length, thick, dip):
+def vine_curtain(d, w, top, col, rng, n, length, thick, dip):
     for i in range(n):
         x = rng.uniform(0, w)
         if rng.random() > env(x / w, dip * 0.9):
@@ -150,54 +165,76 @@ def moss_curtain(d, w, top, col, rng, n, length, thick, dip):
                                   thick=thick * rng.uniform(0.6, 1.5)), x, w)
 
 
-PADK = 1.05
-
-
-def pad_v(img, side="top"):
-    """Faixa transparente na borda. A textura repete no eixo x, entao o mipmap
-    tambem enrola no y e puxa o lado cheio para o lado vazio: a sobra some com
-    a folga, e o quad cresce o mesmo tanto para ela ficar fora da tela."""
-    w, h = img.size
-    n = int(round(h * (PADK - 1.0)))
-    out = new(w, h + n)
-    out.paste(img, (0, n if side == "top" else 0))
-    return out
-
-
 def finish(img, rng, rim_col, rim_px, mist, blur_px, shade=(1.15, 0.62), rim_a=235,
-           fray=(9.0, 30.0, 1.0), warm=None, sun=0.0, sat=1.18):
+           fray=(9.0, 30.0, 1.0), warm=None, sat=1.18):
     img = organic_edge(img, rng, *fray)
     img = shade_v(img, shade[0], shade[1])
     if warm:
         img = hue_noise(img, rng, warm, 200.0, 0.85)
-    if sun:
-        img = sun_grad(img, SUN_U, SUN, sun)
     if rim_col:
         img = rim(img, rim_col[:3] + (rim_a,), px=rim_px, dy=1, soft=max(2, rim_px // 2))
     if mist:
         img = tint_mist(img, MIST, mist)
-    img = grain(img, 0.07, rng, 3.0)
+    img = grain(img, 0.05, rng, 3.0)
     img = saturate(img, sat)
     return blur(img, blur_px)
 
 
+# ------------------------------------------------------------------ ceu
+
+def make_sky():
+    h = 1024
+    stops = [(0.00, hexc("#4fb0e6")), (0.30, hexc("#8fd0ee")),
+             (0.58, hexc("#d6ecec")), (0.80, hexc("#fbf3cf")),
+             (1.00, hexc("#fff6d6"))]
+    y = np.linspace(0, 1, h, dtype=np.float32)
+    col = np.zeros((h, 3), np.float32)
+    for i in range(len(stops) - 1):
+        y0, c0 = stops[i]
+        y1, c1 = stops[i + 1]
+        m = (y >= y0) & (y <= y1)
+        t = ((y[m] - y0) / (y1 - y0))[:, None]
+        col[m] = np.array(c0[:3], np.float32) * (1 - t) + np.array(c1[:3], np.float32) * t
+    a = np.repeat(col[:, None, :], W, axis=1)
+
+    rng = np.random.default_rng(7)
+    yy, xx = np.mgrid[0:h, 0:W].astype(np.float32)
+    for (cx, cy, r, s) in [(SUN_U, 0.62, 0.90, 0.30), (SUN_U, 0.62, 0.40, 0.30),
+                           (SUN_U, 0.62, 0.16, 0.5)]:
+        dx = (xx / W - cx) * 2.1
+        dy = (yy / h - cy)
+        g = np.clip(1.0 - np.sqrt(dx * dx + dy * dy) / r, 0, 1) ** 2.0
+        a += np.array(SUN[:3], np.float32) * (g * s)[..., None]
+
+    # nuvens: ruido baixo, so no terco de cima
+    n = vnoise(h, W, 330, 4, rng)
+    band = np.clip(1.0 - (y[:, None] - 0.05) / 0.55, 0, 1) ** 1.4
+    cl = np.clip((n - 0.50) * 3.0, 0, 1) * band
+    a = a * (1 - cl[..., None] * 0.9) + np.array([255, 253, 246], np.float32) * (cl[..., None] * 0.9)
+    a = np.clip(a, 0, 255)
+    img = Image.fromarray(np.dstack([a.astype(np.uint8), np.full((h, W), 255, np.uint8)]))
+    return grain(img, 0.02, rng, 2.0)
+
+
+# ------------------------------------------------------------ camadas
+
 def make_canopy():
-    """Teto distante: massa clara e fora de foco. Ela e luz, nao silhueta."""
+    """Mata distante: massa clara e azulada, quase nevoa."""
     h, rng = 520, np.random.default_rng(11)
-    col = hexc("#b3d489")
+    col = hexc("#9ccfae")
     img = new(W, h)
     d = ImageDraw.Draw(img)
     base = h * (1.0 - BURY)
     trunk_row(d, W, base, h * 0.16, col, rng, 30, h * 0.020, 0.12, canopy=0.22)
     ridge_band(d, W, h * 0.30, h * 0.10, 300, col, rng, -20, int(h * 0.10))
     bush_row(d, W, base, col, rng, 26, h * 0.16, 0.30, gap=0.25)
-    return finish(img, rng, None, 0, 0.46, 6.0, shade=(1.04, 0.86),
-                  fray=(3.0, 16.0, 0.45), warm=hexc("#cfe093"), sun=0.34, sat=1.06)
+    return finish(img, rng, None, 0, 0.30, 6.0, shade=(1.04, 0.88),
+                  fray=(3.0, 16.0, 0.45), warm=hexc("#b9dcc0"), sat=1.0)
 
 
 def make_far():
     h, rng = 640, np.random.default_rng(23)
-    col = hexc("#79a862")
+    col = hexc("#66ad74")
     img = new(W, h)
     d = ImageDraw.Draw(img)
     base = h * (1.0 - BURY)
@@ -207,16 +244,16 @@ def make_far():
         hh = base * rng.uniform(0.50, 0.80) * env(x / W, 0.34)
         wrapped(lambda xx: palm(d, xx, base, hh, col, rng,
                                 rng.uniform(-0.22, 0.22)), x, W)
-    moss_curtain(d, W, h * 0.10, col, rng, 14, h * 0.26, h * 0.010, 0.4)
+    vine_curtain(d, W, h * 0.10, col, rng, 14, h * 0.26, h * 0.010, 0.4)
     bush_row(d, W, base, col, rng, 22, h * 0.14, 0.40, gap=0.3)
-    return finish(img, rng, RIM_WARM, 4, 0.30, 3.2, shade=(1.06, 0.76), rim_a=100,
-                  fray=(3.0, 15.0, 0.42), warm=hexc("#9cc06b"), sun=0.28, sat=1.10)
+    return finish(img, rng, hexc("#e2f7b6"), 4, 0.20, 3.0, shade=(1.08, 0.78), rim_a=150,
+                  fray=(3.0, 15.0, 0.42), warm=hexc("#8cc47a"), sat=1.08)
 
 
 def make_mid():
-    """Primeira camada que le como silhueta: troncos e cortinas de musgo."""
     h, rng = 700, np.random.default_rng(37)
-    col = hexc("#33654a")
+    col = hexc("#337f47")
+    hi = hexc("#55a55c")
     img = new(W, h)
     d = ImageDraw.Draw(img)
     base = h * (1.0 - BURY)
@@ -226,16 +263,17 @@ def make_mid():
         hh = base * rng.uniform(0.52, 0.82) * env(x / W, 0.44)
         fn = palm if rng.random() < 0.7 else broadleaf_tree
         wrapped(lambda xx: fn(d, xx, base, hh, col, rng, rng.uniform(-0.3, 0.3)), x, W)
-    moss_curtain(d, W, h * 0.04, col, rng, 24, h * 0.32, h * 0.013, 0.5)
-    bush_row(d, W, base, col, rng, 18, h * 0.13, 0.46, gap=0.32)
-    fern_row(d, W, base, col, rng, 14, h * 0.14, 0.46, gap=0.35)
-    return finish(img, rng, RIM_WARM, 4, 0.14, 1.6, shade=(1.12, 0.66), rim_a=135,
-                  fray=(2.5, 13.0, 0.40), warm=hexc("#4f8a50"), sun=0.20, sat=1.14)
+    vine_curtain(d, W, h * 0.04, col, rng, 24, h * 0.32, h * 0.013, 0.5)
+    bush_row(d, W, base, col, rng, 18, h * 0.13, 0.46, gap=0.32, hi=hi)
+    fern_row(d, W, base, col, rng, 14, h * 0.14, 0.46, gap=0.35, hi=hi)
+    return finish(img, rng, hexc("#c8f09a"), 4, 0.06, 1.4, shade=(1.10, 0.70), rim_a=170,
+                  fray=(2.5, 13.0, 0.40), warm=hexc("#4f9e4e"), sat=1.12)
 
 
 def make_near():
     h, rng = 560, np.random.default_rng(53)
-    col = hexc("#173b2c")
+    col = hexc("#276c3a")
+    hi = hexc("#47934c")
     img = new(W, h)
     d = ImageDraw.Draw(img)
     base = h * (1.0 - BURY)
@@ -245,107 +283,139 @@ def make_near():
         hh = base * rng.uniform(0.54, 0.84) * env(x / W, 0.55)
         wrapped(lambda xx: palm(d, xx, base, hh, col, rng,
                                 rng.uniform(-0.34, 0.34), fronds=11, canopy=0.38), x, W)
-    moss_curtain(d, W, h * 0.0, col, rng, 16, h * 0.30, h * 0.015, 0.55)
-    bush_row(d, W, base, col, rng, 16, h * 0.19, 0.50, gap=0.30)
-    fern_row(d, W, base, col, rng, 13, h * 0.20, 0.50, gap=0.30)
-    return finish(img, rng, RIM_WARM, 3, 0.05, 0.0, shade=(1.2, 0.6), rim_a=115,
-                  fray=(2.5, 12.0, 0.38), warm=hexc("#24543a"), sun=0.13, sat=1.18)
+    vine_curtain(d, W, h * 0.0, col, rng, 16, h * 0.30, h * 0.015, 0.55)
+    bush_row(d, W, base, col, rng, 16, h * 0.19, 0.50, gap=0.30, hi=hi)
+    fern_row(d, W, base, col, rng, 13, h * 0.20, 0.50, gap=0.30, hi=hi)
+    return finish(img, rng, hexc("#a9e07a"), 3, 0.05, 0.0, shade=(1.16, 0.68), rim_a=160,
+                  fray=(2.5, 12.0, 0.38), warm=hexc("#3d8a48"), sat=1.14)
 
 
 def make_back():
-    """Linha de mato rente a quadra. Tem vao entre as moitas de proposito:
-    e por eles que a luz do fundo aparece atras dos jogadores."""
+    """Moitas na margem de tras do lago, com flor. Tem vao de proposito."""
     h, rng = 420, np.random.default_rng(71)
-    col = hexc("#0b1f18")
+    col = hexc("#2a6b3a")
+    hi = hexc("#4c9a4e")
     img = new(W, h)
     d = ImageDraw.Draw(img)
     base = h * (1.0 - BURY)
-    bush_row(d, W, base, col, rng, 15, h * 0.34, 0.55, gap=0.24)
-    fern_row(d, W, base, col, rng, 15, h * 0.34, 0.55, gap=0.22)
+    bush_row(d, W, base, col, rng, 15, h * 0.34, 0.55, gap=0.24, hi=hi)
+    fern_row(d, W, base, col, rng, 15, h * 0.34, 0.55, gap=0.22, hi=hi)
     for i in range(22):
         x = rng.uniform(0, W)
         s = env(x / W, 0.5)
-        wrapped(lambda xx: big_leaf(d, xx, base - h * rng.uniform(0.02, 0.22) * s,
-                                    h * rng.uniform(0.20, 0.40) * s,
-                                    h * rng.uniform(0.09, 0.17) * s,
-                                    rng.uniform(-2.5, -0.6), col, notch=0.22), x, W)
+        wrapped(lambda xx: leaf2(d, xx, base - h * rng.uniform(0.02, 0.22) * s,
+                                 h * rng.uniform(0.20, 0.40) * s,
+                                 h * rng.uniform(0.09, 0.17) * s,
+                                 rng.uniform(-2.5, -0.6), col, hi, notch=0.22), x, W)
     for i in range(10):
         x = rng.uniform(0, W)
         wrapped(lambda xx: rock(d, xx, base, h * rng.uniform(0.14, 0.34),
-                                h * rng.uniform(0.06, 0.15), col, rng), x, W)
-    return finish(img, rng, RIM_COOL, 3, 0.0, 0.0, shade=(1.5, 0.6), rim_a=95,
-                  fray=(2.2, 11.0, 0.36), warm=hexc("#123424"), sun=0.09, sat=1.2)
+                                h * rng.uniform(0.06, 0.15), hexc("#6b6a5c"), rng), x, W)
+    for _ in range(46):
+        x = rng.uniform(0, W)
+        c = [PINK, ORANGE, WHITE][int(rng.integers(0, 3))]
+        wrapped(lambda xx: flower(d, xx, base - h * rng.uniform(0.10, 0.45),
+                                  h * rng.uniform(0.020, 0.036), c), x, W)
+    return finish(img, rng, hexc("#9fdc6c"), 3, 0.0, 0.0, shade=(1.22, 0.66), rim_a=140,
+                  fray=(2.2, 11.0, 0.36), warm=hexc("#2f7a3c"), sat=1.16)
 
 
 # --------------------------------------------------------- primeiro plano
 
-FG = hexc("#040b09")
-FG_RIM = hexc("#376a4f")
+FG = hexc("#255f2f")
+FG_HI = hexc("#5fae4a")
+FG_RIM = hexc("#c4ee8c")
+BARK = hexc("#4b2f1a")
+BARK_HI = hexc("#6a4628")
+BARK_DK = hexc("#2e1b0e")
+MOSS = hexc("#4f8f38")
+
+
+def fg_finish(img, rng, fray=(2.5, 13.0, 0.36)):
+    img = organic_edge(img, rng, *fray)
+    img = shade_v(img, 1.10, 0.72)
+    img = hue_noise(img, rng, hexc("#2c7a3a"), 160.0, 0.55)
+    img = rim(img, FG_RIM[:3] + (150,), px=4, dy=1, soft=3)
+    img = inner_dark(img, hexc("#0e2a14"), px=30, strength=0.45)
+    return saturate(grain(img, 0.05, rng, 3.0), 1.12)
 
 
 def make_fg_side(seed, flip):
+    """Tronco na borda com folha grande e samambaia crescendo dele."""
     w, h, rng = 660, 1152, np.random.default_rng(seed)
     img = new(w, h)
     d = ImageDraw.Draw(img)
-    for _ in range(11):
-        y = rng.uniform(-h * 0.04, h * 1.04)
-        L = w * rng.uniform(0.45, 0.95)
-        big_leaf(d, -w * 0.16, y, L, L * rng.uniform(0.30, 0.44),
-                 rng.uniform(-0.8, 0.8), FG, notch=0.22)
+    d.polygon([(-10, -10), (w * 0.30, -10), (w * 0.34, h * 0.3), (w * 0.27, h * 0.6),
+               (w * 0.36, h * 1.05), (-10, h * 1.05)], fill=BARK)
+    d.polygon([(w * 0.14, -10), (w * 0.30, -10), (w * 0.34, h * 0.3), (w * 0.27, h * 0.6),
+               (w * 0.36, h * 1.05), (w * 0.22, h * 1.05), (w * 0.18, h * 0.6),
+               (w * 0.24, h * 0.3)], fill=BARK_HI)
+    bark(d, 0, w * 0.32, -10, h, BARK_DK, rng, 90)
+    bark(d, w * 0.08, w * 0.32, -10, h, lighten(BARK_HI, 0.18), rng, 40)
+    for _ in range(9):
+        y = rng.uniform(0, h)
+        clump(d, rng.uniform(-w * 0.05, w * 0.22), y, w * rng.uniform(0.18, 0.36),
+              h * rng.uniform(0.05, 0.10), MOSS, rng, lobes=16, r=h * 0.02)
+    for _ in range(4):
+        x = rng.uniform(w * 0.05, w * 0.28)
+        strand(d, x, -h * 0.02, rng.uniform(h * 0.3, h * 0.7), hexc("#3d7a2c"), rng,
+               thick=w * rng.uniform(0.02, 0.035))
+    for _ in range(9):
+        y = rng.uniform(h * 0.05, h * 1.0)
+        L = w * rng.uniform(0.40, 0.80)
+        leaf2(d, w * 0.10, y, L, L * rng.uniform(0.30, 0.44),
+              rng.uniform(-0.75, 0.75), FG, FG_HI, notch=0.2)
     for _ in range(6):
-        y = rng.uniform(h * 0.12, h * 1.0)
-        fern(d, -w * 0.10, y, w * rng.uniform(0.38, 0.66), 0.0, FG, rng, n=6)
-    for _ in range(10):
-        x = rng.uniform(-w * 0.08, w * 0.40)
-        strand(d, x, -h * 0.02, rng.uniform(h * 0.12, h * 0.48), FG, rng,
-               thick=w * rng.uniform(0.018, 0.038))
+        y = rng.uniform(h * 0.25, h * 1.02)
+        fern2(d, w * 0.06, y, w * rng.uniform(0.34, 0.60), 0.0, FG, FG_HI, rng, n=6)
     for _ in range(3):
-        mushroom(d, rng.uniform(0, w * 0.30), h * 1.02,
-                 w * rng.uniform(0.14, 0.26), FG, FG, rng)
-    rock(d, w * 0.02, h * 1.03, w * 0.8, h * 0.12, FG, rng)
-    img = fill_from(img, FG, 'left')
-    img = organic_edge(img, rng, 3.0, 14.0, 0.42)
-    img = fade_edge(rim(img, FG_RIM[:3] + (175,), px=4, dy=1, soft=3), 0.10, 'right')
+        mushroom(d, rng.uniform(w * 0.05, w * 0.30), h * 1.02,
+                 w * rng.uniform(0.10, 0.18), hexc("#e0553c"), hexc("#f0e2c0"), rng)
+    for _ in range(7):
+        c = [PINK, ORANGE, WHITE][int(rng.integers(0, 3))]
+        flower(d, rng.uniform(w * 0.05, w * 0.45), rng.uniform(h * 0.1, h * 0.95),
+               w * rng.uniform(0.03, 0.05), c)
+    img = fg_finish(img, rng)
+    img = fade_edge(img, 0.06, 'right')
     return img.transpose(Image.FLIP_LEFT_RIGHT) if flip else img
 
 
 def make_fg_top():
-    """Copa fechada em cima. Folha recortada em cima vira dente de serra; aqui
-    e massa cheia com cipo e musgo pendurado, que e o que as referencias tem."""
+    """Galho com folha e cipo florido pendurado, como nas referencias."""
     h, rng = 640, np.random.default_rng(97)
     img = new(W, h)
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, W, h * 0.20], fill=FG)
-    ridge_band(d, W, h * 0.36, h * 0.12, 470, FG, rng, -20, int(h * 0.13))
-    ridge_band(d, W, h * 0.30, h * 0.09, 260, FG, rng, -20, int(h * 0.09), phase=2.1)
-    for _ in range(34):
+    d.rectangle([0, 0, W, h * 0.10], fill=BARK)
+    for i in range(6):
+        x0 = i * W / 6
+        y0 = h * rng.uniform(0.02, 0.12)
+        pts = [(x0 + k * W / 12, y0 + math.sin(k * 0.9 + i) * h * 0.05 + k * h * 0.01)
+               for k in range(0, 4)]
+        wrapped(lambda xx: d.line([(p[0] - x0 + xx, p[1]) for p in pts], fill=BARK,
+                                  width=int(h * rng.uniform(0.05, 0.09))), x0, W)
+        wrapped(lambda xx: d.line([(p[0] - x0 + xx, p[1] - h * 0.02) for p in pts],
+                                  fill=BARK_HI, width=int(h * 0.025)), x0, W)
+    for _ in range(12):
         x = rng.uniform(0, W)
-        s2 = h * rng.uniform(0.16, 0.36)
-        wrapped(lambda xx: clump(d, xx, h * rng.uniform(0.22, 0.38), s2 * 2.0,
-                                 s2 * 1.1, FG, rng, lobes=16, r=s2 * 0.32), x, W)
-    for _ in range(90):
+        wrapped(lambda xx: clump(d, xx, h * rng.uniform(0.06, 0.16), h * rng.uniform(0.2, 0.4),
+                                 h * 0.10, MOSS, rng, lobes=14, r=h * 0.025), x, W)
+    for _ in range(70):
         x = rng.uniform(0, W)
-        wrapped(lambda xx: strand(d, xx, h * rng.uniform(0.12, 0.40),
-                                  rng.uniform(h * 0.10, h * 0.55), FG, rng,
-                                  thick=h * rng.uniform(0.005, 0.016)), x, W)
-    for _ in range(22):
+        wrapped(lambda xx: strand(d, xx, h * rng.uniform(0.06, 0.20),
+                                  rng.uniform(h * 0.15, h * 0.62), hexc("#3d7a2c"), rng,
+                                  thick=h * rng.uniform(0.006, 0.016)), x, W)
+    for _ in range(40):
         x = rng.uniform(0, W)
-        L = h * rng.uniform(0.20, 0.44)
-        wrapped(lambda xx: big_leaf(d, xx, h * rng.uniform(0.20, 0.34), L,
-                                    L * rng.uniform(0.26, 0.40),
-                                    rng.uniform(1.24, 1.90), FG, notch=0.0), x, W)
-    img = organic_edge(img, rng, 3.0, 15.0, 0.42)
-    return rim(img, FG_RIM[:3] + (160,), px=3, dy=1, soft=2)
-
-
-def fade_center(img, keep=0.28, soft=0.20):
-    w, h = img.size
-    u = np.linspace(0, 1, w, dtype=np.float32)
-    k = np.clip((np.abs(u - 0.5) - keep) / soft, 0, 1) ** 0.8
-    a = np.asarray(img.split()[3], np.float32) * k[None, :]
-    out = img.copy()
-    out.putalpha(Image.fromarray(a.astype(np.uint8)))
-    return out
+        L = h * rng.uniform(0.18, 0.36)
+        wrapped(lambda xx: leaf2(d, xx, h * rng.uniform(0.08, 0.26), L,
+                                 L * rng.uniform(0.28, 0.42),
+                                 rng.uniform(1.15, 1.95), FG, FG_HI, notch=0.1), x, W)
+    for _ in range(36):
+        x = rng.uniform(0, W)
+        c = [PINK, ORANGE, WHITE, YELLOW][int(rng.integers(0, 4))]
+        wrapped(lambda xx: flower(d, xx, h * rng.uniform(0.18, 0.60),
+                                  h * rng.uniform(0.018, 0.032), c), x, W)
+    return fg_finish(img, rng, fray=(2.5, 15.0, 0.36))
 
 
 def make_fg_bottom():
@@ -357,77 +427,77 @@ def make_fg_bottom():
     def top_at(u):
         return h * (0.30 + 0.52 * math.exp(-(((u - 0.5) / 0.30) ** 2)))
 
-    for i in range(70):
-        x = (i + rng.uniform(-0.45, 0.45)) * W / 70
+    for i in range(60):
+        x = (i + rng.uniform(-0.45, 0.45)) * W / 60
         u = x / W
         s2 = h * rng.uniform(0.16, 0.34) * (1.0 - 0.5 * math.exp(-(((u - 0.5) / 0.30) ** 2)))
         base = top_at(u) + s2 * 0.9
         wrapped(lambda xx: clump(d, xx, base - s2 * 0.5, s2 * 2.0, s2 * 1.2,
                                  FG, rng, lobes=18, r=s2 * 0.3), x, W)
-    for i in range(90):
-        x = (i + rng.uniform(-0.45, 0.45)) * W / 90
+    for i in range(80):
+        x = (i + rng.uniform(-0.45, 0.45)) * W / 80
         u = x / W
         s2 = h * rng.uniform(0.18, 0.40) * (1.0 - 0.5 * math.exp(-(((u - 0.5) / 0.30) ** 2)))
-        wrapped(lambda xx: fern(d, xx, top_at(u) + s2 * 0.75, s2, -math.pi / 2,
-                                FG, rng, n=6), x, W)
-    for _ in range(26):
+        wrapped(lambda xx: fern2(d, xx, top_at(u) + s2 * 0.75, s2, -math.pi / 2,
+                                 FG, FG_HI, rng, n=6), x, W)
+    for _ in range(30):
         x = rng.uniform(0, W)
         u = x / W
         L = h * rng.uniform(0.24, 0.5) * (1.0 - 0.45 * math.exp(-(((u - 0.5) / 0.30) ** 2)))
-        wrapped(lambda xx: big_leaf(d, xx, top_at(u) + L * 0.5, L, L * 0.36,
-                                    rng.uniform(-2.4, -0.7), FG, notch=0.14), x, W)
-    img = fill_from(img, FG, "bottom")
-    img = organic_edge(img, rng, 3.0, 13.0, 0.42)
-    return rim(img, FG_RIM[:3] + (150,), px=4, dy=1, soft=3)
+        wrapped(lambda xx: leaf2(d, xx, top_at(u) + L * 0.5, L, L * 0.36,
+                                 rng.uniform(-2.4, -0.7), FG, FG_HI, notch=0.14), x, W)
+    for _ in range(30):
+        x = rng.uniform(0, W)
+        u = x / W
+        if abs(u - 0.5) < 0.18:
+            continue
+        c = [PINK, ORANGE, WHITE][int(rng.integers(0, 3))]
+        wrapped(lambda xx: flower(d, xx, top_at(u) + h * rng.uniform(0.05, 0.3),
+                                  h * rng.uniform(0.025, 0.045), c), x, W)
+    # a massa cheia vai por tras do desenho, senao ela apaga a folha
+    img = Image.alpha_composite(fill_from(img, darken(FG, 0.25), "bottom"), img)
+    return fg_finish(img, rng, fray=(2.5, 13.0, 0.36))
 
 
 # ------------------------------------------------------------------ chao
 
 def make_ground():
-    """Chao da clareira: terra batida com musgo. Vai em perspectiva, entao a
+    """Areia da clareira com manchas de capim. Vai em perspectiva, entao a
     variacao grande importa mais que o detalhe fino."""
     n, rng = 1024, np.random.default_rng(151)
-    base = np.array(hexc("#43401f")[:3], float)
-    dark = np.array(hexc("#141a11")[:3], float)
-    moss = np.array(hexc("#2b4a24")[:3], float)
-    wet = np.array(hexc("#3a3524")[:3], float)
+    base = np.array(hexc("#d9b77e")[:3], float)
+    dark = np.array(hexc("#a8845a")[:3], float)
+    grass = np.array(hexc("#7fb454")[:3], float)
     a = vnoise(n, n, 100, 5, rng)
     b = vnoise(n, n, 13, 4, rng)
     m = vnoise(n, n, 190, 3, rng)
     p = vnoise(n, n, 5, 2, rng)
     col = base[None, None, :] + (dark - base)[None, None, :] \
-        * ((a * 0.70 + b * 0.30) - 0.44)[..., None] * 1.8
-    wk = np.clip((a - 0.52) * 3.0, 0, 1)[..., None]
-    col = col * (1 - wk * 0.5) + wet[None, None, :] * (wk * 0.5)
-    mk = np.clip((m - 0.74) * 5.0, 0, 1)[..., None]
-    col = col * (1 - mk) + moss[None, None, :] * mk
-    col = np.clip(col * (0.74 + p[..., None] * 0.52), 0, 255)
+        * ((a * 0.70 + b * 0.30) - 0.44)[..., None] * 1.6
+    mk = np.clip((m - 0.70) * 5.0, 0, 1)[..., None]
+    col = col * (1 - mk) + grass[None, None, :] * mk
+    col = np.clip(col * (0.86 + p[..., None] * 0.26), 0, 255)
     img = Image.fromarray(np.dstack([col.astype(np.uint8),
                                      np.full((n, n), 255, np.uint8)]))
     d = ImageDraw.Draw(img)
-    for _ in range(120):
-        x, y = rng.uniform(0, n), rng.uniform(0, n)
-        r = rng.uniform(2.0, 7.0)
-        c = lighten(hexc("#3f3d2c"), rng.uniform(0.0, 0.22))
-        wrapped(lambda xx: d.ellipse([xx - r, y - r * 0.8, xx + r, y + r * 0.8],
-                                     fill=c), x, n)
-        wrapped(lambda xx: d.ellipse([xx - r, y - r * 0.8 - r * 0.35,
-                                      xx + r, y + r * 0.4], fill=lighten(c, 0.14)),
-                x, n)
     for _ in range(140):
         x, y = rng.uniform(0, n), rng.uniform(0, n)
-        L = rng.uniform(7, 22)
-        a = rng.uniform(0, 6.28)
-        c = hexc("#5a4e2c") if rng.random() < 0.6 else hexc("#6b5a2e")
-        wrapped(lambda xx: big_leaf(d, xx, y, L, L * 0.42, a, c, notch=0.18), x, n)
-    for _ in range(90):
+        r = rng.uniform(2.0, 6.0)
+        c = lighten(hexc("#a89272"), rng.uniform(0.0, 0.3))
+        wrapped(lambda xx: d.ellipse([xx - r, y - r * 0.8, xx + r, y + r * 0.8],
+                                     fill=c), x, n)
+    for _ in range(120):
         x, y = rng.uniform(0, n), rng.uniform(0, n)
-        s2 = rng.uniform(10, 26)
+        s2 = rng.uniform(10, 24)
         wrapped(lambda xx: fern(d, xx, y, s2, -math.pi / 2,
-                                hexc("#33481f"), rng, n=5), x, n)
-    img = dapple(img, rng, hexc("#7d6c33"), 110.0, 0.46, 0.58)
-    img = dapple(img, rng, hexc("#0d1209"), 70.0, 0.50, 0.58)
-    img = dapple(img, rng, hexc("#232d18"), 170.0, 0.46, 0.54)
+                                hexc("#6aa445"), rng, n=5), x, n)
+    for _ in range(60):
+        x, y = rng.uniform(0, n), rng.uniform(0, n)
+        L = rng.uniform(7, 18)
+        wrapped(lambda xx: big_leaf(d, xx, y, L, L * 0.42, rng.uniform(0, 6.28),
+                                    hexc("#b89a5c"), notch=0.18), x, n)
+    img = dapple(img, rng, hexc("#f0d9a4"), 110.0, 0.36, 0.58)
+    img = dapple(img, rng, hexc("#8a6c44"), 70.0, 0.34, 0.60)
     return img
 
 
@@ -443,23 +513,99 @@ def radial(n, power, col):
 
 
 def make_fringe():
-    """Franja de capim: quebra a reta onde o chao encosta na mata."""
+    """Franja de capim e pedra pra margem do lago e o pe da mata."""
     h, rng = 256, np.random.default_rng(181)
     img = new(W, h)
     d = ImageDraw.Draw(img)
     base = h * 1.02
-    for c, n, sc in ((hexc("#07130e"), 130, 0.95), (hexc("#0d2317"), 95, 0.72),
-                     (hexc("#17331f"), 60, 0.5)):
+    for _ in range(40):
+        x = rng.uniform(0, W)
+        wrapped(lambda xx: rock(d, xx, base, h * rng.uniform(0.2, 0.5),
+                                h * rng.uniform(0.12, 0.3), hexc("#8d8776"), rng), x, W)
+    for c, n, sc in ((hexc("#2f7a36"), 120, 0.95), (hexc("#4c9c44"), 95, 0.72),
+                     (hexc("#7cc65a"), 60, 0.5)):
         for _ in range(n):
             x = rng.uniform(0, W)
             wrapped(lambda xx: fern(d, xx, base, h * sc * rng.uniform(0.5, 1.0),
                                     -math.pi / 2, c, rng, n=5), x, W)
+    for _ in range(30):
+        x = rng.uniform(0, W)
+        c = [PINK, ORANGE, WHITE, YELLOW][int(rng.integers(0, 4))]
+        wrapped(lambda xx: flower(d, xx, base - h * rng.uniform(0.2, 0.6),
+                                  h * rng.uniform(0.04, 0.07), c), x, W)
     return img
+
+
+def make_falls():
+    """Cachoeira pintada: veu branco-azulado com espuma na base."""
+    w, h, rng = 512, 1024, np.random.default_rng(191)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    u = xx / w * 2 - 1
+    v = yy / h
+    n = vnoise(h, w, 22, 3, rng)
+    streak = vnoise(h, w, 6, 2, rng)
+    body = np.clip(1 - np.abs(u) / (0.55 + 0.25 * v), 0, 1) ** 0.7
+    a = body * (0.80 + 0.20 * np.clip((streak - 0.35) * 2.2, 0, 1))
+    a *= np.clip(v / 0.06, 0, 1)
+    foam = np.exp(-((v - 0.93) / 0.07) ** 2) * np.clip(1 - np.abs(u) / 1.0, 0, 1) ** 0.5
+    a = np.clip(a + foam * 0.9 * (0.6 + 0.4 * n), 0, 1)
+    col = np.zeros((h, w, 3), np.float32)
+    blue = np.array([178, 226, 245], np.float32)
+    white = np.array([255, 255, 255], np.float32)
+    k = np.clip((streak - 0.4) * 2.5, 0, 1)[..., None]
+    col = blue * (1 - k) + white * k
+    col = col * (1 - foam[..., None] * 0.5) + white * foam[..., None] * 0.5
+    img = Image.fromarray(np.dstack([col.astype(np.uint8), (a * 255).astype(np.uint8)]))
+    return img.filter(ImageFilter.GaussianBlur(1.2))
+
+
+def make_cliff():
+    """Paredao de pedra com musgo atras da cachoeira: sem ele o veu branco
+    some contra o ceu."""
+    w, h, rng = 768, 640, np.random.default_rng(203)
+    img = new(w, h)
+    d = ImageDraw.Draw(img)
+    rock_c = hexc("#4b5447")
+    for i in range(14):
+        x = w * (0.08 + 0.84 * i / 13) + rng.uniform(-20, 20)
+        rock(d, x, h * 1.02, w * rng.uniform(0.18, 0.34), h * rng.uniform(0.55, 0.98),
+             rock_c, rng)
+    for _ in range(60):
+        x, y = rng.uniform(0, w), rng.uniform(h * 0.05, h)
+        r = rng.uniform(10, 40)
+        d.ellipse([x - r, y - r * 0.6, x + r, y + r * 0.6],
+                  fill=hexc("#4a5147") if rng.random() < 0.5 else hexc("#6d7568"))
+    for _ in range(22):
+        x = rng.uniform(0, w)
+        clump(d, x, h * rng.uniform(0.0, 0.25), w * rng.uniform(0.10, 0.22), h * 0.08,
+              MOSS, rng, lobes=14, r=h * 0.02)
+    for _ in range(14):
+        x = rng.uniform(0, w)
+        strand(d, x, h * rng.uniform(0.0, 0.2), rng.uniform(h * 0.2, h * 0.5),
+               hexc("#3d7a2c"), rng, thick=w * rng.uniform(0.008, 0.016))
+    img = organic_edge(img, rng, 3.0, 14.0, 0.4)
+    img = shade_v(img, 1.12, 0.70)
+    img = rim(img, hexc("#c9dca0")[:3] + (120,), px=4, dy=1, soft=3)
+    return fade_edge(fade_edge(img, 0.12, "left"), 0.12, "right")
+
+
+def make_falls_anim():
+    """Fios que descem em loop: repete no y."""
+    w, h, rng = 256, 512, np.random.default_rng(199)
+    g = (rng.random((3, 24)) * 255).astype(np.uint8)
+    g = np.concatenate([g, g[:1]], axis=0)
+    up = Image.fromarray(g).resize((w, h + h // 3), Image.BICUBIC).crop((0, 0, w, h))
+    n = np.asarray(up, np.float32) / 255.0
+    n2 = vnoise(h, w, 9, 2, rng)
+    a = np.clip((n * 0.75 + n2 * 0.25 - 0.42) * 2.6, 0, 1)
+    rgb = np.full((h, w, 3), 255, np.uint8)
+    return Image.fromarray(np.dstack([rgb, (a * 255).astype(np.uint8)]))
 
 
 def make_sprites():
     save(radial(128, 1.5, hexc("#ffffff")), "mote.png")
     save(radial(256, 2.4, hexc("#ffffff")), "puff.png")
+    save(radial(512, 1.6, hexc("#ffffff")), "glow.png")
     n = 256
     yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
     u = (xx / n) * 2 - 1
@@ -472,6 +618,13 @@ def make_sprites():
     big_leaf(ImageDraw.Draw(leaf), 128 * 0.08, 64, 128 * 0.84, 128 * 0.42, 0.0,
              hexc("#8cc05e"))
     save(leaf, "leaf.png")
+    bf = new(128, 128)
+    d = ImageDraw.Draw(bf)
+    for sx in (-1, 1):
+        _oval(d, 64 + sx * 26, 50, 30, 20, sx * 0.5, hexc("#ffffff"))
+        _oval(d, 64 + sx * 20, 82, 20, 14, -sx * 0.4, hexc("#ffffff"))
+    d.line([(64, 30), (64, 100)], fill=hexc("#404040"), width=5)
+    save(bf, "butterfly.png")
 
 
 if __name__ == "__main__":
@@ -488,5 +641,8 @@ if __name__ == "__main__":
     save(pad_v(make_fg_bottom(), "bottom"), "fg_bottom.png")
     save(make_ground(), "ground.png")
     save(pad_v(make_fringe(), "top"), "fringe.png")
+    save(make_falls(), "falls.png")
+    save(make_cliff(), "cliff.png")
+    save(make_falls_anim(), "falls_anim.png")
     make_sprites()
     print("ok")

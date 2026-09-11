@@ -12,18 +12,19 @@ const DIR := "res://assets/stage/"
 ## z, altura em metros, y da base (negativo = enterrado, o chão esconde),
 ## multiplicador de cor (acima de 1 estoura pro bloom) e parallax manual.
 const LAYERS := [
-	{"tex": "l5_canopy.png", "z": -150.0, "h": 40.0, "y": -3.0, "k": 1.06, "px": 0.06},
-	{"tex": "l4_far.png", "z": -96.0, "h": 30.0, "y": -2.4, "k": 1.02, "px": 0.12},
-	{"tex": "l3_mid.png", "z": -62.0, "h": 22.0, "y": -1.8, "k": 1.0, "px": 0.20},
-	{"tex": "l2_near.png", "z": -40.0, "h": 16.0, "y": -1.2, "k": 1.0, "px": 0.30},
-	{"tex": "l1_back.png", "z": -26.0, "h": 11.0, "y": -0.8, "k": 1.0, "px": 0.44},
+	{"tex": "l5_canopy.png", "z": -150.0, "h": 40.0, "y": -3.0, "k": 1.04, "px": 0.06},
+	{"tex": "l4_far.png", "z": -112.0, "h": 30.0, "y": -2.4, "k": 1.0, "px": 0.12},
+	{"tex": "l3_mid.png", "z": -88.0, "h": 22.0, "y": -1.8, "k": 0.96, "px": 0.20},
+	{"tex": "l2_near.png", "z": -72.0, "h": 16.0, "y": -1.2, "k": 0.92, "px": 0.30},
+	{"tex": "l1_back.png", "z": -61.0, "h": 11.0, "y": -0.8, "k": 0.92, "px": 0.44},
 ]
 
 const SKY_Z := -320.0
 ## folga transparente que as texturas repetidas levam no topo (ver pad_v)
 const PADK := 1.05
-const GROUND_FAR := -30.0
-const GROUND_NEAR := 42.0
+const GROUND_FAR := -16.0
+const WATER_FAR := -62.0
+const GROUND_NEAR := 64.0
 
 var quality := 2
 var env: Environment
@@ -34,6 +35,7 @@ var _layers: Array = []
 var _fringe: MeshInstance3D
 var _fg: Array = []
 var _shafts: Array = []
+var _falls_anim: StandardMaterial3D
 var _time := 0.0
 var _aspect := 1.7778
 var _cam_z := 39.0
@@ -56,6 +58,9 @@ func build(q: int) -> void:
 	_light()
 	_backdrop()
 	_ground()
+	_water()
+	_falls()
+	_glow()
 	_foreground()
 	_air()
 
@@ -70,10 +75,10 @@ func _env() -> void:
 	var we := WorldEnvironment.new()
 	env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.02, 0.05, 0.05)
+	env.background_color = Color(0.55, 0.78, 0.88)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.44, 0.62, 0.47)
-	env.ambient_light_energy = 0.78
+	env.ambient_light_color = Color(0.74, 0.84, 0.76)
+	env.ambient_light_energy = 1.0
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 4.0
 	env.tonemap_exposure = 0.95
@@ -81,19 +86,19 @@ func _env() -> void:
 	# névoa curta só pro 3D encostar na camada pintada de trás
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_light_color = Color(0.36, 0.55, 0.42)
+	env.fog_light_color = Color(0.82, 0.92, 0.86)
 	env.fog_light_energy = 1.0
-	env.fog_density = 0.03
-	env.fog_depth_begin = 16.0
-	env.fog_depth_end = 70.0
+	env.fog_density = 0.006
+	env.fog_depth_begin = 40.0
+	env.fog_depth_end = 150.0
 	env.fog_sky_affect = 0.0
 	env.fog_aerial_perspective = 0.0
 
 	env.glow_enabled = true
-	env.glow_intensity = 0.9 if quality >= 2 else 0.55
-	env.glow_strength = 1.05
-	env.glow_bloom = 0.22
-	env.glow_hdr_threshold = 0.92
+	env.glow_intensity = 0.55 if quality >= 2 else 0.35
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.10
+	env.glow_hdr_threshold = 1.0
 	env.glow_hdr_scale = 2.0
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	if quality >= 2:
@@ -102,8 +107,8 @@ func _env() -> void:
 		env.set("glow_levels/5", 0.5)
 
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.16
-	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 1.14
+	env.adjustment_contrast = 1.05
 	env.adjustment_brightness = 1.0
 	we.environment = env
 	add_child(we)
@@ -113,17 +118,17 @@ func _light() -> void:
 	# contraluz: o sol está atrás da mata, como nas referências
 	var back := DirectionalLight3D.new()
 	back.rotation_degrees = Vector3(-34.0, 168.0, 0.0)
-	back.light_color = Color(1.0, 0.98, 0.76)
-	back.light_energy = 1.25
+	back.light_color = Color(1.0, 0.92, 0.62)
+	back.light_energy = 0.8
 	back.light_specular = 0.9
 	back.shadow_enabled = false
 	add_child(back)
 
 	# chave frontal fraca: sem ela o blob vira silhueta e some a cara dele
 	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-52.0, 24.0, 0.0)
-	key.light_color = Color(0.86, 0.95, 0.82)
-	key.light_energy = 0.70
+	key.rotation_degrees = Vector3(-50.0, 22.0, 0.0)
+	key.light_color = Color(1.0, 0.96, 0.86)
+	key.light_energy = 1.15
 	key.light_specular = 0.35
 	key.shadow_enabled = true
 	key.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
@@ -203,8 +208,8 @@ func _ground() -> void:
 	mi.mesh = pm
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = tex("ground.png")
-	m.albedo_color = Color(0.74, 0.76, 0.70)
-	m.uv1_scale = Vector3(52, 11.0, 1)
+	m.albedo_color = Color(0.86, 0.84, 0.78)
+	m.uv1_scale = Vector3(52, 10.0, 1)
 	m.texture_repeat = true
 	m.roughness = 1.0
 	m.metallic = 0.0
@@ -214,11 +219,81 @@ func _ground() -> void:
 	add_child(mi)
 
 	# franja de capim na emenda entre o chão 3D e a mata pintada
-	_fringe = _quad(tex("fringe.png"), 1.0, true, true)
-	_fringe.position = Vector3(0, -0.2 + 1.3 * PADK, GROUND_FAR + 1.6)
-	_fringe.scale = Vector3(240, 2.6 * PADK, 1)
-	var fm: StandardMaterial3D = _fringe.material_override
-	fm.uv1_scale = Vector3(12, 1, 1)
+	for zz in [GROUND_FAR + 0.6, WATER_FAR + 1.2]:
+		_fringe = _quad(tex("fringe.png"), 1.0, true, true)
+		_fringe.position = Vector3(0, -0.2 + 1.1 * PADK, zz)
+		_fringe.scale = Vector3(240, 2.2 * PADK, 1)
+		var fm: StandardMaterial3D = _fringe.material_override
+		fm.uv1_scale = Vector3(12, 1, 1)
+
+
+func _water() -> void:
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(420, GROUND_FAR - WATER_FAR)
+	var mi := MeshInstance3D.new()
+	mi.mesh = pm
+	var m := ShaderMaterial.new()
+	m.shader = load("res://render/water.gdshader")
+	m.set_shader_parameter("shallow_color", Color(0.30, 0.70, 0.80))
+	m.set_shader_parameter("deep_color", Color(0.08, 0.40, 0.62))
+	m.set_shader_parameter("foam_color", Color(0.92, 0.98, 1.0))
+	m.set_shader_parameter("sky_tint", Color(0.55, 0.82, 0.96))
+	m.set_shader_parameter("flow", 0.18)
+	m.set_shader_parameter("wave", 0.16)
+	m.set_shader_parameter("scale", 0.6)
+	mi.material_override = m
+	mi.position = Vector3(0, -0.05, (GROUND_FAR + WATER_FAR) * 0.5)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+## Cachoeira: veu pintado, fios que descem em loop por cima e nevoa no pe.
+func _falls() -> void:
+	var h := 14.0
+	var w := 11.0
+	var cliff := _quad(tex("cliff.png"), 1.0)
+	cliff.scale = Vector3(w * 2.1, h * 0.92, 1)
+	cliff.position = Vector3(0.6, h * 0.46 - 0.6, WATER_FAR - 1.4)
+	var body := _quad(tex("falls.png"), 1.15)
+	body.scale = Vector3(w, h, 1)
+	body.position = Vector3(0.6, h * 0.5 - 0.4, WATER_FAR - 0.6)
+	var anim := _quad(tex("falls_anim.png"), 1.0)
+	anim.scale = Vector3(w * 0.7, h, 1)
+	anim.position = Vector3(0.6, h * 0.5 - 0.4, WATER_FAR - 0.4)
+	_falls_anim = anim.material_override
+	_falls_anim.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_falls_anim.albedo_color = Color(0.85, 0.92, 0.95, 1.0)
+	_falls_anim.texture_repeat = true
+	_falls_anim.uv1_scale = Vector3(1, 2.5, 1)
+	var pm := _box(Vector3(3.2, 0.4, 0.8))
+	pm.direction = Vector3(0, 1, 0.3)
+	pm.spread = 50.0
+	pm.initial_velocity_min = 0.4
+	pm.initial_velocity_max = 1.2
+	pm.gravity = Vector3(0, -0.15, 0)
+	pm.scale_min = 0.6
+	pm.scale_max = 1.6
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 0))
+	g.set_color(1, Color(1, 1, 1, 0))
+	g.add_point(0.25, Color(1, 1, 1, 1))
+	g.add_point(0.6, Color(1, 1, 1, 0.6))
+	var gt := GradientTexture1D.new()
+	gt.gradient = g
+	pm.color_ramp = gt
+	_add_particles(pm, tex("puff.png"), 18 if quality >= 2 else 8,
+		Color(0.95, 0.98, 1.0, 0.45), 3.4, Vector3(0.6, 0.8, WATER_FAR + 0.6), 3.2, false)
+
+
+## Luz da clareira: um brilho quente atras da cachoeira, sem repetir com a
+## camada -- as placas pintadas repetem no x, o brilho nao pode.
+func _glow() -> void:
+	var mi := _quad(tex("glow.png"), 1.0)
+	var m: StandardMaterial3D = mi.material_override
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_color = Color(1.0, 0.94, 0.68, 0.28)
+	mi.scale = Vector3(50, 34, 1)
+	mi.position = Vector3(0.6, 9.0, -95.0)
 
 
 # ---------------------------------------------------------- primeiro plano
@@ -341,8 +416,8 @@ func _motes() -> void:
 	var gt := GradientTexture1D.new()
 	gt.gradient = g
 	pm.color_ramp = gt
-	_add_particles(pm, tex("mote.png"), 110 if quality >= 2 else 55,
-		Color(1.0, 0.98, 0.72, 0.5), 0.22, Vector3(0, 7, -9), 9.0)
+	_add_particles(pm, tex("mote.png"), 70 if quality >= 2 else 35,
+		Color(1.0, 0.98, 0.80, 0.35), 0.22, Vector3(0, 7, -9), 9.0)
 
 
 func _fireflies() -> void:
@@ -365,8 +440,17 @@ func _fireflies() -> void:
 	var gt := GradientTexture1D.new()
 	gt.gradient = g
 	pm.color_ramp = gt
-	_add_particles(pm, tex("mote.png"), 44, Color(1.5, 1.6, 0.5, 1.0), 0.3,
-		Vector3(0, 4.5, -13), 7.0)
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(1.0, 0.85, 0.2))
+	ramp.set_color(1, Color(1.0, 0.45, 0.7))
+	ramp.add_point(0.5, Color(0.4, 0.75, 1.0))
+	var rt := GradientTexture1D.new()
+	rt.gradient = ramp
+	pm.color_initial_ramp = rt
+	var p := _add_particles(pm, tex("butterfly.png"), 22, Color(1, 1, 1, 1), 0.42,
+		Vector3(0, 4.5, -13), 7.0, false)
+	var m: StandardMaterial3D = p.material_override
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 
 
 func _leaves() -> void:
@@ -416,7 +500,7 @@ func _ground_fog() -> void:
 	gt.gradient = g
 	pm.color_ramp = gt
 	_add_particles(pm, tex("puff.png"), 26 if quality >= 2 else 12,
-		Color(0.58, 0.78, 0.60, 0.30), 7.0, Vector3(0, 0.9, -18), 16.0, false)
+		Color(0.90, 0.96, 0.92, 0.22), 7.0, Vector3(0, 0.9, -30), 16.0, false)
 
 
 ## Raios de luz: placas verticais aditivas atrás da mata do meio. É o efeito que
@@ -432,7 +516,7 @@ func _god_rays() -> void:
 		var x := -17.0 + 34.0 * (float(i) + _rng.randf() * 0.6) / float(n)
 		var h := 22.0 + _rng.randf() * 10.0
 		mi.scale = Vector3(1.6 + _rng.randf() * 2.6, h, 1)
-		mi.position = Vector3(x, h * 0.40, -16.0 - _rng.randf() * 10.0)
+		mi.position = Vector3(x, h * 0.40, -34.0 - _rng.randf() * 10.0)
 		mi.rotation_degrees = Vector3(0, 0, -8.0 - _rng.randf() * 9.0)
 		mi.set_meta("ph", _rng.randf() * TAU)
 		mi.set_meta("x0", x)
@@ -454,6 +538,8 @@ func step(dt: float) -> void:
 	for mi in _shafts:
 		var ph: float = mi.get_meta("ph")
 		var m: StandardMaterial3D = mi.material_override
-		var a := 0.55 + 0.28 * sin(_time * 0.5 + ph) + 0.12 * sin(_time * 1.31 + ph * 2.0)
-		m.albedo_color = Color(0.95 * a, 1.05 * a, 0.48 * a, 1.0)
+		var a := 0.30 + 0.16 * sin(_time * 0.5 + ph) + 0.08 * sin(_time * 1.31 + ph * 2.0)
+		m.albedo_color = Color(1.0 * a, 0.97 * a, 0.72 * a, 1.0)
 		mi.position.x = float(mi.get_meta("x0")) + sin(_time * 0.21 + ph) * 0.8
+	if _falls_anim != null:
+		_falls_anim.uv1_offset.y = fmod(_falls_anim.uv1_offset.y - dt * 1.1, 1.0)

@@ -1,52 +1,70 @@
 class_name TouchPad
 extends Control
 
-## Controle de toque: manche de direção à esquerda, pular e especial à direita.
-## Cada dedo é rastreado por índice, então dois dedos de uma vez funcionam.
-
-const DEAD := 18.0
+## Controle de toque: esquerda/direita à esquerda, pular, especial e mergulho
+## à direita. Cada dedo é rastreado por índice, então dois dedos de uma vez
+## funcionam, e o dedo pode deslizar de um botão pro outro sem soltar.
 
 var slot := 0
-var _stick_center := Vector2.ZERO
-var _stick_touch := -1
-var _stick_vec := Vector2.ZERO
+var charge := 0.0
 var _btn_touch := {}
 var _buttons: Array = []
+var _font: Font
 
 func build(slot_index := 0) -> void:
 	slot = slot_index
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_font = get_theme_default_font()
 	_buttons = [
-		{"act": "up", "label": "▲", "ax": 1.0, "pos": Vector2(-210, -150), "r": 62.0,
-			"col": Color(0.30, 0.78, 1.0)},
-		{"act": "special", "label": "★", "ax": 1.0, "pos": Vector2(-92, -230), "r": 56.0,
-			"col": Color(1.0, 0.76, 0.25)},
-		{"act": "down", "label": "▼", "ax": 1.0, "pos": Vector2(-92, -96), "r": 48.0,
-			"col": Color(0.75, 0.82, 0.9)},
+		{"act": "left", "icon": "◀", "label": "", "pos": Vector2(96, -116), "r": 64.0,
+			"col": Color(0.92, 0.86, 0.66), "side": 0},
+		{"act": "right", "icon": "▶", "label": "", "pos": Vector2(240, -116), "r": 64.0,
+			"col": Color(0.92, 0.86, 0.66), "side": 0},
+		{"act": "up", "icon": "⤒", "label": "PULAR", "pos": Vector2(-112, -128), "r": 74.0,
+			"col": Color(0.55, 0.90, 0.45), "side": 1},
+		{"act": "special", "icon": "★", "label": "ESPECIAL", "pos": Vector2(-262, -98),
+			"r": 54.0, "col": Color(1.0, 0.78, 0.25), "side": 1},
+		{"act": "down", "icon": "⤓", "label": "MERGULHO", "pos": Vector2(-166, -272),
+			"r": 50.0, "col": Color(0.55, 0.82, 1.0), "side": 1},
 	]
 	queue_redraw()
 
-func _stick_origin() -> Vector2:
-	return Vector2(150.0, size.y - 150.0)
-
 func _btn_pos(b: Dictionary) -> Vector2:
-	return Vector2(size.x + b.pos.x, size.y + b.pos.y)
+	return Vector2(b.pos.x if b.side == 0 else size.x + b.pos.x, size.y + b.pos.y)
+
+func _process(_dt: float) -> void:
+	if visible:
+		queue_redraw()
 
 func _draw() -> void:
-	var o := _stick_center if _stick_touch >= 0 else _stick_origin()
-	draw_circle(o, 86.0, Color(1, 1, 1, 0.10))
-	draw_arc(o, 86.0, 0, TAU, 48, Color(1, 1, 1, 0.22), 2.0, true)
-	draw_circle(o + _stick_vec * 50.0, 34.0, Color(1, 1, 1, 0.22))
 	for b in _buttons:
 		var p := _btn_pos(b)
 		var on := _btn_touch.values().has(b.act)
 		var c: Color = b.col
-		draw_circle(p, b.r, Color(c.r, c.g, c.b, 0.30 if on else 0.16))
-		draw_arc(p, b.r, 0, TAU, 40, Color(c.r, c.g, c.b, 0.75), 2.5, true)
-
-func _gui_input(_e: InputEvent) -> void:
-	pass
+		var r: float = b.r
+		var ready: bool = b.act == "special" and charge >= 1.0
+		if ready:
+			r += 3.0 + 3.0 * sin(Time.get_ticks_msec() * 0.008)
+		draw_circle(p + Vector2(0, 4), r, Color(0, 0, 0, 0.28))
+		draw_circle(p, r, Color(0.16, 0.10, 0.05, 0.62 if on else 0.48))
+		draw_circle(p, r - 5.0, Color(c.r, c.g, c.b, 0.50 if on else 0.22))
+		draw_arc(p, r - 2.0, 0, TAU, 48, Color(c.r, c.g, c.b, 0.9), 3.0, true)
+		if b.act == "special" and charge < 1.0:
+			draw_arc(p, r - 9.0, -PI * 0.5, -PI * 0.5 + TAU * charge, 40,
+				Color(1, 1, 1, 0.55), 4.0, true)
+		var fs: int = int(r * 0.9)
+		var w := _font.get_string_size(b.icon, HORIZONTAL_ALIGNMENT_CENTER, -1, fs).x
+		draw_string_outline(_font, p + Vector2(-w * 0.5, fs * 0.36), b.icon,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, Color(0, 0, 0, 0.6))
+		draw_string(_font, p + Vector2(-w * 0.5, fs * 0.36), b.icon,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.95))
+		if b.label != "":
+			var lw := _font.get_string_size(b.label, HORIZONTAL_ALIGNMENT_CENTER, -1, 16).x
+			var lp := p + Vector2(-lw * 0.5, r + 20.0)
+			draw_string_outline(_font, lp, b.label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, 4,
+				Color(0, 0, 0, 0.7))
+			draw_string(_font, lp, b.label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, c)
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventScreenTouch:
@@ -57,44 +75,38 @@ func _unhandled_input(e: InputEvent) -> void:
 	elif e is InputEventScreenDrag:
 		_drag(e.index, e.position)
 
-func _press(idx: int, pos: Vector2) -> void:
+func _hit(pos: Vector2, slack: float) -> Dictionary:
+	var best := {}
+	var bd := INF
 	for b in _buttons:
-		if pos.distance_to(_btn_pos(b)) <= b.r * 1.25:
-			_btn_touch[idx] = b.act
-			_apply()
-			queue_redraw()
-			return
-	if pos.x < size.x * 0.5:
-		_stick_touch = idx
-		_stick_center = pos
-		_stick_vec = Vector2.ZERO
-		_apply()
-		queue_redraw()
+		var d := pos.distance_to(_btn_pos(b))
+		if d <= b.r * slack and d < bd:
+			bd = d
+			best = b
+	return best
+
+func _press(idx: int, pos: Vector2) -> void:
+	var b := _hit(pos, 1.3)
+	if b.is_empty():
+		return
+	_btn_touch[idx] = b.act
+	_apply()
 
 func _drag(idx: int, pos: Vector2) -> void:
-	if idx != _stick_touch:
+	if not _btn_touch.has(idx):
 		return
-	var d := pos - _stick_center
-	_stick_vec = d / 86.0 if d.length() < 86.0 else d.normalized()
-	_apply()
-	queue_redraw()
+	var b := _hit(pos, 1.6)
+	if not b.is_empty() and b.act != _btn_touch[idx]:
+		_btn_touch[idx] = b.act
+		_apply()
 
 func _release(idx: int) -> void:
-	if idx == _stick_touch:
-		_stick_touch = -1
-		_stick_vec = Vector2.ZERO
 	_btn_touch.erase(idx)
 	_apply()
-	queue_redraw()
 
 func _apply() -> void:
 	var t: Dictionary = Controls.touch[slot]
-	var dx := _stick_vec.x * 86.0
-	var dy := _stick_vec.y * 86.0
-	t.left = dx < -DEAD
-	t.right = dx > DEAD
-	t.up = dy < -DEAD * 2.2
-	t.down = dy > DEAD * 2.2
-	t.special = false
+	for k in t:
+		t[k] = false
 	for a in _btn_touch.values():
 		t[a] = true

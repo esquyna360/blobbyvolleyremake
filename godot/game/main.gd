@@ -15,6 +15,8 @@ const MATCH_SONGS := ["luau", "fundo", "praia"]
 
 var _in_match := false
 var _net_pending := false
+var _pause_ui: PanelContainer
+var _paused := false
 
 func _ready() -> void:
 	settings.load_all()
@@ -32,7 +34,10 @@ func _ready() -> void:
 
 	hud.build(Looks.body_color(settings.look), Color(0.25, 0.55, 1.0))
 	hud.visible = false
+	hud.pause_pressed.connect(func(): _set_pause(true))
 	_ui.add_child(hud)
+	_build_pause()
+	get_tree().set_quit_on_go_back(false)
 
 	menu.build(settings)
 	menu.play_bot.connect(_play_bot)
@@ -49,7 +54,7 @@ func _ready() -> void:
 	link.closed.connect(_on_closed)
 	link.hello.connect(_on_hello)
 
-	if _is_mobile():
+	if _is_mobile() or "--touch" in OS.get_cmdline_user_args():
 		touch = TouchPad.new()
 		touch.build(0)
 		touch.visible = false
@@ -177,6 +182,8 @@ func _relook(look: Array) -> void:
 		game.arena.blobs[BV.LEFT].set_look(look)
 
 func _to_menu() -> void:
+	_paused = false
+	_pause_ui.visible = false
 	link.stop()
 	game.net_side = BV.NO_PLAYER
 	game.link = null
@@ -188,12 +195,66 @@ func _to_menu() -> void:
 func _process(dt: float) -> void:
 	if game.bv != null and _in_match:
 		hud.update(game.bv, dt)
+		if touch != null:
+			var side := game.net_side if game.net_side != BV.NO_PLAYER else BV.LEFT
+			touch.charge = game.bv.world.charge[side] / BV.SPECIAL_FULL
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e.is_action_pressed("pause"):
 		if _in_match:
-			_to_menu()
+			_set_pause(not _paused)
 		get_viewport().set_input_as_handled()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		if _in_match:
+			_set_pause(not _paused)
+		elif menu.visible and menu._page != "main":
+			menu.show_page("main")
+
+func _build_pause() -> void:
+	_pause_ui = PanelContainer.new()
+	_pause_ui.set_anchors_preset(Control.PRESET_CENTER)
+	_pause_ui.anchor_left = 0.5
+	_pause_ui.anchor_right = 0.5
+	_pause_ui.anchor_top = 0.5
+	_pause_ui.anchor_bottom = 0.5
+	_pause_ui.offset_left = -170
+	_pause_ui.offset_right = 170
+	_pause_ui.offset_top = -120
+	_pause_ui.offset_bottom = 120
+	_pause_ui.add_theme_stylebox_override("panel", UiTheme.wood())
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	_pause_ui.add_child(v)
+	var t := UiTheme.label("PAUSA", 30, UiTheme.GOLD)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	var c := Button.new()
+	c.text = "Continuar"
+	UiTheme.style(c, Color(0.45, 0.85, 0.40))
+	c.pressed.connect(func(): _set_pause(false))
+	v.add_child(c)
+	var q := Button.new()
+	q.text = "Sair da partida"
+	UiTheme.style(q, Color(0.9, 0.45, 0.35))
+	q.pressed.connect(func():
+		_set_pause(false)
+		_to_menu())
+	v.add_child(q)
+	_pause_ui.visible = false
+	_ui.add_child(_pause_ui)
+
+func _set_pause(p: bool) -> void:
+	# online não para o mundo: o outro lado continua, então só abre o painel
+	_paused = p
+	_pause_ui.visible = p
+	if game.net_side == BV.NO_PLAYER:
+		game.set_paused(p)
+	if touch != null:
+		touch.visible = _in_match and not p
+		Controls.clear_touch()
 
 
 ## Ferramenta de desenvolvimento: `-- --shot=arquivo.png --wait=N` salva um

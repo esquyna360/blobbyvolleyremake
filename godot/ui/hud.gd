@@ -15,43 +15,80 @@ var _info: Label
 var _big: Label
 var _big_t := 0.0
 var _pulse := [0.0, 0.0]
+var _disc := [null, null]
+var pause_btn: Button
+
+signal pause_pressed
 
 func set_colors(left: Color, right: Color) -> void:
 	_score[0].add_theme_color_override("font_color", left)
 	_score[1].add_theme_color_override("font_color", right)
 	_fill[0].color = left
 	_fill[1].color = right
+	_disc[0].add_theme_color_override("font_color", left)
+	_disc[1].add_theme_color_override("font_color", right)
 
 func build(left: Color, right: Color) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.offset_left = -250
+	panel.offset_right = 250
+	panel.offset_top = 10
+	panel.add_theme_stylebox_override("panel", UiTheme.wood())
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(panel)
 	var top := HBoxContainer.new()
-	top.offset_bottom = 120
-	top.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	top.anchor_left = 0.5
-	top.anchor_right = 0.5
-	top.offset_left = -230
-	top.offset_right = 230
-	top.offset_top = 14
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
-	top.add_theme_constant_override("separation", 26)
+	top.add_theme_constant_override("separation", 14)
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(top)
+	panel.add_child(top)
 
 	for i in 2:
+		if i == 1:
+			pause_btn = Button.new()
+			pause_btn.text = "❚❚"
+			pause_btn.custom_minimum_size = Vector2(58, 58)
+			pause_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			UiTheme.style(pause_btn, Color(0.45, 0.85, 0.40), 20)
+			pause_btn.focus_mode = Control.FOCUS_NONE
+			pause_btn.pressed.connect(func(): pause_pressed.emit())
+			top.add_child(pause_btn)
 		var col := VBoxContainer.new()
 		col.custom_minimum_size = Vector2(BAR_W, 0)
 		col.alignment = BoxContainer.ALIGNMENT_BEGIN
 		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 10)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var disc := Label.new()
+		disc.text = "●"
+		disc.add_theme_font_size_override("font_size", 44)
+		disc.add_theme_color_override("font_color", left if i == 0 else right)
+		disc.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+		disc.add_theme_constant_override("outline_size", 6)
+		disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_disc[i] = disc
 		var s := Label.new()
 		s.text = "0"
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		s.add_theme_font_size_override("font_size", 54)
+		s.add_theme_font_size_override("font_size", 50)
 		s.add_theme_color_override("font_color", left if i == 0 else right)
 		s.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
 		s.add_theme_constant_override("outline_size", 8)
-		col.add_child(s)
+		s.custom_minimum_size = Vector2(80, 0)
+		if i == 0:
+			row.add_child(disc)
+			row.add_child(s)
+		else:
+			row.add_child(s)
+			row.add_child(disc)
+		col.add_child(row)
 		_score[i] = s
 
 		var back := ColorRect.new()
@@ -75,7 +112,7 @@ func build(left: Color, right: Color) -> void:
 	_info.anchor_right = 0.5
 	_info.offset_left = -180
 	_info.offset_right = 180
-	_info.offset_top = 116
+	_info.offset_top = 112
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_info.add_theme_font_size_override("font_size", 16)
 	_info.add_theme_color_override("font_color", Color(1, 1, 1, 0.78))
@@ -90,7 +127,7 @@ func build(left: Color, right: Color) -> void:
 	_rally.anchor_right = 0.5
 	_rally.offset_left = -140
 	_rally.offset_right = 140
-	_rally.offset_top = 140
+	_rally.offset_top = 136
 	_rally.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rally.add_theme_font_size_override("font_size", 22)
 	_rally.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
