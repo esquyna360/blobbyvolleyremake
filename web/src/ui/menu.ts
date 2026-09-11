@@ -50,7 +50,23 @@ export interface GameConfig {
 }
 
 export interface ResultSide { name: string; look: PlayerLook; quote: string; fighter: Fighter | null }
+export const STAT_ROWS: [keyof MatchStats, string][] = [
+  ['parry', 'Parries'], ['special', 'Especiais'], ['converted', 'Especiais convertidos'], ['lost', 'Especiais perdidos'],
+  ['double', 'Double specials'], ['hit', 'Cortadas'], ['drop', 'Deixadinhas'], ['lob', 'Lobs'], ['dig', 'Manchetes'], ['dive', 'Mergulhos'],
+]
+export interface MatchStats {
+  parry: number[]; special: number[]; converted: number[]; lost: number[]; double: number[]
+  hit: number[]; drop: number[]; lob: number[]; dig: number[]; dive: number[]
+}
+export const newStats = (): MatchStats => ({
+  parry: [0, 0], special: [0, 0], converted: [0, 0], lost: [0, 0], double: [0, 0],
+  hit: [0, 0], drop: [0, 0], lob: [0, 0], dig: [0, 0], dive: [0, 0],
+})
 export interface ResultInfo {
+  stats: MatchStats
+  rallyBest: number
+  nameL: string
+  nameR: string
   winner: ResultSide
   loser: ResultSide
   scoreL: number
@@ -1154,13 +1170,28 @@ export class Menu {
           el('div', { class: 'sf-lose' },
             loseCv,
             el('b', { textContent: r.loser.name.toUpperCase() }),
-            el('small', { textContent: r.loser.quote })))),
+            el('small', { textContent: r.loser.quote }))),
+        this.statsTable(r)),
       el('div', { class: 'grid' }, ...buttons),
       status,
     )
     const stopW = this.animPortrait(winCv, () => r.winner.look, 'happy', 0.46)
     const stopL = this.animPortrait(loseCv, () => r.loser.look, 'hurt', 0.46)
     this.cleanup = () => { stopW(); stopL() }
+  }
+
+  private statsTable(r: ResultInfo) {
+    const rows = STAT_ROWS.filter(([k]) => r.stats[k][0] + r.stats[k][1] > 0)
+    const cell = (t: string, cls: string) => el('span', { class: cls, textContent: t })
+    const t = el('div', { class: 'sf-stats mono' },
+      cell(r.nameL.toUpperCase(), 'h l'), cell('', 'h'), cell(r.nameR.toUpperCase(), 'h r'))
+    for (const [k, label] of rows) {
+      const a = r.stats[k][0], b = r.stats[k][1]
+      const hi = k !== 'lost'
+      t.append(cell(String(a), 'l' + (hi && a > b ? ' top' : '')), cell(label, 'lab'), cell(String(b), 'r' + (hi && b > a ? ' top' : '')))
+    }
+    t.append(cell(String(r.rallyBest), 'l'), cell('Maior rally', 'lab'), cell('', 'r'))
+    return t
   }
 
   /** Fim do minigame: número, recorde, de novo. */

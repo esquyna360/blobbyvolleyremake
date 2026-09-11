@@ -14,8 +14,8 @@ import type { GameRenderer } from './render/stage.ts'
 import { Stage2D } from './render/stage2d.ts'
 import { StagePixel } from './render/stagepixel.ts'
 import { Hud } from './ui/hud.ts'
-import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
-import type { GameConfig, ResultInfo, ResultSide } from './ui/menu.ts'
+import { Menu, DEFAULT_CONFIG, newStats } from './ui/menu.ts'
+import type { GameConfig, ResultInfo, ResultSide, MatchStats } from './ui/menu.ts'
 import { InputManager, P1, P2, SOLO, keyName } from './ui/input.ts'
 import { PadNav, PAD_NAME, padMap } from './ui/pad.ts'
 import { Tutorial, TUT_STEPS } from './core/tutorial.ts'
@@ -823,8 +823,12 @@ class App {
     }, 2000)
   }
 
+  private stats: MatchStats = newStats()
+  private specialOwner: Side = LEFT
+
   private begin() {
     this.phase = 'playing'
+    this.stats = newStats()
     this.winFrame = -1
     this.peerWantsRematch = false
     clearTimeout(this.joinTimer)
@@ -1343,19 +1347,25 @@ class App {
       const id = this.botMood.react(events)
       if (id >= 0) setTimeout(() => this.sendEmote(RIGHT, id), 260 + Math.random() * 320)
     }
+    const st = this.stats
     for (const e of events) {
       const side = e.side as Side
       switch (e.event) {
+        case Ev.SPECIAL_FIRED: st.special[side]++; this.specialOwner = side; break
+        case Ev.SPECIAL_GROUND: if (side !== this.specialOwner) st.converted[this.specialOwner]++; break
+        case Ev.DIVE_HIT: st.dive[side]++; break
+      }
+      switch (e.event) {
         case Ev.FATALITY: this.hud.fatality(); break
-        case Ev.PARRY: this.hud.callout(side, 'PARRY', '#8fe4ff'); break
-        case Ev.REVERSAL: this.hud.callout(side, 'DOUBLE SPECIAL', '#ff8a2b'); break
-        case Ev.DIG: this.hud.callout(side, 'MANCHETE', '#cfe9ff'); break
-        case Ev.DROP: this.hud.callout(side, 'DEIXADINHA', '#f2ddaa'); break
-        case Ev.LOB: this.hud.callout(side, 'LOB', '#f2ddaa'); break
+        case Ev.PARRY: st.parry[side]++; this.hud.callout(side, 'PARRY', '#8fe4ff'); break
+        case Ev.REVERSAL: st.double[side]++; st.special[side]++; this.specialOwner = side; this.hud.callout(side, 'DOUBLE SPECIAL', '#ff8a2b'); break
+        case Ev.DIG: st.dig[side]++; this.hud.callout(side, 'MANCHETE', '#cfe9ff'); break
+        case Ev.DROP: st.drop[side]++; this.hud.callout(side, 'DEIXADINHA', '#f2ddaa'); break
+        case Ev.LOB: st.lob[side]++; this.hud.callout(side, 'LOB', '#f2ddaa'); break
         case Ev.DIVE_HIT: this.hud.callout(side, 'MERGULHO', '#9dff8f'); break
         case Ev.HIT:
           if (e.intensity >= 0.99) this.hud.callout(side, 'PANCADA', '#ffd257')
-          else if (this.match && this.match.world.blobY[side] < 380 && this.match.world.ballVY > 0) this.hud.callout(side, 'CORTADA', '#ffffff')
+          else if (this.match && this.match.world.blobY[side] < 380 && this.match.world.ballVY > 0) { st.hit[side]++; this.hud.callout(side, 'CORTADA', '#ffffff') }
           break
         case Ev.SCORE: this.audio.duckMusic(1.3); break
         case Ev.BALL_OUT: this.hud.banner('FORA!', 900, '#ff8a7a'); break
@@ -1437,7 +1447,11 @@ class App {
     loser.quote = loser.fighter ? loser.fighter.lose : GENERIC_LOSE
     const a = this.arcade
     if (a && !iWon) a.losses++
+    const st = this.stats
+    for (const sd of [LEFT, RIGHT] as Side[]) st.lost[sd] = st.special[sd] - st.converted[sd]
+    const l = side(LEFT), r = side(RIGHT)
     return {
+      stats: st, rallyBest: m.logic.rallyBest, nameL: l.name, nameR: r.name,
       winner, loser,
       scoreL: m.logic.scores[LEFT], scoreR: m.logic.scores[RIGHT],
       winnerLeft: w === LEFT,
