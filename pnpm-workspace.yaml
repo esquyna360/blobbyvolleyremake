@@ -1,6 +1,7 @@
 allowBuilds:
   '@firebase/util': true
-  electron-winstaller: set this to true or false
+  # instalador Squirrel do Windows: aqui o alvo é zip, então o script não roda
+  electron-winstaller: false
   esbuild: true
   protobufjs: true
 patchedDependencies:
