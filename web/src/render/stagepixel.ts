@@ -3,7 +3,7 @@ import {
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
-  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH, HIT_CHARGE_MAX,
+  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH, HIT_CHARGE_MAX, REVERSAL_ORBIT,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -80,6 +80,7 @@ function discP(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, c
 }
 
 const PARRY_COLS: Cols = { base: '#a9d8ff', hi: '#f2fbff', dk: '#6fa6f0', dk2: '#3f6fc4' }
+const DOUBLE_COLS: Cols = { base: '#ffb347', hi: '#fff3c4', dk: '#e8721c', dk2: '#8a3a08' }
 
 function colsOf(hex: string): Cols {
   return { base: hex, hi: shade(hex, 1.45), dk: shade(hex, 0.62), dk2: shade(hex, 0.32) }
@@ -129,6 +130,7 @@ export class StagePixel implements GameRenderer {
   private blobKick = [0, 0]
   /** parry à la SF3: o blob inteiro vira azul-gelo por um instante */
   private parryTint = [0, 0]
+  private doubleTint = [0, 0]
   private sparks: { x: number; y: number; life: number; seed: number }[] = []
   private aber = 0
   private flash = 0
@@ -476,8 +478,19 @@ export class StagePixel implements GameRenderer {
           this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 6, max: 64, life: 0, color: '#ff8a2b' })
           break
         }
+        case Ev.REVERSAL_SPIN: {
+          const p = e.side as Side
+          this.doubleTint[p] = 0.6
+          this.hitstop = Math.max(this.hitstop, 0.08)
+          this.flash = Math.max(this.flash, 0.3)
+          this.energy = 1
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 8, max: 120, life: 0, color: '#ff8a2b', w: 2 })
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] - 22, r: 4, max: 80, life: -0.1, color: '#fff3c4' })
+          this.burst(w.blobX[p], w.blobY[p] - 22, 40, 260, '#ffb347', 0.5)
+          break
+        }
         case Ev.REVERSAL: {
-          this.parryTint[e.side as Side] = 0.22
+          this.doubleTint[e.side as Side] = 0.25
           this.sparks.push({ x: w.ballX, y: w.ballY, life: 0, seed: this.time })
           const p = e.side as Side
           this.trauma = 1
@@ -620,6 +633,7 @@ export class StagePixel implements GameRenderer {
       this.blobFlash[i] = Math.max(0, this.blobFlash[i] - dt * 3.5)
       this.blobKick[i] = Math.max(0, this.blobKick[i] - dt * 3)
       this.parryTint[i] = Math.max(0, this.parryTint[i] - dt)
+      this.doubleTint[i] = Math.max(0, this.doubleTint[i] - dt)
     }
     this.squash.k = Math.max(0, this.squash.k - dt * 0.85)
     this.wallHits = this.wallHits.filter(h => { h.life += dt; return h.life < 0.5 })
@@ -651,7 +665,7 @@ export class StagePixel implements GameRenderer {
     const st = hairStyle(this.looks[p])
     if (!st.tufts.length && !st.puffs.length) return
     const g = this.g
-    const hc = this.parryTint[p] > 0 ? PARRY_COLS : this.hairCols[p]
+    const hc = this.doubleTint[p] > 0 ? DOUBLE_COLS : this.parryTint[p] > 0 ? PARRY_COLS : this.hairCols[p]
     const isBack = (a: number) => Math.abs(a) >= 88
     const sway = Math.sin(this.time * 5 + p) * 0.35
     for (const t of st.tufts) {
@@ -712,8 +726,8 @@ export class StagePixel implements GameRenderer {
                stunned: boolean, cr: number, dive: number, dvDir: number) {
     if (this.off(p)) return
     const g = this.g
-    const tint = this.parryTint[p] > 0
-    const c = tint ? PARRY_COLS : this.cols[p]
+    const tint = this.parryTint[p] > 0 || this.doubleTint[p] > 0
+    const c = this.doubleTint[p] > 0 ? DOUBLE_COLS : tint ? PARRY_COLS : this.cols[p]
     const kick = this.blobKick[p]
     const squash = (1 + Math.sin(state * 1.6) * 0.045 + Math.sin(kick * 9) * kick * 0.12) * (1 - cr * 0.12)
     const ru = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
@@ -882,6 +896,28 @@ export class StagePixel implements GameRenderer {
       else if (nx > 0.35 && ny > 0) col = gomo ? '#a52a2f' : '#c8d0dc'
       g.fillStyle = col
       g.fillRect(cx + xx, cy + yy, 1, 1)
+    }
+  }
+
+  /** Double special: rastro da bola dando a volta no corpo, mais o anel de energia. */
+  private orbitFx(p: Side, w: Match['world']) {
+    const g = this.g
+    const spin = w.revSpin[p]
+    for (let i = 1; i <= 7; i++) {
+      const [ox, oy] = w.orbitPos(p, spin + i * 1.2)
+      const k = 1 - i / 8
+      g.globalAlpha = k * 0.8
+      discP(g, this.X(ox), this.Y(oy), Math.max(1, this.S(BALL_RADIUS) * (0.35 + 0.55 * k)), i % 2 ? '#ff8a2b' : '#fff3c4')
+    }
+    g.globalAlpha = 1
+    const cx = this.X(w.blobX[p]), cy = this.Y(w.upperY(p))
+    const rr = this.S(REVERSAL_ORBIT * (1.1 + 0.1 * Math.sin(this.time * 40)))
+    outlineP(g, cx, cy, rr, rr * 0.75, '#ff8a2b')
+    for (let i = 0; i < 18; i++) {
+      const a = this.time * 12 + i * Math.PI * 2 / 18
+      const r = rr * (1.05 + 0.2 * Math.abs(Math.sin(this.time * 25 + i)))
+      g.fillStyle = i % 3 ? '#ffb347' : '#ffffff'
+      g.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r * 0.75), 1, 1)
     }
   }
 
@@ -1281,6 +1317,7 @@ export class StagePixel implements GameRenderer {
     for (const s of [0, 1] as Side[]) if (w.stun[s] > 0) this.stars(L(p.px[s], q.px[s]), L(p.py[s], q.py[s]))
 
     if (this.intro < 0) {
+      for (const s of [0, 1] as Side[]) if (w.revSpin[s] > 0) this.orbitFx(s, w)
       this.trailFx()
       if (this.energy > 0.01) this.energyBall(this.X(bx), this.Y(by), w.superOwner as number)
       this.ball(this.X(bx), this.Y(by), rot)

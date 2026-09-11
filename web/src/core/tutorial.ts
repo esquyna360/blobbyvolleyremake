@@ -29,7 +29,7 @@ export const TUT_STEPS: TutStep[] = [
   { title: 'MERGULHO', text: 'Bola longe: {dive} joga o corpo pro lado. Defende 2 mergulhando.', need: 2 },
   { title: 'ESPECIAL', text: 'Barra cheia: segura {special}, mira com o direcional e solta com a bola perto. No chão ou no ar. Dispara 2.', need: 2 },
   { title: 'PARRY', text: 'Especial vindo: aperta {hit} na hora exata em que a bola chega. Ela fica na sua mão e volta mais forte. Soltar com {down} vira manchete pra você cortar. Faz 2.', need: 2 },
-  { title: 'REVERSAL', text: 'Especial vindo e sua barra cheia: aperta {special} na hora exata. Volta na hora, ainda mais violenta. Faz 2.', need: 2 },
+  { title: 'DOUBLE SPECIAL', text: 'Especial vindo e sua barra cheia: aperta {special} na hora exata. A bola dá a volta no seu corpo e sai ainda mais violenta, com parry mais difícil. Faz 2.', need: 2 },
 ]
 
 const NET_CLEAR = NET_SPHERE_POSITION - BALL_RADIUS - NET_RADIUS - 18

@@ -133,6 +133,10 @@ export const DROP_TIME_STEPS = 24
 export const REVERSAL_ACTIVE = 4
 export const REVERSAL_CD = 70
 export const REVERSAL_BOOST = 1.35
+export const REVERSAL_SPIN = 22
+export const REVERSAL_ORBIT = 62
+export const REVERSAL_TURNS = 1.5
+export const REVERSAL_PARRY_ACTIVE = 3
 
 /**
  * Spin. A velocidade horizontal do blob no instante do toque vira rotação, e

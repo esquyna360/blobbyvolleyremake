@@ -1344,7 +1344,7 @@ class App {
       switch (e.event) {
         case Ev.FATALITY: this.hud.fatality(); break
         case Ev.PARRY: this.hud.callout(side, 'PARRY', '#8fe4ff'); break
-        case Ev.REVERSAL: this.hud.callout(side, 'REVERSAL', '#ff8a2b'); break
+        case Ev.REVERSAL: this.hud.callout(side, 'DOUBLE SPECIAL', '#ff8a2b'); break
         case Ev.DIG: this.hud.callout(side, 'MANCHETE', '#cfe9ff'); break
         case Ev.DROP: this.hud.callout(side, 'DEIXADINHA', '#f2ddaa'); break
         case Ev.DIVE_HIT: this.hud.callout(side, 'MERGULHO', '#9dff8f'); break

@@ -277,6 +277,7 @@ test('reversal devolve o especial na hora, mais forte', () => {
   }
   assert.ok(done, 'reversal não saiu')
   assert.equal(w.superOwner, LEFT)
+  assert.equal(w.superKind, 1, 'bola não marcada como double special')
   assert.ok(w.ballVX > 0, 'reversal não voltou pro outro lado')
   assert.ok(Math.hypot(w.ballVX, w.ballVY) > BALL_COLLISION_VELOCITY * 1.6, `reversal fraco: ${Math.hypot(w.ballVX, w.ballVY)}`)
 })

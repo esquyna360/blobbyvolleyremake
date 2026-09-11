@@ -24,7 +24,7 @@ import {
   HIT_REACH, HIT_CHARGE_MAX, HIT_TAP, HIT_V_MIN, HIT_V_MAX, HIT_LAG, HIT_GAIN,
   SWING_WINDOW, FLOAT_KEEP, FLOAT_G, FLOAT_FRAMES, FLOAT_RAMP, FLOAT_DRAG, PARRY_RETURN,
   DROP_VELOCITY, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE, DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS,
-  REVERSAL_ACTIVE, REVERSAL_CD, REVERSAL_BOOST,
+  REVERSAL_ACTIVE, REVERSAL_CD, REVERSAL_BOOST, REVERSAL_SPIN, REVERSAL_ORBIT, REVERSAL_TURNS, REVERSAL_PARRY_ACTIVE,
 } from './constants.ts'
 import type { Side } from './constants.ts'
 import { Ev } from './events.ts'
@@ -86,6 +86,10 @@ export class PhysicWorld {
   hitLag = [0, 0]
   prevHit = [0, 0]
   swingT = [0, 0]
+  /** double special: a bola dá uma volta no corpo antes de sair */
+  revSpin = [0, 0]
+  /** 1 quando o especial em voo nasceu de um double special */
+  superKind = 0
   swingPow = [0, 0]
   armSpecial = [0, 0]
   revActive = [0, 0]
@@ -364,6 +368,7 @@ export class PhysicWorld {
     this.charge[p] = 0
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
+    this.superKind = 0
     this.hold[p] = 0
     this.ballSpin = 0
     this.anchorHeld(p)
@@ -412,7 +417,33 @@ export class PhysicWorld {
     this.hold[p] = 0
     this.hitCharge[p] = 0
     this.ballSpin = 0
+    this.ballVX = 0; this.ballVY = 0
+    this.revSpin[p] = REVERSAL_SPIN
+    this.orbit(p)
+    out.push({ event: Ev.REVERSAL_SPIN, side: p, intensity: 1 })
+  }
+
+  /** Posição da bola na volta em torno do corpo, do lado de trás pra frente. */
+  orbitPos(p: Side, spin: number): [number, number] {
+    const dir = p === LEFT ? 1 : -1
+    const k = 1 - spin / REVERSAL_SPIN
+    const e = k * k * (3 - 2 * k)
+    const a = Math.PI + dir * e * Math.PI * 2 * REVERSAL_TURNS
+    const r = REVERSAL_ORBIT * (0.55 + 0.45 * Math.sin(e * Math.PI))
+    return [this.blobX[p] + Math.cos(a) * r, this.upperY(p) + Math.sin(a) * r * 0.75]
+  }
+
+  private orbit(p: Side) {
+    const [x, y] = this.orbitPos(p, this.revSpin[p])
+    this.ballX = x; this.ballY = y
+  }
+
+  private spinStep(p: Side, out: MatchEvent[]) {
+    if (this.revSpin[p] <= 0) return
+    this.revSpin[p]--
+    if (this.revSpin[p] > 0) { this.orbit(p); return }
     this.anchorHeld(p)
+    this.superKind = 1
     this.bumpTempo()
     this.aimSpecial(p, REVERSAL_BOOST + this.parryChain * PARRY_BOOST)
     this.scaleBallV()
@@ -425,7 +456,7 @@ export class PhysicWorld {
     if (this.superFrames <= 0 || this.superOwner === p) return
     const pressed = raw.hit && this.prevHit[p] === 0
     if (pressed && this.parryCd[p] === 0 && this.parryActive[p] === 0) {
-      this.parryActive[p] = PARRY_ACTIVE
+      this.parryActive[p] = this.superKind === 1 ? REVERSAL_PARRY_ACTIVE : PARRY_ACTIVE
       this.parryCd[p] = PARRY_CD
       out.push({ event: Ev.PARRY_TRY, side: p, intensity: 0 })
     }
@@ -440,6 +471,7 @@ export class PhysicWorld {
     this.parryChain = Math.min(this.parryChain + 1, PARRY_CHAIN_MAX)
     this.superOwner = p
     this.superFrames = SPECIAL_BALL_FRAMES
+    this.superKind = 0
     this.hold[p] = PARRY_HOLD
     this.ballVX = 0; this.ballVY = 0; this.ballSpin = 0
     this.anchorHeld(p)
@@ -453,7 +485,7 @@ export class PhysicWorld {
   }
 
   holding(): boolean {
-    return this.hold[LEFT] > 0 || this.hold[RIGHT] > 0
+    return this.hold[LEFT] > 0 || this.hold[RIGHT] > 0 || this.revSpin[LEFT] > 0 || this.revSpin[RIGHT] > 0
   }
 
   /** Parry bem dado segura a bola na mão: solta ao largar o botão ou em 1 s. */
@@ -843,8 +875,8 @@ export class PhysicWorld {
     this.hitStep(RIGHT, ri, isBallValid && !this.holding(), out)
 
     // armando a batida o blob fica plantado: o direcional é mira, não passo
-    const el = this.stun[LEFT] > 0 ? NO_INPUT : this.hitCharge[LEFT] > 0 ? LOCKED : li
-    const er = this.stun[RIGHT] > 0 ? NO_INPUT : this.hitCharge[RIGHT] > 0 ? LOCKED : ri
+    const el = this.stun[LEFT] > 0 || this.revSpin[LEFT] > 0 ? NO_INPUT : this.hitCharge[LEFT] > 0 ? LOCKED : li
+    const er = this.stun[RIGHT] > 0 || this.revSpin[RIGHT] > 0 ? NO_INPUT : this.hitCharge[RIGHT] > 0 ? LOCKED : ri
 
     this.tryCrouch(LEFT, el)
     this.tryCrouch(RIGHT, er)
@@ -853,6 +885,8 @@ export class PhysicWorld {
 
     this.holdStep(LEFT, li, out)
     this.holdStep(RIGHT, ri, out)
+    this.spinStep(LEFT, out)
+    this.spinStep(RIGHT, out)
     const holding = this.holding()
 
     if (isGameRunning && !holding) {
@@ -940,6 +974,8 @@ export class PhysicWorld {
     this.digCd[LEFT] = 0; this.digCd[RIGHT] = 0
     this.hitCharge[LEFT] = 0; this.hitCharge[RIGHT] = 0
     this.swingT[LEFT] = 0; this.swingT[RIGHT] = 0
+    this.revSpin[LEFT] = 0; this.revSpin[RIGHT] = 0
+    this.superKind = 0
     this.armSpecial[LEFT] = 0; this.armSpecial[RIGHT] = 0
     this.hitLag[LEFT] = 0; this.hitLag[RIGHT] = 0
     this.revActive[LEFT] = 0; this.revActive[RIGHT] = 0
