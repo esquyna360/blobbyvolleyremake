@@ -5,7 +5,7 @@ import {
   GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, OPEN_MARGIN,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
-  SPECIAL_GAIN_TOUCH, SPECIAL_HOLD, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
+  SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
   SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
   SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
   TEMPO_MAX, TEMPO_STEP,
@@ -22,6 +22,7 @@ import {
   CROUCH_SPREAD, CROUCH_SPEED_MUL, CROUCH_FALL_MUL,
   DIG_REACH, DIG_CD, DIG_WINDOW, DIG_GAIN, DIG_UP, DIG_FORWARD,
   HIT_REACH, HIT_CHARGE_MAX, HIT_TAP, HIT_V_MIN, HIT_V_MAX, HIT_LAG, HIT_GAIN, TRIP_FRAMES, TRIP_PUSH,
+  SWING_WINDOW, FLOAT_KEEP, FLOAT_G, FLOAT_FRAMES, FLOAT_RAMP, FLOAT_DRAG, PARRY_RETURN,
   DROP_VELOCITY, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE, DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS,
   REVERSAL_ACTIVE, REVERSAL_CD, REVERSAL_BOOST,
 } from './constants.ts'
@@ -84,6 +85,9 @@ export class PhysicWorld {
   hitAimY = [0, 0]
   hitLag = [0, 0]
   prevHit = [0, 0]
+  swingT = [0, 0]
+  swingPow = [0, 0]
+  armSpecial = [0, 0]
   revActive = [0, 0]
   revCd = [0, 0]
 
@@ -351,32 +355,24 @@ export class PhysicWorld {
     out.push({ event: Ev.DIVE, side: p, intensity: 0 })
   }
 
-  /** Barra cheia e bola por perto: pulo de novo no ar, ou a tecla de especial. */
-  private trySpecial(p: Side, raw: PlayerInput, isBallValid: boolean, wasGround: boolean, out: MatchEvent[]) {
-    if (!isBallValid || this.stun[p] > 0) return
+  /** Soltou o botão de especial: barra cheia, no ar e bola perto dispara na hora. */
+  private fireSpecial(p: Side, out: MatchEvent[]) {
+    if (this.stun[p] > 0) return
     if (this.superFrames > 0 && this.superOwner !== p) return
     if (this.charge[p] < SPECIAL_FULL) return
-    if (!(raw.special && this.prevSpecial[p] === 0)) return
-    if (wasGround) return
-
-    const nx = this.ballX - this.blobX[p]
-    const ny = this.ballY - this.upperY(p)
-    if (Math.sqrt(nx * nx + ny * ny) > SPECIAL_REACH) {
-      // disparar longe da bola queima a barra: é o que faz o alcance valer algo
-      this.charge[p] = 0
-      out.push({ event: Ev.SPECIAL_WASTED, side: p, intensity: 1 })
-      return
-    }
-
+    if (this.blobHitGround(p)) return
+    if (!this.nearHead(p, SPECIAL_REACH)) return
     this.charge[p] = 0
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
-    this.hold[p] = SPECIAL_HOLD
-    this.ballVX = 0; this.ballVY = 0; this.ballSpin = 0
+    this.hold[p] = 0
+    this.ballSpin = 0
     this.anchorHeld(p)
-    out.push({ event: Ev.SPECIAL_HOLD, side: p, intensity: 1 })
+    this.bumpTempo()
+    this.aimSpecial(p, 1)
+    this.scaleBallV()
+    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
   }
-
 
   private incoming(p: Side) { return this.superFrames > 0 && this.superOwner !== p }
 
@@ -392,7 +388,7 @@ export class PhysicWorld {
    */
   private tryReversal(p: Side, raw: PlayerInput, out: MatchEvent[]) {
     if (this.stun[p] > 0 || !this.incoming(p)) return
-    const pressed = raw.special && this.prevSpecial[p] === 0
+    const pressed = raw.special && this.prevSpecial[p] === 0 && this.charge[p] >= SPECIAL_FULL
     if (pressed && this.revCd[p] === 0 && this.revActive[p] === 0) {
       this.revActive[p] = REVERSAL_ACTIVE
       this.revCd[p] = REVERSAL_CD
@@ -403,6 +399,7 @@ export class PhysicWorld {
     if (!closing || !this.nearHead(p, PARRY_REACH)) return
     this.revActive[p] = 0
     this.revCd[p] = 0
+    this.charge[p] = 0
     this.parryChain = Math.min(this.parryChain + 1, PARRY_CHAIN_MAX)
     this.superOwner = p
     this.superFrames = SPECIAL_BALL_FRAMES
@@ -462,9 +459,9 @@ export class PhysicWorld {
     if (held && this.hold[p] > 0 && this.stun[p] === 0) return
     this.hold[p] = 0
     this.bumpTempo()
-    this.aimSpecial(p, 1 + this.parryChain * PARRY_BOOST)
+    this.aimSpecial(p, PARRY_RETURN + this.parryChain * PARRY_BOOST)
     this.scaleBallV()
-    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: this.parryChain > 0 ? 0.5 : 1 })
+    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 0.5 })
   }
 
   charging(p: Side) { return this.hitCharge[p] > 0 }
@@ -490,35 +487,50 @@ export class PhysicWorld {
   private hitStep(p: Side, raw: PlayerInput, isBallValid: boolean, out: MatchEvent[]) {
     if (this.hitLag[p] > 0) this.hitLag[p]--
     const busy = this.stun[p] > 0 || this.diveFrames[p] > 0 || this.diveRecover[p] > 0
+    if (this.swingT[p] > 0) {
+      this.swingT[p]--
+      if (isBallValid && !busy && this.swing(p, this.swingPow[p], out)) this.swingT[p] = 0
+    }
     if (this.hitCharge[p] > 0) {
       this.hitAimX[p] = raw.left !== raw.right ? (raw.right ? 1 : -1) : 0
       this.hitAimY[p] = raw.up !== raw.down ? (raw.up ? -1 : 1) : 0
-      if (this.hitCharge[p] < HIT_CHARGE_MAX) this.hitCharge[p]++
-      if (busy || this.incoming(p)) { this.hitCharge[p] = 0; return }
-      if (raw.hit) return
+      if (this.hitCharge[p] < 100000) this.hitCharge[p]++
+      if (busy || this.incoming(p)) { this.hitCharge[p] = 0; this.armSpecial[p] = 0; return }
+      if (this.armSpecial[p] ? raw.special : raw.hit) return
       const c = this.hitCharge[p]
       this.hitCharge[p] = 0
-      if (isBallValid) this.swing(p, c, out)
+      if (this.armSpecial[p]) {
+        this.armSpecial[p] = 0
+        if (isBallValid) this.fireSpecial(p, out)
+        return
+      }
+      // soltou cedo: a batida ainda vale por alguns frames
+      if (isBallValid && !this.swing(p, c, out)) { this.swingT[p] = SWING_WINDOW; this.swingPow[p] = c }
       return
     }
-    if (!raw.hit || this.prevHit[p] !== 0 || busy || this.hitLag[p] > 0 || this.incoming(p)) return
-    if (this.hold[p] > 0) return
-    if (raw.down) {
+    const pressHit = raw.hit && this.prevHit[p] === 0
+    const pressSp = raw.special && this.prevSpecial[p] === 0
+    if (!(pressHit || pressSp) || busy || this.hitLag[p] > 0 || this.incoming(p) || this.hold[p] > 0) return
+    const ground = this.blobHitGround(p)
+    if (pressHit && raw.down && ground) {
       if (this.digCd[p] === 0) { this.digActive[p] = DIG_WINDOW; this.digCd[p] = DIG_CD }
       return
     }
     this.hitCharge[p] = 1
+    this.armSpecial[p] = pressSp && !pressHit ? 1 : 0
     this.hitAimX[p] = raw.left !== raw.right ? (raw.right ? 1 : -1) : 0
-    this.hitAimY[p] = 0
+    this.hitAimY[p] = raw.up !== raw.down ? (raw.up ? -1 : 1) : 0
+    // no ar, armar é quase parar: o embalo segue devagar e a queda demora a voltar
+    if (!ground) { this.blobVX[p] *= FLOAT_KEEP; this.blobVY[p] *= FLOAT_KEEP }
   }
 
-  private swing(p: Side, charge: number, out: MatchEvent[]) {
-    if (this.superFrames > 0) return
+  private swing(p: Side, charge: number, out: MatchEvent[]): boolean {
+    if (this.superFrames > 0) return false
     const cy = this.upperY(p)
     const dx = this.ballX - this.blobX[p]
     const dy = this.ballY - cy
     const d2 = dx * dx + dy * dy
-    if (d2 > HIT_REACH * HIT_REACH) return
+    if (d2 > HIT_REACH * HIT_REACH) return false
     this.hitLag[p] = HIT_LAG
     this.bumpTempo()
     this.ballSpin = 0
@@ -528,7 +540,7 @@ export class PhysicWorld {
       this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.upperR(p))
       this.addCharge(p, DIG_GAIN, out)
       out.push({ event: Ev.DROP, side: p, intensity: 1 })
-      return
+      return true
     }
     const k = Math.min(1, (charge - HIT_TAP) / (HIT_CHARGE_MAX - HIT_TAP))
     const [nx, ny] = this.aimVector(p)
@@ -540,6 +552,7 @@ export class PhysicWorld {
     this.ballY += this.ballVY
     this.addCharge(p, HIT_GAIN, out)
     out.push({ event: Ev.HIT, side: p, intensity: k })
+    return true
   }
 
   /** Bola no corpo no meio da carga: o golpe some e o blob vai ao chão. */
@@ -593,12 +606,18 @@ export class PhysicWorld {
     const T2 = T * T
     let g = GRAVITATION
     if (input.up && !input.down) {
-      if (ground) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
+      // pulo é aperto, não tecla segurada: soltar a mira pra cima não pode virar pulo
+      if (ground && this.prevUp[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
       g -= BLOBBY_JUMP_BUFFER
     }
     // no ar, pra baixo é queda rápida
     if (!ground && input.down) g += GRAVITATION * CROUCH_FALL_MUL
     if ((input.left || input.right) && ground) this.startAnim(p)
+    const floating = this.hitCharge[p] > 0 && !ground
+    if (floating) {
+      const ramp = Math.max(0, Math.min(1, (this.hitCharge[p] - FLOAT_FRAMES) / FLOAT_RAMP))
+      g *= FLOAT_G + (1 - FLOAT_G) * ramp
+    }
     g *= T2
 
     // mergulhando o blob é um projétil: não freia nem muda de ideia no meio
@@ -627,6 +646,8 @@ export class PhysicWorld {
       // escorrega até parar: quem se joga não freia no ar seco
       this.blobVX[p] *= DIVE_SLIDE_DRAG
       if (Math.abs(this.blobVX[p]) < DIVE_SLIDE_STOP) this.blobVX[p] = 0
+    } else if (floating) {
+      this.blobVX[p] *= FLOAT_DRAG
     } else {
       this.blobVX[p] = ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
     }
@@ -810,9 +831,6 @@ export class PhysicWorld {
     if (this.revCd[LEFT] > 0) this.revCd[LEFT]--
     if (this.revCd[RIGHT] > 0) this.revCd[RIGHT]--
 
-    const groundL = this.blobHitGround(LEFT)
-    const groundR = this.blobHitGround(RIGHT)
-
     this.hitStep(LEFT, li, isBallValid && !this.holding(), out)
     this.hitStep(RIGHT, ri, isBallValid && !this.holding(), out)
 
@@ -863,8 +881,6 @@ export class PhysicWorld {
       if (!this.solo) this.tryDig(RIGHT, out) || this.handleBlobBallCollision(RIGHT, out)
     }
 
-    this.trySpecial(LEFT, li, isBallValid && !holding, groundL, out)
-    this.trySpecial(RIGHT, ri, isBallValid && !holding, groundR, out)
     this.prevUp[LEFT] = li.up ? 1 : 0
     this.prevUp[RIGHT] = ri.up ? 1 : 0
     this.prevSpecial[LEFT] = li.special ? 1 : 0
@@ -915,6 +931,8 @@ export class PhysicWorld {
     this.ballOut = 0
     this.digCd[LEFT] = 0; this.digCd[RIGHT] = 0
     this.hitCharge[LEFT] = 0; this.hitCharge[RIGHT] = 0
+    this.swingT[LEFT] = 0; this.swingT[RIGHT] = 0
+    this.armSpecial[LEFT] = 0; this.armSpecial[RIGHT] = 0
     this.hitLag[LEFT] = 0; this.hitLag[RIGHT] = 0
     this.revActive[LEFT] = 0; this.revActive[RIGHT] = 0
     this.revCd[LEFT] = 0; this.revCd[RIGHT] = 0

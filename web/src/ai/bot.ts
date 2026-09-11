@@ -205,7 +205,6 @@ export class Bot {
   private plan: Plan = { ...NO_PLAN }
   private upHeld = false
   private spHeld = false
-  private spHold = 0
   private diveHeld = false
   private digLock = 0
   /** Carga da batida: frames segurando e a mira escolhida ao armar. */
@@ -289,8 +288,10 @@ export class Bot {
 
     const incoming = w.superFrames > 0 && w.superOwner !== me
     const parry = incoming ? this.wantParry(w, me, p) : false
-    const special = incoming ? false : this.wantSpecial(w, me, onGround, p)
-    const hit = parry || dig || (!incoming && this.wantHit(w, me, onGround, p))
+    // barra cheia e especial chegando: metade das vezes devolve com reversal em vez de parry
+    const reversal = parry && w.charge[me] >= SPECIAL_FULL && w.revCd[me] === 0 && this.rng() < 0.5
+    const special = incoming ? reversal : this.wantSpecial(w, me, onGround, p)
+    const hit = (parry && !reversal) || dig || (!incoming && this.wantHit(w, me, onGround, p))
     if (hit && !parry && !dig) return { ...NONE, hit: true, left: this.hitAim[0] < 0, right: this.hitAim[0] > 0, up: this.hitAim[1] < 0, down: this.hitAim[1] > 0 }
     return { left, right, up, special, down, dive: false, hit }
   }
@@ -510,11 +511,6 @@ export class Bot {
 
   private wantSpecial(w: Match['world'], me: Side, onGround: boolean, p: Params) {
     if (w.superFrames > 0 && w.superOwner !== me) return this.wantParry(w, me, p)
-    if (w.hold[me] > 0) {
-      if (this.spHold <= 0) return false
-      this.spHold--
-      return true
-    }
     const mine = this.dir * (w.ballX - NET_POSITION_X) < 0
     if (!(w.charge[me] >= SPECIAL_FULL && !onGround && mine)) { this.spHeld = false; return false }
     const dx = w.ballX - w.blobX[me]
@@ -523,7 +519,6 @@ export class Bot {
     if (!(near && this.rng() < 0.3 + p.attack * 0.7)) { this.spHeld = false; return false }
     if (this.spHeld) return false
     this.spHeld = true
-    this.spHold = Math.floor(this.rng() * p.attack * 90)
     return true
   }
 

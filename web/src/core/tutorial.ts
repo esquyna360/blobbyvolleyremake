@@ -24,11 +24,11 @@ export const TUT_STEPS: TutStep[] = [
   { title: 'BATER', text: 'Segura {hit} pra armar: você para e o direcional vira mira. Solta com a bola perto pra bater. Mais tempo segurando, mais força. Manda 3 pro outro lado.', need: 3 },
   { title: 'DEIXADINHA', text: 'Toque rápido em {hit} com a bola perto: bola curta, mal passando a rede. Faz 2.', need: 2 },
   { title: 'CORTADA', text: 'No ar, segura {hit} e mira pra baixo na direção da rede. Cortada é no ar — bate de cima. Faz 2.', need: 2 },
-  { title: 'MANCHETE', text: 'Segura {down} e toca {hit} na hora que a bola chega: ela sobe reta pra você cortar. Manchete e depois cortada, 2 vezes.', need: 2 },
+  { title: 'MANCHETE', text: 'No chão, segura {down} e toca {hit} na hora que a bola chega: ela sobe reta pra você cortar. Manchete e depois cortada, 2 vezes.', need: 2 },
   { title: 'MERGULHO', text: 'Bola longe: {dive} joga o corpo pro lado. Defende 2 mergulhando.', need: 2 },
-  { title: 'ESPECIAL', text: 'Barra cheia: pula e aperta {special} com a bola perto. Segura pra esperar, solta pra disparar. Dispara 2.', need: 2 },
+  { title: 'ESPECIAL', text: 'Barra cheia: pula, segura {special} e solta com a bola perto. Só funciona no ar. Dispara 2.', need: 2 },
   { title: 'PARRY', text: 'Especial vindo: aperta {hit} na hora exata em que a bola chega. Ela fica na sua mão e volta mais forte. Faz 2.', need: 2 },
-  { title: 'REVERSAL', text: 'Especial vindo: aperta {special} na hora exata. Volta na hora, ainda mais violenta. Faz 2.', need: 2 },
+  { title: 'REVERSAL', text: 'Especial vindo e sua barra cheia: aperta {special} na hora exata. Volta na hora, ainda mais violenta. Faz 2.', need: 2 },
 ]
 
 const NET_CLEAR = NET_SPHERE_POSITION - BALL_RADIUS - NET_RADIUS - 18
@@ -98,6 +98,7 @@ export class Tutorial {
       case 7:
       case 8: {
         w.resetBall(NO_PLAYER)
+        if (this.step === 8) w.charge[LEFT] = SPECIAL_CAP
         g.touches[LEFT] = 0; g.touches[RIGHT] = 0
         g.isBallValid = true
         g.isGameRunning = true

@@ -139,11 +139,12 @@ test('special state survives save/restore', () => {
   m.world.ballX = m.world.blobX[LEFT] + 30
   m.world.ballY = m.world.blobY[LEFT] - 110
   m.step(SP, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), true)
-  assert.equal(m.world.hold[LEFT] > 0, true)
+  assert.ok(m.world.charging(LEFT), 'segurar especial não armou')
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false, 'disparou antes de soltar')
+  m.world.ballX = m.world.blobX[LEFT] + 30
+  m.world.ballY = m.world.blobY[LEFT] - 110
   m.step(NONE, NONE)
   assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), true)
-  assert.equal(m.world.hold[LEFT], 0)
   assert.equal(m.world.superFrames > 0, true)
 
   const s = allocState()
@@ -167,13 +168,19 @@ test('especial só sai pelo botão de especial, e só no ar', () => {
   m.logic.isBallValid = true
   m.logic.isGameRunning = true
 
-  m.step({ ...NONE, special: true }, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), false, 'especial no chão')
+  const SP = { ...NONE, special: true }
+  m.step(SP, NONE)
+  m.step(NONE, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false, 'especial no chão')
   assert.ok(m.world.charge[LEFT] >= SPECIAL_FULL, 'barra queimada sem disparar')
   m.step(UP, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), false, 'pular não é especial')
-  m.step({ ...NONE, special: true }, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), true, 'especial no ar não saiu')
+  m.step(UP, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false, 'pular não é especial')
+  m.step(SP, NONE)
+  m.world.ballX = m.world.blobX[LEFT] + 30
+  m.world.ballY = m.world.blobY[LEFT] - 110
+  m.step(NONE, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), true, 'especial no ar não saiu')
 })
 
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {
@@ -192,6 +199,7 @@ test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', ()
   m.step(NO_INPUT, NO_INPUT)
   assert.ok(!w.charging(LEFT))
   assert.equal(m.events.some(e => e.event === Ev.HIT), false, 'bateu sem bola no raio')
+  for (let f = 0; f < 12; f++) m.step(NO_INPUT, NO_INPUT)
 
   w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0
   for (let f = 0; f < 25; f++) { m.step(HOLD, NO_INPUT); w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0 }
@@ -238,6 +246,7 @@ test('reversal devolve o especial na hora, mais forte', () => {
   m.logic.isBallValid = true
   m.logic.isGameRunning = true
   w.blobX[LEFT] = 220
+  w.charge[LEFT] = SPECIAL_CAP
   w.launchSpecial(RIGHT)
   assert.equal(w.superOwner, RIGHT)
   let done = false

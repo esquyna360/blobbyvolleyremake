@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 26
-export const STATE_INTS = 60
+export const STATE_INTS = 66
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -154,6 +154,9 @@ export class Match {
     i[54] = w.prevHit[0]; i[55] = w.prevHit[1]
     i[56] = w.revActive[0]; i[57] = w.revActive[1]
     i[58] = w.revCd[0]; i[59] = w.revCd[1]
+    i[60] = w.swingT[0]; i[61] = w.swingT[1]
+    i[62] = w.swingPow[0]; i[63] = w.swingPow[1]
+    i[64] = w.armSpecial[0]; i[65] = w.armSpecial[1]
     f[24] = w.tempo; f[25] = w.ballSpin
   }
 
@@ -199,6 +202,9 @@ export class Match {
     w.prevHit[0] = i[54]; w.prevHit[1] = i[55]
     w.revActive[0] = i[56]; w.revActive[1] = i[57]
     w.revCd[0] = i[58]; w.revCd[1] = i[59]
+    w.swingT[0] = i[60]; w.swingT[1] = i[61]
+    w.swingPow[0] = i[62]; w.swingPow[1] = i[63]
+    w.armSpecial[0] = i[64]; w.armSpecial[1] = i[65]
     w.tempo = f[24]; w.ballSpin = f[25]
     w.rally = g.rally
     w.matchPoint = this.atMatchPoint()

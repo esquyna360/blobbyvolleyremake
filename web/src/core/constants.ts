@@ -106,7 +106,7 @@ export const DIG_FORWARD = 1.4
  * Soltar com a bola no raio manda ela na direção da mira, mais forte quanto
  * mais tempo segurou. Toque rápido é deixadinha.
  */
-export const HIT_REACH = 118
+export const HIT_REACH = 136
 export const HIT_CHARGE_MAX = 40
 export const HIT_TAP = 7
 export const HIT_V_MIN = BALL_COLLISION_VELOCITY * 0.9
@@ -114,6 +114,13 @@ export const HIT_V_MAX = BALL_COLLISION_VELOCITY * 1.8
 export const HIT_LAG = 12
 export const HIT_GAIN = 0.05
 /** Bola no corpo enquanto arma a batida: o blob cai e fica um instante no chão. */
+export const SWING_WINDOW = 10
+export const FLOAT_KEEP = 0.4
+export const FLOAT_G = 0.2
+export const FLOAT_FRAMES = 22
+export const FLOAT_RAMP = 26
+export const FLOAT_DRAG = 0.985
+export const PARRY_RETURN = 0.72
 export const TRIP_FRAMES = 30
 export const TRIP_PUSH = 2.6
 
