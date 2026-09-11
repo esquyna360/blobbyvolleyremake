@@ -43,8 +43,6 @@ var flash := 0.0
 signal goo(color: Color)
 var _aura: Array[MeshInstance3D] = []
 var _stars: Array = []
-var _punch := 0.0
-var _punch_side := 0
 var outro_t := -1.0
 var _outro_winner := 0
 var _chunks: Array = []
@@ -125,19 +123,11 @@ func _intro_cam(dt: float, w: PhysicWorld) -> bool:
 
 var _cut := 0.0
 
-## Câmera encosta na cara de quem soltou o especial: o jogo desacelera
-## junto (ver Game._process) e volta em meio segundo.
+## Fator de tempo do jogo: para no fim da partida (ver Game._process).
 func drama() -> float:
 	if outro_t >= 0.0:
 		return 0.0
-	return 0.2 if _punch > 0.14 else 1.0
-
-func _punch_k() -> float:
-	if _punch <= 0.0:
-		return 0.0
-	var k_in := clampf((0.5 - _punch) / 0.07, 0.0, 1.0)
-	var k_out := clampf(_punch / 0.14, 0.0, 1.0)
-	return _ease(k_in) * _ease(k_out)
+	return 1.0
 
 func start_outro(winner: int) -> void:
 	outro_t = 0.0
@@ -475,11 +465,11 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			var bx := Map.gx(w.ball_x)
 			var by := Map.gy(w.ball_y)
 			if intensity >= 1.0:
-				_punch = 0.5
-				_punch_side = p
 				blobs[p].face.set_mood("angry", 0.6, 8)
+				fx.shock(Vector3(bx, by, 0.2), 0.1, 3.2, 0.5, Color(1.6, 1.1, 0.5), 0.9)
+				fx.shock(Vector3(bx, by, 0.2), 0.05, 1.8, 0.32, blobs[p].body_color * 1.5, 0.9)
 			trauma = minf(1.0, trauma + 0.75)
-			hitstop = maxf(hitstop, 0.11)
+			hitstop = maxf(hitstop, 0.16 if intensity >= 1.0 else 0.11)
 			aberration = maxf(aberration, 2.2)
 			flash = maxf(flash, 0.30)
 			fx.burst(Vector3(bx, by, 0), 520, 15.0, PI, 0.2, 0.85, 0.05,
@@ -701,18 +691,6 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 		camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0), Vector3.UP)
 		camera.rotate_object_local(Vector3.FORWARD, shr)
 		camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036 - tension * 1.4
-		_punch = maxf(0.0, _punch - dt)
-		var pk := _punch_k()
-		if pk > 0.0:
-			var i := _punch_side
-			var fx_ := Map.gx(w.blob_x[i])
-			var fy := Map.gy(w.blob_y[i]) + 0.75
-			var d := 1.0 if i == BV.LEFT else -1.0
-			var tp := Vector3(fx_ + d * 0.3, fy + 0.25, 3.9)
-			camera.position = camera.position.lerp(tp, pk)
-			camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0).lerp(
-				Vector3(fx_, fy - 0.12, 0.0), pk), Vector3.UP)
-			camera.fov = lerpf(camera.fov, 30.0, pk)
 		_outro_cam(dt, w)
 	_cut = maxf(0.0, _cut - dt * 6.0)
 	_step_chunks(dt)
@@ -722,15 +700,16 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	if w.super_frames > 0:
 		var col := blobs[w.super_owner].body_color if w.super_owner >= 0 \
 			else Color(1.0, 0.7, 0.2)
-		ball.flash(3.4 + sin(time * 30.0) * 0.8)
-		fx.burst(Vector3(bx, by, 0), 22, 2.6, PI, 1.5, 0.7, 0.11,
-			Color(1.0, 0.42, 0.05), 2.4, 0.3)
-		fx.burst(Vector3(bx, by, 0), 6, 1.0, PI, 1.2, 1.1, 0.16, col, 1.6, 0.2)
-		if int(time * 40.0) % 3 == 0:
-			fx.shock(Vector3(bx, by, 0.2), 0.05, 1.4, 0.22, Color(1.4, 0.9, 0.4), 0.5)
+		ball.flash(2.2 + sin(time * 30.0) * 0.5)
+		ball.energy(true, col)
+		fx.burst(Vector3(bx, by, 0), 14, 2.2, PI, 1.2, 0.6, 0.09, col.lightened(0.2), 2.4, 0.3)
+		fx.burst(Vector3(bx, by, 0), 8, 0.8, PI, 0.4, 0.9, 0.14, Color(1.0, 0.55, 0.1), 1.8, 0.2)
+		if int(time * 40.0) % 4 == 0:
+			fx.shock(Vector3(bx, by, 0.2), 0.2, 1.2, 0.26, col * 1.4, 0.6)
 		fx.burst(Vector3(bx, by, 0), 5, 0.6, PI, 2.1, 1.4, 0.055,
 			Color(0.16, 0.13, 0.12), 1.4, 0.15, false)
-		fx.burst(Vector3(bx, by, 0), 3, 0.9, PI, 0.8, 0.7, 0.04, col, 2.0, 0.3)
+	else:
+		ball.energy(false, Color.WHITE)
 
 	_squash_k = maxf(0.0, _squash_k - dt * 0.85)
 	ball.squash(_squash_k, _squash_ang)

@@ -375,8 +375,6 @@ export class Stage implements GameRenderer {
   private reachRings: THREE.Mesh[] = []
   private auras: THREE.Sprite[] = []
   private stars: THREE.Sprite[][] = []
-  private punch = 0
-  private punchSide: Side = LEFT
   private ballSquash = { k: 0, ang: 0 }
   envCube: THREE.CubeTexture | null = null
 
@@ -817,7 +815,10 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
         case Ev.SPECIAL_FIRED: {
           const p = e.side as Side
           const bx = gx(w.ballX), by = gy(w.ballY)
-          if (e.intensity >= 1) { this.punch = 0.5; this.punchSide = p }
+          if (e.intensity >= 1) {
+            this.hitstop = Math.max(this.hitstop, 0.16)
+            this.addShock(bx, by, { from: 0.1, to: 3.2, life: 0.5, color: new THREE.Color(1.6, 1.1, 0.5) })
+          }
           this.trauma = Math.min(1, this.trauma + 0.75)
           this.hitstop = Math.max(this.hitstop, 0.11)
           this.aberration = Math.max(this.aberration, 2.2)
@@ -1100,16 +1101,9 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     }
   }
 
-  private punchK() {
-    const t = 0.5 - this.punch
-    if (t < 0.08) return t / 0.08
-    if (this.punch < 0.14) return this.punch / 0.14
-    return 1
-  }
-
   /** Multiplicador de tempo da simulação local: 0.2 durante o zoom do especial. */
   timeScale() {
-    return this.punch > 0.14 ? 0.2 : 1
+    return 1
   }
 
   private updateBlob(i: Side, alpha: number, dt: number, match: Match) {
@@ -1302,19 +1296,6 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     this.camera.lookAt(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0)
     this.camera.rotation.z += shr
     this.camera.fov = CAM_FOV - Math.min(this.ballSpeed, 22) * 0.036
-    if (this.punch > 0) {
-      this.punch = Math.max(0, this.punch - dt)
-      const k = this.punchK() * this.punchK()
-      const i = this.punchSide
-      const hx = gx(THREE.MathUtils.lerp(p.px[i], c.px[i], alpha))
-      const hy = gy(THREE.MathUtils.lerp(p.py[i], c.py[i], alpha) - BLOBBY_UPPER_SPHERE)
-      const target = new THREE.Vector3(hx + (i === LEFT ? 0.9 : -0.9), hy + 0.35, 4.2)
-      this.camera.position.lerp(target, k)
-      const look = new THREE.Vector3(hx, hy + 0.1, 0)
-      const cur = new THREE.Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0).lerp(look, k)
-      this.camera.lookAt(cur)
-      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 30, k)
-    }
     this.camera.updateProjectionMatrix()
 
     this.sun.target.position.set(this.camTargetX * 0.5, 2, 0)
@@ -1329,10 +1310,11 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
       const col = owner >= 0
         ? (this.blobs[owner as Side].visual.uniforms.uColor.value as THREE.Color)
         : new THREE.Color(1.0, 0.7, 0.2)
-      this.ball.flash(3.4 + Math.sin(this.time * 30) * 0.8)
+      this.ball.flash(2.2 + Math.sin(this.time * 30) * 0.5)
+      this.ball.energy(true, col)
       this.particles.burst({
-        x: bx, y: by, z: 0, count: 13, speed: 2.2, spread: 3.14, up: 1.5,
-        life: 0.55, size: 0.085, color: new THREE.Color(1.0, 0.42, 0.05), drag: 2.6, colorJitter: 0.3,
+        x: bx, y: by, z: 0, count: 9, speed: 2.2, spread: 3.14, up: 1.2,
+        life: 0.55, size: 0.08, color: col, drag: 2.4, colorJitter: 0.3,
       })
       this.particles.burst({
         x: bx, y: by, z: 0, count: 8, speed: 1.1, spread: 3.14, up: 0.4,
@@ -1347,6 +1329,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
         life: 0.7, size: 0.04, color: col, drag: 2.0, colorJitter: 0.3,
       })
     }
+    else this.ball.energy(false, null)
 
     this.ballSquash.k = Math.max(0, this.ballSquash.k - dt * 0.85)
     this.ball.squash(this.ballSquash.k, this.ballSquash.ang)

@@ -83,6 +83,7 @@ export interface Ball {
   setTransform(x: number, y: number, z: number, rot: number, axisTilt: number): void
   update(dt: number, speed: number): void
   flash(amount: number): void
+  energy(on: boolean, col: THREE.Color | null): void
   squash(k: number, ang: number): void
 }
 
@@ -117,6 +118,35 @@ void main(){
   float a = (1.0 - vT);
   a = a * a * a * uOpacity;
   fragColor = vec4(uColor * (0.35 + a * 0.8), a);
+}
+`
+
+const energyVert = /* glsl */`
+varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+void main() {
+  vUv = uv;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}
+`
+const energyFrag = /* glsl */`
+uniform vec3 uTint; uniform float uPower; uniform float uTime;
+varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+void main() {
+  float fr = pow(1.0 - clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0), 2.2);
+  vec2 uv = vUv * vec2(6.0, 3.0) + vec2(uTime * 1.7, -uTime * 2.3);
+  float n = noise(uv) * 0.6 + noise(uv * 2.3 + uTime) * 0.4;
+  float plasma = smoothstep(0.35, 0.9, n);
+  float core = 1.0 - fr;
+  vec3 col = uTint * (fr * 2.6 + plasma * 1.4) + vec3(1.0, 0.95, 0.8) * core * core * 0.5;
+  gl_FragColor = vec4(col * uPower, clamp((fr * 1.3 + plasma * 0.7) * uPower, 0.0, 1.0));
 }
 `
 
@@ -189,6 +219,26 @@ export function createBall(): Ball {
   const group = new THREE.Group()
   group.add(squashG, trail)
 
+  const energy = new THREE.Group()
+  const shellU = { uTint: { value: new THREE.Color(1, 0.6, 0.2) }, uPower: { value: 1 }, uTime: { value: 0 } }
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(R * 1.9, 32, 16), new THREE.ShaderMaterial({
+    vertexShader: energyVert, fragmentShader: energyFrag, uniforms: shellU,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  }))
+  energy.add(shell)
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(1, 0.8, 0.4), transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+  })
+  const rings = [0, 1].map(i => {
+    const r = new THREE.Mesh(new THREE.TorusGeometry(R * (2.5 + i * 0.5), R * 0.1, 8, 48), ringMat)
+    energy.add(r)
+    return r
+  })
+  energy.visible = false
+  squashG.add(energy)
+  let eOn = false, e = 0, eT = 0
+
   let seeded = false
 
   return {
@@ -202,11 +252,29 @@ export function createBall(): Ball {
       for (let i = TRAIL - 1; i > 0; i--) pts[i].copy(pts[i - 1])
       pts[0].set(x, y, z)
     },
-    update(_dt, speed) {
+    update(dt, speed) {
+      eT += dt
+      e = THREE.MathUtils.clamp(e + (eOn ? dt * 9 : -dt * 5), 0, 1)
+      energy.visible = e > 0.01
+      if (energy.visible) {
+        const pop = 1 + (1 - e) * 0.9
+        energy.scale.setScalar(e * pop * (1 + Math.sin(eT * 21) * 0.06))
+        shellU.uPower.value = 0.8 + e * 1.2
+        shellU.uTime.value = eT
+        rings[0].rotation.set(eT * 4.1, eT * 2.7, 0)
+        rings[1].rotation.set(0, eT * 3.3, eT * 5.2 + 1)
+      }
       trailUniforms.uOpacity.value = THREE.MathUtils.clamp((speed - 5) / 26, 0, 0.42)
       trailUniforms.uWidth.value = R * (0.75 + Math.min(speed / 30, 1) * 0.55)
     },
     flash(amount) { mat.emissiveIntensity = amount },
+    energy(on, col) {
+      eOn = on
+      if (on && col) {
+        shellU.uTint.value.copy(col).multiplyScalar(1.3)
+        ringMat.color.copy(col).lerp(new THREE.Color(1, 1, 1), 0.4)
+      }
+    },
     squash(k, ang) {
       squashG.rotation.z = ang
       inner.rotation.z = -ang

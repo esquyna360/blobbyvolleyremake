@@ -41,12 +41,21 @@ var _ip_edit: LineEdit
 var _pending: Callable
 var _stage_cb: Callable
 var _first: Control
+var _tower: TowerView
+var _bottom: HBoxContainer
+var _shade: TextureRect
 
 func build(s: Settings) -> void:
 	settings = s
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
+	_tower = TowerView.new()
+	_tower.visible = false
+	add_child(_tower)
+	_tower.build(settings.towers, self)
+
 	var shade := TextureRect.new()
+	_shade = shade
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.texture = _gradient([Color(0.01, 0.02, 0.02, 0.94), Color(0.01, 0.02, 0.02, 0.78),
 		Color(0.01, 0.02, 0.02, 0.18)], [0.0, 0.42, 1.0], Vector2(0, 0), Vector2(1, 0))
@@ -122,6 +131,16 @@ func build(s: Settings) -> void:
 	_foot_r.offset_bottom = -22
 	add_child(_foot_r)
 
+	_bottom = HBoxContainer.new()
+	_bottom.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_bottom.alignment = BoxContainer.ALIGNMENT_CENTER
+	_bottom.add_theme_constant_override("separation", 26)
+	_bottom.offset_left = -480
+	_bottom.offset_right = 480
+	_bottom.offset_top = -150
+	_bottom.offset_bottom = -52
+	add_child(_bottom)
+
 	_status = UiTheme.label("", 15, MUTED)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -149,6 +168,12 @@ func show_page(p: String) -> void:
 	for c in _side_box.get_children():
 		_side_box.remove_child(c)
 		c.queue_free()
+	for c in _bottom.get_children():
+		_bottom.remove_child(c)
+		c.queue_free()
+	_tower.visible = false
+	_left.visible = true
+	_shade.modulate.a = 1.0
 	_sub.text = ""
 	_side.offset_left = -790
 	_foot_l.text = "Enter confirma   ·   Esc volta" if p != "main" else "Enter confirma"
@@ -162,6 +187,7 @@ func show_page(p: String) -> void:
 		"net": _net()
 		"look": _look()
 		"options": _options()
+		"climb": pass
 	_animate()
 	if _first != null:
 		_first.grab_focus()
@@ -342,65 +368,33 @@ func _scene_card(sc: Array) -> Button:
 	b.add_child(v)
 	return b
 
-## Torres do arcade: a coluna sobe do primeiro adversário ao chefe. Quanto
-## mais alta a torre, mais gente e mais forte no fim.
+## Torres do arcade em 3D (TowerView) atrás; aqui só o título e os três
+## botões embaixo. Passar o mouse num botão leva a câmera pra torre dele.
 func _arcade() -> void:
 	_heading.add_theme_font_size_override("font_size", 46)
 	_title("Choose your\ndestiny", "arcade", "vença cada adversário na casa dele até o topo")
-	_side.offset_left = -840
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_END
-	row.add_theme_constant_override("separation", 18)
+	_tower.visible = true
+	_tower.enter(settings.towers)
+	_shade.modulate.a = 0.55
 	for t in Roster.TOWERS.size():
 		var tw: Dictionary = Roster.TOWERS[t]
-		var tcol: Color = [UiTheme.LEAF, UiTheme.GOLD, Color(1.0, 0.45, 0.3)][t]
-		var col := VBoxContainer.new()
-		col.alignment = BoxContainer.ALIGNMENT_END
-		col.add_theme_constant_override("separation", 3)
-		col.size_flags_vertical = Control.SIZE_SHRINK_END
 		var steps: Array = tw.steps
 		var done: int = settings.towers[t]
-		for k in range(steps.size() - 1, -1, -1):
-			var ch: Dictionary = Roster.CHARS[steps[k]]
-			var ccol := Looks.body_color(ch.look)
-			var cell := PanelContainer.new()
-			var beaten := k < done
-			var sb := StyleBoxFlat.new()
-			sb.bg_color = Color(0.03, 0.05, 0.05, 0.82) if not beaten else Color(0.12, 0.22, 0.12, 0.85)
-			sb.border_color = ccol if k == done else Color(1, 1, 1, 0.10)
-			sb.set_border_width_all(2 if k == done else 1)
-			sb.set_corner_radius_all(4)
-			sb.content_margin_left = 4
-			sb.content_margin_right = 10
-			sb.content_margin_top = 2
-			sb.content_margin_bottom = 2
-			cell.add_theme_stylebox_override("panel", sb)
-			cell.custom_minimum_size = Vector2(190, 0)
-			var hb := HBoxContainer.new()
-			hb.add_theme_constant_override("separation", 8)
-			var pr := Portrait.new(ch.look, ch.mood, 44, BV.RIGHT)
-			hb.add_child(pr)
-			var nv := VBoxContainer.new()
-			nv.add_theme_constant_override("separation", -2)
-			nv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			var nl := UiTheme.label(ch.name, 15, ccol.lightened(0.35))
-			nl.add_theme_font_override("font", UiTheme.font(0.6, 1))
-			nv.add_child(nl)
-			var sl := UiTheme.label(("✓ vencido" if beaten else ("próximo" if k == done else str(k + 1) + "º")), 11, MUTED)
-			nv.add_child(sl)
-			hb.add_child(nv)
-			cell.add_child(hb)
-			col.add_child(cell)
-		var b := UiTheme.solid(Button.new(), tcol, 16)
-		b.text = tw.name.to_upper() + ("  ✓" if done >= steps.size() else "")
-		b.pressed.connect(func(): play_arcade.emit(t))
-		col.add_child(b)
-		row.add_child(col)
-		if t == 0:
-			_first = b
-	_side_box.add_child(row)
+		var tcol: Color = [UiTheme.LEAF, UiTheme.GOLD, Color(1.0, 0.45, 0.3)][t]
+		var sub := "%d adversários" % steps.size() if done == 0 else ("torre concluída" if done >= steps.size() else "%d de %d vencidos" % [done, steps.size()])
+		var b := _btn(tw.name.capitalize() + ("  ✓" if done >= steps.size() else ""), func(): play_arcade.emit(t), sub, tcol)
+		b.mouse_entered.connect(func(): _tower.focus_tower(t))
+		b.focus_entered.connect(func(): _tower.focus_tower(t))
 	_spacer()
 	_back("single")
+
+## Cinemática entre partidas do arcade: só as torres, sem menu por cima.
+func climb(t: int, from: int, to: int) -> void:
+	show_page("climb")
+	_left.visible = false
+	_tower.visible = true
+	_shade.modulate.a = 0.15
+	await _tower.climb(t, from, to)
 
 func _register() -> void:
 	_heading.add_theme_font_size_override("font_size", 52)

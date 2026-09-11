@@ -241,6 +241,23 @@ func _over_seq(title: String, col: Color, wname: String, winner: int) -> void:
 	if not _in_match or game.bv != m:
 		return
 	game.set_paused(true)
+	if _arcade_tower >= 0 and winner == BV.LEFT:
+		var t := _arcade_tower
+		var steps: Array = Roster.TOWERS[t].steps
+		settings.towers[t] = maxi(settings.towers[t], _arcade_step + 1)
+		settings.save()
+		if touch != null:
+			touch.visible = false
+		menu.visible = true
+		await menu.climb(t, _arcade_step, _arcade_step + 1)
+		if not _in_match or game.bv != m:
+			return
+		menu.visible = false
+		if _arcade_step + 1 < steps.size():
+			_arcade_step += 1
+			_arcade_match()
+			return
+		title = "TORRE CONCLUÍDA"
 	_result_title.text = title
 	_result_title.add_theme_color_override("font_color", col.lightened(0.3))
 	_result_score.text = "%d  —  %d" % [m.logic.scores[BV.LEFT], m.logic.scores[BV.RIGHT]]
@@ -248,19 +265,10 @@ func _over_seq(title: String, col: Color, wname: String, winner: int) -> void:
 	_result_next.visible = false
 	_result_again.text = "Jogar de novo"
 	if _arcade_tower >= 0:
-		var steps: Array = Roster.TOWERS[_arcade_tower].steps
 		if winner == BV.LEFT:
-			settings.towers[_arcade_tower] = maxi(settings.towers[_arcade_tower], _arcade_step + 1)
-			settings.save()
 			_result_again.visible = false
-			if _arcade_step + 1 < steps.size():
-				var nx: Dictionary = Roster.CHARS[steps[_arcade_step + 1]]
-				_result_next.text = "Próximo: " + nx.name
-				_result_next.visible = true
-			else:
-				_result_title.text = "TORRE CONCLUÍDA"
-				_result_score.text = Roster.TOWERS[_arcade_tower].name + "  ·  %d — %d" % [
-					m.logic.scores[BV.LEFT], m.logic.scores[BV.RIGHT]]
+			_result_score.text = Roster.TOWERS[_arcade_tower].name + "  ·  %d — %d" % [
+				m.logic.scores[BV.LEFT], m.logic.scores[BV.RIGHT]]
 		else:
 			_result_again.text = "Tentar de novo"
 	_result_ui.visible = true
@@ -359,7 +367,7 @@ func _process(dt: float) -> void:
 		hud.update(game.bv, dt)
 		var w := game.bv.world
 		var intro := game.arena.intro_active()
-		var cine := intro or game.arena.outro_active() or game.arena.drama() < 1.0
+		var cine := intro or game.arena.outro_active()
 		hud.ball_hint(game.arena.ball_screen_hint(Map.gx(w.ball_x), Map.gy(w.ball_y)) \
 			if not cine else Vector3(-1, -1, 0), dt)
 		hud.modulate.a = clampf(hud.modulate.a + (( -1.0 if intro else 1.0) * dt * 3.0), 0.0, 1.0)
@@ -503,13 +511,21 @@ func _dev_shot() -> void:
 		elif a == "--bots":
 			_restart = _dev_bots
 			_dev_bots()
+		elif a.begins_with("--climb="):
+			var v := a.substr(8).split(",")
+			menu.visible = true
+			menu.climb(int(v[0]), int(v[1]), int(v[2]))
 		elif a == "--paused":
 			_set_pause.call_deferred(true)
 	if path == "":
 		return
 	var n := 0
+	var force_super := "--super" in OS.get_cmdline_user_args()
 	for i in wait:
 		await get_tree().process_frame
+		if force_super and game.bv != null and i > wait - 240:
+			game.bv.world.super_frames = 30
+			game.bv.world.super_owner = 0
 		if every > 0 and i % every == 0 and i >= from:
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(path.replace(".png", "_%03d.png" % n))
