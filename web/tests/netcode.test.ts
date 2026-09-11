@@ -238,6 +238,27 @@ test('toque rápido é deixadinha; bola no corpo armando é colisão normal', ()
   assert.equal(tw.diveRecover[LEFT], 0, 'caiu')
 })
 
+test('parry solto com baixo vira manchete no próprio lado', () => {
+  const m = new Match('default', 15, LEFT)
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 220
+  w.launchSpecial(RIGHT)
+  let parried = false, dug = false
+  for (let f = 0; f < 200 && !dug; f++) {
+    const dx = w.ballX - w.blobX[LEFT], dy = w.ballY - w.upperY(LEFT)
+    const near = !parried && dx * dx + dy * dy < 100 * 100 && w.ballVX < 0
+    m.step(near ? { ...NO_INPUT, hit: true } : { ...NO_INPUT, down: parried }, NO_INPUT)
+    if (m.events.some(e => e.event === Ev.PARRY)) parried = true
+    dug = m.events.some(e => e.event === Ev.DIG)
+  }
+  assert.ok(parried, 'parry não saiu')
+  assert.ok(dug, 'manchete não saiu')
+  assert.equal(w.superFrames, 0, 'bola continuou especial')
+  assert.ok(w.ballVY < -8 && w.ballX < 400, `não subiu no próprio lado: ${w.ballVX} ${w.ballVY}`)
+})
+
 test('reversal devolve o especial na hora, mais forte', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world

@@ -465,6 +465,19 @@ export class PhysicWorld {
     if (held && this.hold[p] > 0 && this.stun[p] === 0) return
     this.hold[p] = 0
     this.bumpTempo()
+    if (raw.down) {
+      // parry manchete: solta com baixo segurado e a bola sobe no seu lado, pronta pra cortada
+      this.superFrames = 0
+      this.superOwner = -1
+      this.parryChain = 0
+      const dir = p === LEFT ? 1 : -1
+      this.ballVX = dir * DIG_FORWARD * this.tempo
+      this.ballVY = -DIG_UP * 1.1 * this.tempo
+      this.ballSpin = 0
+      this.addCharge(p, DIG_GAIN, out)
+      out.push({ event: Ev.DIG, side: p, intensity: 1 })
+      return
+    }
     this.aimSpecial(p, PARRY_RETURN + this.parryChain * PARRY_BOOST)
     this.scaleBallV()
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 0.5 })
