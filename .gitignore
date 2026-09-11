@@ -3,8 +3,13 @@ dist
 .DS_Store
 *.log
 
-# material bruto do compositor: a composição vive em tools/music/
+# material bruto do compositor: a composição vive em web/tools/music/
 .assets-in/
 
 # saída do electron-builder
 release
+
+# saída de export do Godot
+godot/build/
+godot/.godot/
+godot/android/build/
