@@ -3,7 +3,7 @@ import {
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
-  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_REACH,
+  DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import { Ev } from '../core/events.ts'
@@ -29,6 +29,11 @@ const CRATER_LIFE = 7
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
 interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string }
+function hexA(hex: string, a: number) {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
+}
+
 interface Ring {
   x: number; y: number; r: number; max: number; life: number; color: string
   w?: number; flat?: boolean
@@ -133,6 +138,11 @@ export class Stage2D implements GameRenderer {
   private tension = 0
   private faces: FaceRig[] = [new FaceRig(), new FaceRig()]
   private trauma = 0
+  private hitstop = 0
+  private energy = 0
+  private blobFlash = [0, 0]
+  private blobKick = [0, 0]
+  private aber = 0
   private flash = 0
   private bands: Band[] = []
   /** Achatada na direção da batida: dura ~0.25s e some. */
@@ -390,10 +400,22 @@ export class Stage2D implements GameRenderer {
         case Ev.SPECIAL_READY:
           this.burst(w.blobX[e.side as Side], w.blobY[e.side as Side] - 20, 26, 120, '#ffd257', 1.5, 5)
           break
+        case Ev.SPECIAL_HOLD: {
+          const p = e.side as Side
+          this.hitstop = Math.max(this.hitstop, 0.07)
+          this.blobFlash[p] = 1
+          this.blobKick[p] = Math.max(this.blobKick[p], 0.5)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 150, life: 0, color: this.lights[p] })
+          break
+        }
         case Ev.SPECIAL_FIRED: {
           const p = e.side as Side
           this.trauma = Math.min(1, this.trauma + 0.7)
           this.flash = Math.max(this.flash, 0.34)
+          this.hitstop = Math.max(this.hitstop, e.intensity >= 1 ? 0.16 : 0.11)
+          this.aber = Math.max(this.aber, 1)
+          this.blobFlash[p] = 1
+          this.blobKick[p] = 1
           this.burst(w.ballX, w.ballY, 90, 520, this.fill(p), 0.3, 7)
           this.burst(w.ballX, w.ballY, 50, 700, '#fff6d8', 0.15, 5)
           this.rings.push({ x: w.ballX, y: w.ballY, r: 10, max: 260, life: 0, color: '#ffe9a8' })
@@ -404,6 +426,10 @@ export class Stage2D implements GameRenderer {
           const p = e.side as Side
           this.trauma = Math.min(1, this.trauma + 0.95)
           this.flash = Math.max(this.flash, 0.46)
+          this.hitstop = Math.max(this.hitstop, 0.16)
+          this.aber = Math.max(this.aber, 1)
+          this.blobFlash[p] = 1
+          this.blobKick[p] = 1
           this.burst(w.blobX[p], w.blobY[p], 110, 620, '#ff5a4d', 0.5, 8)
           this.burst(w.blobX[p], w.blobY[p], 60, 260, '#ffe07a', 1.4, 6)
           this.rings.push({ x: w.blobX[p], y: w.blobY[p], r: 12, max: 300, life: 0, color: '#ff8a7a' })
@@ -412,6 +438,8 @@ export class Stage2D implements GameRenderer {
         case Ev.SPECIAL_GROUND: {
           this.trauma = 1
           this.flash = Math.max(this.flash, 0.5)
+          this.hitstop = Math.max(this.hitstop, 0.14)
+          this.aber = Math.max(this.aber, 1.2)
           this.burst(w.ballX, GROUND + 6, 120, 620, '#ff7a1a', 1.0, 9)
           this.burst(w.ballX, GROUND + 6, 70, 330, '#ffe07a', 1.5, 6)
           this.burst(w.ballX, GROUND + 6, 40, 200, '#4a3b33', 2.2, 7)
@@ -677,6 +705,11 @@ export class Stage2D implements GameRenderer {
       this.pops = alive
     }
     this.trauma = Math.max(0, this.trauma - dt * 2.2)
+    this.aber = Math.max(0, this.aber - dt * 4)
+    for (const i of [0, 1]) {
+      this.blobFlash[i] = Math.max(0, this.blobFlash[i] - dt * 3.5)
+      this.blobKick[i] = Math.max(0, this.blobKick[i] - dt * 3)
+    }
     this.squash.k = Math.max(0, this.squash.k - dt * 0.85)
     if (this.wallHits.length) {
       const live: typeof this.wallHits = []
@@ -1085,7 +1118,8 @@ export class Stage2D implements GameRenderer {
       c.translate(-x, -y)
     }
     // mesma geometria do hitbox: agachado a cabeça afunda e o corpo espalha
-    const squash = (1 + Math.sin(state * 1.6) * 0.045) * (1 - cr * 0.12)
+    const kick = this.blobKick[p]
+    const squash = (1 + Math.sin(state * 1.6) * 0.045 + Math.sin(kick * 9) * kick * 0.12) * (1 - cr * 0.12)
     const ru = (BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
     const rl = (BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) / squash
     const uy = y - (BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
@@ -1160,6 +1194,15 @@ export class Stage2D implements GameRenderer {
     c.ellipse(x - ru * 0.36, uy - ru * 0.38, ru * 0.30, ru * 0.20, -0.6, 0, Math.PI * 2)
     c.fillStyle = 'rgba(255,255,255,0.55)'
     c.fill()
+    if (this.blobFlash[p] > 0.01) {
+      c.globalCompositeOperation = 'lighter'
+      c.globalAlpha = this.blobFlash[p] * 0.75
+      c.fillStyle = '#fff2c8'
+      c.beginPath(); c.arc(x, uy, ru, 0, Math.PI * 2); c.fill()
+      c.beginPath(); c.ellipse(bkx - hdx, bky - hdy, brx, bry, d * 0.22 * dk, 0, Math.PI * 2); c.fill()
+      c.globalAlpha = 1
+      c.globalCompositeOperation = 'source-over'
+    }
     c.beginPath()
     c.arc(x - ru * 0.52, uy - ru * 0.12, ru * 0.07, 0, Math.PI * 2)
     c.fillStyle = 'rgba(255,255,255,0.7)'
@@ -1437,6 +1480,85 @@ export class Stage2D implements GameRenderer {
     c.restore()
   }
 
+  /**
+   * Bola de energia igual à do Godot: casca de plasma na cor do dono e dois
+   * anéis girando. Anel é elipse com rotação, casca é gradiente radial.
+   */
+  private energyBall(bx: number, by: number, rot: number, owner: number) {
+    const c = this.ctx
+    const e = this.energy
+    const col = owner >= 0 ? this.lights[owner] : '#ffb347'
+    const pop = 1 + (1 - e) * 0.9
+    const sc = e * pop * (1 + Math.sin(this.time * 21) * 0.06)
+    c.save()
+    c.translate(bx, by)
+    c.scale(sc, sc)
+    c.globalCompositeOperation = 'lighter'
+    const R = BALL_RADIUS
+    const g = c.createRadialGradient(0, 0, R * 0.6, 0, 0, R * 2.1)
+    g.addColorStop(0, hexA(col, 0.55))
+    g.addColorStop(0.45, hexA(col, 0.32))
+    g.addColorStop(1, hexA(col, 0))
+    c.fillStyle = g
+    c.beginPath(); c.arc(0, 0, R * 2.1, 0, Math.PI * 2); c.fill()
+    // plasma: lóbulos girando em sentido contrário à bola
+    c.globalAlpha = 0.5
+    c.fillStyle = '#fff4d0'
+    for (let i = 0; i < 5; i++) {
+      const a = -rot * 0.5 + this.time * 6 + i * 1.257
+      const rr = R * (1.25 + Math.sin(this.time * 13 + i * 2) * 0.18)
+      c.beginPath()
+      c.ellipse(Math.cos(a) * rr * 0.55, Math.sin(a) * rr * 0.55, rr * 0.55, rr * 0.3, a, 0, Math.PI * 2)
+      c.fill()
+    }
+    c.globalAlpha = 1
+    c.strokeStyle = col
+    c.lineWidth = R * 0.16
+    const t = this.time
+    const ring = (r: number, ax: number, ay: number, rz: number) => {
+      c.beginPath()
+      c.ellipse(0, 0, r, r * Math.abs(Math.cos(ax)) * 0.9 + r * 0.08, rz + Math.sin(ay) * 0.6, 0, Math.PI * 2)
+      c.stroke()
+    }
+    c.globalAlpha = 0.9
+    ring(R * 2.5, t * 4.1, t * 2.7, 0)
+    ring(R * 3.0, t * 3.3, t * 1.9, t * 5.2 + 1)
+    c.globalAlpha = 1
+    c.restore()
+    c.globalCompositeOperation = 'source-over'
+  }
+
+  /** Blob segurando o especial: aura pulsando e faíscas subindo, mais forte perto de soltar. */
+  private holdAura(p: Side, x: number, y: number, left: number) {
+    const c = this.ctx
+    const cy = y - BLOBBY_UPPER_SPHERE * 0.4
+    const urge = 1 - left
+    const pulse = 1 + Math.sin(this.time * (14 + urge * 18)) * (0.08 + urge * 0.1)
+    const r = (BLOBBY_LOWER_RADIUS * 2.1) * pulse
+    c.globalCompositeOperation = 'lighter'
+    c.globalAlpha = 0.55 + urge * 0.3
+    const g = c.createRadialGradient(x, cy, r * 0.3, x, cy, r)
+    g.addColorStop(0, hexA(this.lights[p], 0.35))
+    g.addColorStop(1, hexA(this.lights[p], 0))
+    c.fillStyle = g
+    c.beginPath(); c.arc(x, cy, r, 0, Math.PI * 2); c.fill()
+    c.strokeStyle = this.lights[p]
+    c.lineWidth = 2 + urge * 3
+    c.globalAlpha = 0.5 + urge * 0.4
+    c.beginPath(); c.arc(x, cy, r * 0.82, 0, Math.PI * 2); c.stroke()
+    const n = this.lite ? 4 : 9
+    for (let i = 0; i < n; i++) {
+      const ph = (this.time * (1.4 + i * 0.13) + i * 0.37) % 1
+      const ax = x + Math.sin(i * 2.3 + this.time * 2) * BLOBBY_LOWER_RADIUS * 1.3
+      const ay = y + BLOBBY_LOWER_SPHERE - ph * 130
+      const sr = (3 + (i % 3)) * (1 - ph) + 1
+      c.globalAlpha = (1 - ph) * 0.9
+      c.drawImage(this.glow, ax - sr * 2, ay - sr * 2, sr * 4, sr * 4)
+    }
+    c.globalAlpha = 1
+    c.globalCompositeOperation = 'source-over'
+  }
+
   private stars(x: number, y: number) {
     const c = this.ctx
     const cy = y - 62
@@ -1515,7 +1637,10 @@ export class Stage2D implements GameRenderer {
   render(match: Match, alpha: number, dt: number) {
     crouchMoods(this.faces, match.world.crouch)
     reachMoods(this.faces, match.world, match.logic.isBallValid)
+    if (this.hitstop > 0) { this.hitstop -= dt; alpha = 0 }
     this.step(dt)
+    const eOn = match.world.superFrames > 0
+    this.energy = Math.max(0, Math.min(1, this.energy + (eOn ? dt * 9 : -dt * 5)))
     this.tension += (rallyTension(match.logic.rally) - this.tension) * Math.min(1, dt * 2.2)
     const c = this.ctx
     const p = this.prev, q = this.cur
@@ -1611,6 +1736,7 @@ export class Stage2D implements GameRenderer {
       if (this.diveK[s] < 0.002) this.diveK[s] = 0
       const dive = this.diveK[s]
       if (air) this.diveStreak(sx, sy - BLOBBY_UPPER_SPHERE * 0.5, w.diveDir[s], 1)
+      if (w.hold[s] > 0 && superOn) this.holdAura(s, sx, sy, w.hold[s] / SPECIAL_HOLD)
       this.blob(s, sx, sy, lerp(p.st[s], q.st[s]), { x: bx, y: by }, w.stun[s] > 0, w.crouch[s],
         dive, w.diveDir[s])
     }
@@ -1635,6 +1761,7 @@ export class Stage2D implements GameRenderer {
       c.globalAlpha = 1
     }
 
+    if (this.energy > 0.01) this.energyBall(bx, by, rot, w.superOwner as number)
     if (superOn) {
       c.globalCompositeOperation = 'lighter'
       const sparks = this.lite ? 3 : 7
@@ -1704,6 +1831,15 @@ export class Stage2D implements GameRenderer {
     this.paintDepth(true)
     this.foreground(dt)
 
+    if (this.aber > 0.01) {
+      const a = Math.min(1, this.aber)
+      const g = c.createRadialGradient(this.cw / 2, this.ch / 2, this.ch * 0.35, this.cw / 2, this.ch / 2, this.ch * 0.9)
+      g.addColorStop(0, 'rgba(255,60,40,0)')
+      g.addColorStop(0.7, `rgba(255,70,40,${0.18 * a})`)
+      g.addColorStop(1, `rgba(40,120,255,${0.35 * a})`)
+      c.fillStyle = g
+      c.fillRect(0, 0, this.cw, this.ch)
+    }
     if (this.flash > 0.001) {
       c.fillStyle = `rgba(255,255,255,${this.flash})`
       c.fillRect(0, 0, this.cw, this.ch)
