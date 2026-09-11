@@ -38,6 +38,7 @@ import { REPLAY_SPEEDS, Recorder, ReplayPlayer } from './core/replay.ts'
 import type { ReplayMeta, ReplayMode } from './core/replay.ts'
 import { loadReplay, saveLocalReplay, saveOnlineReplay } from './net/replays.ts'
 import type { ReplayCard } from './net/replays.ts'
+import { ONLY_3D, PLATFORM } from './core/platform.ts'
 
 type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
@@ -70,7 +71,10 @@ function detectQuality(): GameConfig['quality'] {
   const gpu = gpuName()
   const cores = navigator.hardwareConcurrency || 4
   const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8
-  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) return cores <= 4 ? 'min' : 'cpu'
+  // no app o 2D não é opção: cai no piso do 3D e o autoScale ajusta depois
+  if (/swiftshader|llvmpipe|software|basic render/.test(gpu)) {
+    return ONLY_3D ? 'low' : cores <= 4 ? 'min' : 'cpu'
+  }
   if (cores <= 4 || mem <= 4) return 'low'
   if (isTouch) return cores >= 8 ? 'medium' : 'low'
   if (/intel|uhd graphics|hd graphics|iris|mali|adreno|vega 3|vega 6/.test(gpu)) return 'low'
@@ -126,7 +130,8 @@ class App {
     const savedQ = localStorage.getItem('bv.quality') as GameConfig['quality'] | null
     const savedName = localStorage.getItem('bv.name')
     this.cfg = { ...DEFAULT_CONFIG }
-    if (savedQ && (IS_2D(savedQ) || QUALITY_PRESETS[savedQ])) { this.cfg.quality = savedQ; this.userPickedQuality = true }
+    const usableQ = savedQ && (ONLY_3D ? !IS_2D(savedQ) && !!QUALITY_PRESETS[savedQ] : IS_2D(savedQ) || !!QUALITY_PRESETS[savedQ])
+    if (savedQ && usableQ) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
     this.cfg.showFps = localStorage.getItem('bv.fps') === '1'
@@ -139,6 +144,9 @@ class App {
     setArena(this.cfg.arena)
     syncArena()
     document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
+    document.body.dataset.platform = PLATFORM
+    // blur por cima do canvas é caro no celular; aqui ele sai de cena
+    document.body.classList.toggle('noblur', isTouch)
 
     void ensureIce()
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
@@ -233,6 +241,7 @@ class App {
   }
 
   applyQuality(q: GameConfig['quality'], byUser: boolean) {
+    if (ONLY_3D && IS_2D(q)) return
     if (!IS_2D(q) && !QUALITY_PRESETS[q]) return
     // no 2D o HUD não pode ter blur nem animação infinita por cima do canvas
     document.body.classList.toggle('lite', IS_2D(q))

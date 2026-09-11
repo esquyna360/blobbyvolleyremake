@@ -5,3 +5,6 @@ dist
 
 # material bruto do compositor: a composição vive em tools/music/
 .assets-in/
+
+# saída do electron-builder
+release

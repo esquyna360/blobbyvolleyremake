@@ -1,5 +1,6 @@
 allowBuilds:
   '@firebase/util': true
+  electron-winstaller: set this to true or false
   esbuild: true
   protobufjs: true
 patchedDependencies:

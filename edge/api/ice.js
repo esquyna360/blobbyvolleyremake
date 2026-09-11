@@ -1,7 +1,18 @@
+/*
+ * Quem pode pedir credencial de TURN. A lista existe pra ninguém de fora
+ * queimar a cota; os apps nativos são nossos e entram nela:
+ * `https://localhost` é a WebView do Android, `blobby://app` é a janela do
+ * desktop.
+ */
 const ALLOWED = new Set([
   'https://esquyna360.github.io',
+  'https://localhost',
+  'capacitor://localhost',
+  'blobby://app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174',
 ])
 
 const TTL = 7200

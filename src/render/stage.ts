@@ -128,6 +128,22 @@ export interface Quality {
   scenery: { palms: number; rocks: number; spectators: number; birds: number; umbrellas: number }
 }
 
+/**
+ * Em tela de toque um pixel de CSS vale dois e meio de verdade: render a 1x
+ * sobe borrado no celular. O piso sobe, com teto no total de pixels pra que
+ * tela grande não estoure o orçamento junto.
+ */
+const COARSE = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches
+const MOBILE_MAX_PIXELS = 1_400_000
+
+function pixelTarget(q: Quality, w: number, h: number) {
+  if (!COARSE) return Math.min(devicePixelRatio, q.pixelRatio)
+  const want = Math.min(devicePixelRatio, Math.max(q.pixelRatio, 1.5))
+  const area = w * h * want * want
+  if (area <= MOBILE_MAX_PIXELS) return want
+  return Math.max(1, want * Math.sqrt(MOBILE_MAX_PIXELS / area))
+}
+
 export const QUALITY_PRESETS: Record<string, Quality> = {
   low: {
     shadows: false, shadowSize: 512, post: true, bloom: false, godRays: false, smaa: false,
@@ -350,7 +366,6 @@ export class Stage implements GameRenderer {
       canvas, antialias: !quality.post, powerPreference: 'high-performance',
       stencil: false, depth: true,
     })
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, quality.pixelRatio))
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 0.86
@@ -604,6 +619,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   setSize(w: number, h: number) {
+    this.renderer.setPixelRatio(pixelTarget(this.quality, w, h))
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
     this.fitArena()

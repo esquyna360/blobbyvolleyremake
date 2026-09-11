@@ -17,6 +17,10 @@ import type { PlayerLook } from '../core/looks.ts'
 import { drawPortrait } from '../render/portrait.ts'
 import type { PadAction } from './pad.ts'
 import { drillBest } from '../core/drill.ts'
+import { ONLY_3D } from '../core/platform.ts'
+
+/** Num aparelho de toque as dicas de teclado não dizem nada a ninguém. */
+const TOUCH = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches
 
 export interface GameConfig {
   mode: 'bot' | 'local' | 'online' | 'drill'
@@ -51,14 +55,14 @@ const DIFFS: [Difficulty, string, string][] = [
   ['insane', 'Insano', ''],
 ]
 
-const QUALITIES: [GameConfig['quality'], string, string][] = [
+const QUALITIES: [GameConfig['quality'], string, string][] = ([
   ['min', '2D mínimo', 'máquina antiga'],
   ['cpu', '2D (CPU)', 'sem GPU'],
   ['low', 'Baixa', ''],
   ['medium', 'Média', ''],
   ['high', 'Alta', ''],
   ['ultra', 'Ultra', ''],
-]
+] as [GameConfig['quality'], string, string][]).filter(q => !(ONLY_3D && (q[0] === 'min' || q[0] === 'cpu')))
 
 const FPS_OPTS: ['off' | 'on', string, string][] = [
   ['off', 'Ocultar', ''],
@@ -358,7 +362,7 @@ export class Menu {
             () => this.solo(), 'go'),
           this.act('ONLINE', 'sala direta entre vocês, sem servidor no meio',
             () => this.online()),
-          this.act('2 JOGADORES', 'os dois no mesmo teclado',
+          this.act('2 JOGADORES', TOUCH ? 'dois controles no mesmo aparelho' : 'os dois no mesmo teclado',
             () => { cfg.mode = 'local'; this.handlers.onStart(cfg) }),
           el('div', { class: 'opts pre' },
             this.opt('Cenário', SCENE_LIST, cfg.scene,
@@ -368,8 +372,18 @@ export class Menu {
             this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings()),
             this.item('RANKING', 'só partida online pontua', () => this.ranking()),
             this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays())),
-          this.tipLine('passa o cursor numa opção pra ver o que ela faz'))),
-      el('div', { class: 'homefoot' },
+          this.tipLine(TOUCH
+            ? '▲ pula · dois toques no ar = especial · ▼ manchete, segurar agacha · ▼+◀ mergulha'
+            : 'passa o cursor numa opção pra ver o que ela faz'))),
+      el('div', { class: 'homefoot' }, ...(TOUCH ? [
+        this.keyRow(['◀', '▶'], 'anda'),
+        this.keyRow(['▲'], 'pula — dois toques no ar = especial'),
+        this.keyRow(['▼'], 'toque = manchete, segurar = agachar'),
+        this.keyRow(['▼', '◀'], 'no chão = mergulho'),
+        this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
+        this.keyRow(['☺'], 'emotes no canto da tela'),
+        this.keyRow(['MENU'], 'pausa e volta'),
+      ] : [
         this.keyRow(['A', 'D', 'W', 'S'], 'jogador 1'),
         this.keyRow(['←', '→', '↑', '↓'], 'jogador 2'),
         this.keyRow(['S'], 'toque = manchete, segurar = agachar'),
@@ -377,7 +391,8 @@ export class Menu {
         this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
         this.keyRow(['1', '5'], 'emotes'),
         this.keyRow(['ESC'], 'pausa e volta'),
-        this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X corta, ☰ pausa')),
+        this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X corta, ☰ pausa'),
+      ])),
     )
     this.runPortrait(cv)
   }
@@ -830,7 +845,7 @@ export class Menu {
         this.opt('Gráficos', QUALITIES, this.cfg.quality,
           v => { this.cfg.quality = v; this.handlers.onQuality(v) }),
         ...this.volumeRows()),
-      this.tipLine('ESC volta pro jogo'),
+      this.tipLine(TOUCH ? 'MENU volta pro jogo' : 'ESC volta pro jogo'),
     )
   }
 

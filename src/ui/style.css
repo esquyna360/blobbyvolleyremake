@@ -1,4 +1,13 @@
 :root {
+  /*
+   * Margem de segurança da tela. No navegador vem do `env()`; no app o Android
+   * escreve por cima, porque nem toda WebView reporta `env()` direito e aí a
+   * interface entraria embaixo do recorte da câmera.
+   */
+  --sa-t: env(safe-area-inset-top, 0px);
+  --sa-r: env(safe-area-inset-right, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  --sa-l: env(safe-area-inset-left, 0px);
   --bg: #05070c;
   --ink: #eef2f7;
   --muted: #b9c5d8;
@@ -104,7 +113,7 @@ html, body {
 /* barras de especial nos cantos de baixo, estilo luta */
 .charge {
   position: fixed; z-index: 4;
-  bottom: calc(20px + env(safe-area-inset-bottom));
+  bottom: calc(20px + var(--sa-b));
   width: 24vw; max-width: 380px; height: 20px;
   transform: skewX(-16deg);
   border-radius: 3px; overflow: hidden;
@@ -557,25 +566,35 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 .touch {
   position: absolute; bottom: 0; left: 0; right: 0; height: 42vh;
   display: none; justify-content: space-between; align-items: flex-end;
-  padding: 20px 22px calc(20px + env(safe-area-inset-bottom));
+  padding: 20px 22px calc(20px + var(--sa-b));
 }
 .touch.on { display: flex; }
 .tpad { display: flex; gap: 14px; align-items: flex-end; }
+/*
+ * Nada de `backdrop-filter` aqui: sobre o canvas do jogo ele reborra a cada
+ * quadro, e no celular isso é quadro perdido. Tinta escura também segura o
+ * contraste contra a areia clara, que o vidro translúcido não segurava.
+ */
 .tbtn {
   width: 78px; height: 78px; border-radius: 26px;
-  background: rgba(255,255,255,0.07); border: 1px solid var(--line);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background: rgba(8,12,20,0.44); border: 1px solid rgba(255,255,255,0.3);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
   display: grid; place-items: center; font-size: 26px; color: var(--ink);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
 }
-.tbtn.big { width: 104px; height: 104px; border-radius: 34px; background: rgba(255,210,87,0.16); border-color: rgba(255,210,87,0.4); }
-.tbtn.press { background: rgba(255,255,255,0.22); transform: scale(0.94); }
+.tbtn.big {
+  width: 104px; height: 104px; border-radius: 34px;
+  background: rgba(255,205,70,0.82); border-color: rgba(255,238,190,0.9);
+  color: #21170a; text-shadow: none;
+}
+.tbtn.press { background: rgba(255,255,255,0.5); transform: scale(0.94); }
 
 .tmenu {
   position: absolute;
-  top: calc(14px + env(safe-area-inset-top)); left: 16px;
+  top: calc(14px + var(--sa-t)); left: 16px;
   padding: 10px 14px; border-radius: 14px;
-  background: rgba(255,255,255,0.07); border: 1px solid var(--line);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background: rgba(8,12,20,0.55); border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
   display: none; font-size: 11px; letter-spacing: 0.14em; color: var(--ink);
 }
 .tmenu.on { display: block; }
@@ -583,14 +602,14 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 
 .temotes {
   position: absolute;
-  top: calc(14px + env(safe-area-inset-top)); right: 16px;
+  top: calc(14px + var(--sa-t)); right: 16px;
   display: none; gap: 8px;
 }
 .temotes.on { display: flex; }
 .tem {
   width: 46px; height: 46px; border-radius: 16px;
-  background: rgba(255,255,255,0.07); border: 1px solid var(--line);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background: rgba(8,12,20,0.5); border: 1px solid rgba(255,255,255,0.26);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
   display: grid; place-items: center; font-size: 22px; line-height: 1;
 }
 .tem:active { background: rgba(255,255,255,0.22); transform: scale(0.9); }
@@ -602,7 +621,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
 .corner kbd { font-family: 'JetBrains Mono', monospace; background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 5px; }
 
 @media (max-width: 620px) {
-  .overlay { padding: calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom)); }
+  .overlay { padding: calc(14px + var(--sa-t)) 14px calc(14px + var(--sa-b)); }
   .panel { width: 100%; }
   .grid.four { grid-template-columns: repeat(2, 1fr); }
   .grid.five { grid-template-columns: repeat(3, 1fr); }
@@ -626,7 +645,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   .arw { width: 34px; padding: 12px 0; font-size: 13px; }
   .val { padding: 10px 2px; min-width: 92px; }
   .sld { height: 30px; }
-  .hud { justify-content: flex-end; padding: calc(8px + env(safe-area-inset-top)) 10px 0; }
+  .hud { justify-content: flex-end; padding: calc(8px + var(--sa-t)) 10px 0; }
   .score-card {
     gap: 8px; padding: 5px 10px; border-radius: 13px;
     backdrop-filter: none; -webkit-backdrop-filter: none;
@@ -641,27 +660,27 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   .touches { transform: scale(0.78); margin-top: 1px; }
   .netbar {
     font-size: 9px; padding: 5px 7px; line-height: 1.5; min-width: 0;
-    top: calc(8px + env(safe-area-inset-top));
+    top: calc(8px + var(--sa-t));
     left: 10px; right: auto;
     backdrop-filter: none; -webkit-backdrop-filter: none;
     background: rgba(10,14,22,0.62);
   }
   .fps {
     font-size: 9px; padding: 3px 6px; border-radius: 8px;
-    top: calc(8px + env(safe-area-inset-top)); left: 10px;
+    top: calc(8px + var(--sa-t)); left: 10px;
   }
   /* os dois moram no mesmo canto: com FPS ligado o netbar desce */
-  body.fps-on .netbar { top: calc(29px + env(safe-area-inset-top)); }
+  body.fps-on .netbar { top: calc(29px + var(--sa-t)); }
 
   .charge {
-    bottom: calc(6px + env(safe-area-inset-bottom));
+    bottom: calc(6px + var(--sa-b));
     width: 38vw; max-width: 210px; height: 15px;
   }
   .charge.l { left: 10px; }
   .charge.r { right: 10px; }
   .charge b { font-size: 7px; letter-spacing: 0.16em; text-indent: 0.16em; }
-  .touch { padding-bottom: calc(34px + env(safe-area-inset-bottom)); }
-  .temotes { top: auto; bottom: calc(28px + env(safe-area-inset-bottom)); right: 10px; }
+  .touch { padding-bottom: calc(34px + var(--sa-b)); }
+  .temotes { top: auto; bottom: calc(28px + var(--sa-b)); right: 10px; }
   .tem { width: 40px; height: 40px; border-radius: 13px; font-size: 19px; }
 }
 
@@ -693,7 +712,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   /* celular deitado: placar pequeno num canto, emotes pequenos no outro */
   .hud {
     justify-content: flex-end;
-    padding: calc(6px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 0;
+    padding: calc(6px + var(--sa-t)) calc(10px + var(--sa-r)) 0;
   }
   .score-card {
     gap: 7px; padding: 4px 9px; border-radius: 12px;
@@ -710,32 +729,32 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   .netbar {
     font-size: 8px; padding: 3px 6px; line-height: 1.45; min-width: 0;
     bottom: auto; right: auto;
-    top: calc(46px + env(safe-area-inset-top));
-    left: calc(10px + env(safe-area-inset-left));
+    top: calc(46px + var(--sa-t));
+    left: calc(10px + var(--sa-l));
     backdrop-filter: none; -webkit-backdrop-filter: none;
     background: rgba(10,14,22,0.62);
   }
 
   .temotes {
-    top: calc(6px + env(safe-area-inset-top));
-    right: auto; left: calc(10px + env(safe-area-inset-left)); gap: 6px;
+    top: calc(6px + var(--sa-t));
+    right: auto; left: calc(10px + var(--sa-l)); gap: 6px;
   }
   .tem { width: 34px; height: 34px; border-radius: 11px; font-size: 16px; }
   .tmenu {
-    top: calc(8px + env(safe-area-inset-top)); bottom: auto;
+    top: calc(8px + var(--sa-t)); bottom: auto;
     left: 50%; transform: translateX(-50%);
     padding: 6px 12px; font-size: 10px;
   }
   .tmenu:active { transform: translateX(-50%) scale(0.94); }
 
   .charge {
-    bottom: calc(6px + env(safe-area-inset-bottom));
+    bottom: calc(6px + var(--sa-b));
     width: 26vw; max-width: 220px; height: 13px;
   }
-  .charge.l { left: calc(10px + env(safe-area-inset-left)); }
-  .charge.r { right: calc(10px + env(safe-area-inset-right)); }
+  .charge.l { left: calc(10px + var(--sa-l)); }
+  .charge.r { right: calc(10px + var(--sa-r)); }
   .charge b { display: none; }
-  .touch { height: 54vh; padding: 14px 18px calc(28px + env(safe-area-inset-bottom)); }
+  .touch { height: 54vh; padding: 14px 18px calc(28px + var(--sa-b)); }
   .tbtn { width: 62px; height: 62px; border-radius: 20px; font-size: 21px; }
   .tbtn.big { width: 80px; height: 80px; border-radius: 26px; }
 }
@@ -800,7 +819,7 @@ button.room.replay.mine .sc { color: #ffd257; }
   position: absolute; z-index: 6;
   left: 50%; transform: translateX(-50%);
   /* acima das barras de especial (20px + 20px de altura) */
-  bottom: calc(52px + env(safe-area-inset-bottom));
+  bottom: calc(52px + var(--sa-b));
   display: flex; align-items: center; gap: 6px;
   background: rgba(10,14,22,0.66); border: 1px solid var(--line);
   border-radius: 13px; padding: 6px 8px;
@@ -928,7 +947,7 @@ button.room.live { border-color: rgba(255,59,71,0.35); }
 
 .livetag {
   position: absolute; z-index: 5;
-  top: calc(18px + env(safe-area-inset-top)); left: calc(20px + env(safe-area-inset-left));
+  top: calc(18px + var(--sa-t)); left: calc(20px + var(--sa-l));
   display: flex; align-items: center;
   font-size: 11px; font-weight: 800; letter-spacing: 0.16em;
   color: #ffd7da; background: rgba(10,14,22,0.62);
@@ -939,13 +958,13 @@ button.room.live { border-color: rgba(255,59,71,0.35); }
 
 @media (max-width: 620px) {
   .livetag {
-    top: calc(66px + env(safe-area-inset-top)); left: 10px;
+    top: calc(66px + var(--sa-t)); left: 10px;
     font-size: 9px; padding: 4px 8px;
   }
 }
 @media (max-height: 560px) and (orientation: landscape) {
   .livetag {
-    top: calc(6px + env(safe-area-inset-top));
+    top: calc(6px + var(--sa-t));
     left: 50%; transform: translateX(-50%);
     font-size: 8px; padding: 3px 8px;
   }
@@ -1079,3 +1098,24 @@ body.lite .fat-splat { background: rgba(150,10,10,0.55); }
   text-align: center;
   opacity: 0.45;
 }
+
+/*
+ * Tela de toque: o mesmo corte de blur que o 2D faz. GPU de celular reborra a
+ * região inteira a cada quadro, e atrás do menu tem uma partida rodando. Onde
+ * o vidro sumiu, a tinta fica mais fechada pra não perder o contraste.
+ */
+body.noblur { --glass: rgba(10, 14, 22, 0.86); }
+body.noblur .score-card,
+body.noblur .netbar,
+body.noblur .overlay,
+body.noblur .rep-bar,
+body.noblur .livetag {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.noblur .overlay {
+  background: radial-gradient(78% 62% at 50% 46%, rgba(5,7,13,0.93), rgba(2,3,6,0.985) 82%);
+}
+body.noblur .score-card { box-shadow: 0 8px 20px rgba(0,0,0,0.45); }
+body.noblur .rep-bar { background: rgba(10,14,22,0.86); }
+body.noblur .livetag { background: rgba(10,14,22,0.86); }

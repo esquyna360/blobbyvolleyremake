@@ -1,0 +1,35 @@
+appId: com.esquyna.blobby
+productName: Blobby Remake
+copyright: Esquyna Labs
+
+directories:
+  output: release
+  buildResources: build
+
+# tudo que o jogo precisa já está no dist; node_modules aqui só incharia o pacote
+files:
+  - dist/**/*
+  - desktop/**/*
+  - package.json
+  - '!node_modules/**/*'
+
+mac:
+  # Não existe cert Developer ID nesta máquina: assinatura ad-hoc, que é o que
+  # deixa o app abrir no Apple Silicon. Na primeira vez o macOS pede botão
+  # direito > Abrir, ou `xattr -dr com.apple.quarantine`.
+  identity: null
+  category: public.app-category.games
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  darkModeSupport: true
+
+win:
+  # nsis exigiria wine pra montar no macOS; o zip roda direto
+  target:
+    - target: zip
+      arch: [x64]
+
+linux:
+  target: [AppImage]
+  category: Game

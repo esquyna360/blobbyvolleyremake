@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#0b1220</color>
+    <color name="colorPrimaryDark">#070c15</color>
+    <color name="colorAccent">#ffd257</color>
+    <color name="blobbyBackground">#0b1220</color>
+</resources>

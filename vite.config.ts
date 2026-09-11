@@ -13,5 +13,6 @@ export default defineConfig({
   base: './',
   define: { __BUILD__: JSON.stringify(build) },
   server: { host: true, port: 5173 },
-  build: { target: 'es2022', sourcemap: true },
+  // o app empacota o dist inteiro: sourcemap ali é peso morto dentro do APK
+  build: { target: 'es2022', sourcemap: !process.env.BLOBBY_NATIVE },
 })
