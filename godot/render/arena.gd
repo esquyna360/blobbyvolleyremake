@@ -7,11 +7,12 @@ extends Node3D
 const CAM_FOV := 27.5
 const CAM_FOV_MIN := 26.7
 const CAM_Z := 28.2
-const CAM_Z_MAX := 56.0
-const CAM_TOP_MIN := 11.8
-const CAM_TOP_PAD := 2.2
-const CAM_MARGIN := 1.4
-const CAM_LOOK := 0.14
+const CAM_Z_MAX := 40.0
+const CAM_TOP_MIN := 8.8
+const CAM_TOP_PAD := 1.2
+const CAM_TOP_MAX := 13.0
+const CAM_MARGIN := 0.5
+const CAM_LOOK := 0.10
 const CAM_EYE_Y := 7.6
 const CAM_LOOK_Y := 3.3
 const OPEN_HALF := BV.OPEN_MARGIN * Map.S
@@ -45,6 +46,84 @@ var _cam_target_x := 0.0
 var _cam_z := CAM_Z
 var _cam_span := 0.0
 var _cam_top := CAM_TOP_MIN
+var intro_t := -1.0
+const INTRO_LEN := 5.6
+
+func start_intro() -> void:
+	intro_t = 0.0
+	for i in 2:
+		blobs[i].face.set_mood("smug" if i == 0 else "focus", 2.0, 3)
+
+func skip_intro() -> void:
+	if intro_t >= 0.0:
+		intro_t = INTRO_LEN - 0.35
+
+func intro_active() -> bool:
+	return intro_t >= 0.0
+
+func intro_phase() -> float:
+	return clampf(intro_t / INTRO_LEN, 0.0, 1.0) if intro_t >= 0.0 else 1.0
+
+static func _ease(k: float) -> float:
+	return k * k * (3.0 - 2.0 * k)
+
+## Câmera passeia pelo cenário, encosta na cara de cada blob e assenta na
+## posição de jogo. A física não anda durante o passeio.
+func _intro_cam(dt: float, w: PhysicWorld) -> bool:
+	if intro_t < 0.0:
+		return false
+	intro_t += dt
+	var lx := Map.gx(w.blob_x[BV.LEFT])
+	var rx := Map.gx(w.blob_x[BV.RIGHT])
+	var hy := Map.gy(w.blob_y[BV.LEFT]) + 0.75
+	var t := intro_t
+	var pos: Vector3
+	var look: Vector3
+	var fov := 34.0
+	if t < 1.9:
+		var k := _ease(t / 1.9)
+		pos = Vector3(lerpf(-11.0, -5.0, k), lerpf(13.5, 9.5, k), lerpf(9.0, 24.0, k))
+		look = Vector3(lerpf(3.0, 0.0, k), lerpf(1.5, 4.5, k), lerpf(-7.0, -2.0, k))
+		fov = lerpf(42.0, 31.0, k)
+	elif t < 3.3:
+		var k := clampf((t - 1.9) / 0.35, 0.0, 1.0)
+		var d := (t - 1.9) * 0.18
+		pos = Vector3(lx + 0.4, hy + 0.1, 3.3 - d)
+		look = Vector3(lx, hy, 0.0)
+		fov = 30.0
+		if k < 1.0:
+			_cut = 1.0 - k
+	elif t < 4.7:
+		var k := clampf((t - 3.3) / 0.35, 0.0, 1.0)
+		var d := (t - 3.3) * 0.18
+		pos = Vector3(rx - 0.4, hy + 0.1, 3.3 - d)
+		look = Vector3(rx, hy, 0.0)
+		fov = 30.0
+		if k < 1.0:
+			_cut = 1.0 - k
+	else:
+		var k := _ease(clampf((t - 4.7) / (INTRO_LEN - 4.7), 0.0, 1.0))
+		var gp := Vector3(_cam_target_x, CAM_EYE_Y, _cam_z)
+		pos = Vector3(rx - 0.4, hy + 0.1, 3.05).lerp(gp, k)
+		look = Vector3(rx, hy, 0.0).lerp(Vector3(0.0, CAM_LOOK_Y, 0.0), k)
+		fov = lerpf(30.0, CAM_FOV, k)
+	camera.position = pos
+	camera.look_at(look, Vector3.UP)
+	camera.fov = fov
+	if intro_t >= INTRO_LEN:
+		intro_t = -1.0
+	return true
+
+var _cut := 0.0
+
+func ball_screen_hint(bx: float, by: float) -> Vector3:
+	var p := Vector3(bx, by, 0.0)
+	var vs := get_viewport().get_visible_rect().size
+	if camera.is_position_behind(p):
+		return Vector3(-1, -1, 0)
+	var s := camera.unproject_position(p)
+	var off := s.y < -8.0 or s.x < -8.0 or s.x > vs.x + 8.0
+	return Vector3(s.x, s.y, 1.0 if off else 0.0)
 var _open_extra := 0.0
 var _shake_seed := 0.0
 var _squash_k := 0.0
@@ -459,11 +538,11 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var want_open := maxf(0.0, minf(OPEN_HALF, far + 0.5))
 	var open_rate := 5.5 if want_open > _open_extra else 1.4
 	_open_extra += (want_open - _open_extra) * (1.0 - exp(-dt * open_rate))
-	var want_top := maxf(CAM_TOP_MIN, by + CAM_TOP_PAD)
+	var want_top := clampf(by + CAM_TOP_PAD, CAM_TOP_MIN, CAM_TOP_MAX)
 	_cam_top += (want_top - _cam_top) * (1.0 - exp(-dt * (7.0 if want_top > _cam_top else 1.1)))
 	_fit_arena(aspect)
 
-	_cam_target_x = lerpf(_cam_target_x, bx * 0.30, 1.0 - exp(-dt * 3.2))
+	_cam_target_x = lerpf(_cam_target_x, bx * 0.42, 1.0 - exp(-dt * 3.2))
 	var sway := sin(time * 0.31) * 0.20 + sin(time * 0.17) * 0.11
 	var sway_y := sin(time * 0.23 + 1.7) * 0.10
 
@@ -475,11 +554,13 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var shr := sin(t * 1.3) * sh * 0.022
 
 	var px := clampf(_cam_target_x, -_cam_span, _cam_span)
-	camera.position = Vector3(px + sway + shx, CAM_EYE_Y + sway_y + shy,
-		_cam_z - trauma * 0.5)
-	camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0), Vector3.UP)
-	camera.rotate_object_local(Vector3.FORWARD, shr)
-	camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036 - tension * 1.4
+	if not _intro_cam(dt, w):
+		camera.position = Vector3(px + sway + shx, CAM_EYE_Y + sway_y + shy,
+			_cam_z - trauma * 0.5)
+		camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0), Vector3.UP)
+		camera.rotate_object_local(Vector3.FORWARD, shr)
+		camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036 - tension * 1.4
+	_cut = maxf(0.0, _cut - dt * 6.0)
 
 	ball.update(bx, by, brot, sin(time * 0.7) * 0.25, dt)
 	_blob_shadow(_shadow[2], bx, by, 1.5)

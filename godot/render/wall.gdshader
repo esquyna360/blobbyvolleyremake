@@ -21,7 +21,7 @@ float hexd(vec2 p) {
 void fragment() {
 	float hy = lp.y + height * 0.5;
 	float fade = smoothstep(height, 0.0, hy);
-	fade *= fade;
+	fade = fade * fade * fade;
 	vec2 g = vec2(lp.x, hy) * 1.5;
 	vec2 r = vec2(1.0, 1.7320508);
 	vec2 h = r * 0.5;
@@ -29,9 +29,9 @@ void fragment() {
 	vec2 b = mod(g - h, r) - h;
 	vec2 gv = dot(a, a) < dot(b, b) ? a : b;
 	float line = smoothstep(0.40, 0.47, hexd(gv));
-	float base = 0.10 + line * 0.45;
-	float edge = smoothstep(1.0, 0.0, hy) * 0.7;
-	float scan = (0.5 + 0.5 * sin(hy * 2.2 - t * 2.4)) * 0.16;
+	float base = 0.02 + line * 0.13;
+	float edge = smoothstep(1.0, 0.0, hy) * 0.5;
+	float scan = (0.5 + 0.5 * sin(hy * 2.2 - t * 2.4)) * 0.06;
 	float ring = 0.0;
 	if (hit_t < 1.4) {
 		float d = length(vec2(lp.x, hy - hit_y));
@@ -41,5 +41,5 @@ void fragment() {
 	}
 	float al = (base + scan + ring) * fade + edge;
 	ALBEDO = mix(color, vec3(1.0), clamp(line * 0.6 + ring, 0.0, 1.0));
-	ALPHA = clamp(al * 0.85, 0.0, 0.9);
+	ALPHA = clamp(al * 0.8, 0.0, 0.85);
 }

@@ -14,7 +14,7 @@ signal quit_game()
 
 const DIFFS := [["easy", "Fácil"], ["normal", "Normal"], ["hard", "Difícil"], ["insane", "Insano"]]
 const QUALS := ["Baixo", "Médio", "Alto", "Máximo"]
-const SCENES := [["selva", "Selva"], ["praia", "Praia ao pôr do sol"]]
+const SCENES := [["selva", "Selva"], ["praia", "Praia ao pôr do sol"], ["galpao", "Galpão"]]
 
 var settings: Settings
 

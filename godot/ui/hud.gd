@@ -15,9 +15,10 @@ var _fill := [null, null]
 var _rally: Label
 var _info: Label
 var _big: Label
+var _mark: Label
+var _mark_a := 0.0
 var _big_t := 0.0
 var _big_pop := 0.0
-var _band: TextureRect
 var _pulse := [0.0, 0.0]
 var _rally_shown := -1
 var _rally_base := 0
@@ -145,29 +146,6 @@ func build(left: Color, right: Color) -> void:
 	_rally.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_rally)
 
-	_band = TextureRect.new()
-	var bg := GradientTexture2D.new()
-	var bgr := Gradient.new()
-	bgr.set_color(0, Color(0, 0, 0, 0))
-	bgr.set_color(1, Color(0, 0, 0, 0))
-	bgr.add_point(0.25, Color(0.02, 0.01, 0.0, 0.55))
-	bgr.add_point(0.75, Color(0.02, 0.01, 0.0, 0.55))
-	bg.gradient = bgr
-	bg.fill_from = Vector2(0, 0.5)
-	bg.fill_to = Vector2(1, 0.5)
-	bg.width = 512
-	bg.height = 8
-	_band.texture = bg
-	_band.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_band.anchor_top = 0.36
-	_band.anchor_bottom = 0.36
-	_band.offset_top = -64
-	_band.offset_bottom = 64
-	_band.stretch_mode = TextureRect.STRETCH_SCALE
-	_band.modulate.a = 0.0
-	_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_band)
-
 	_big = Label.new()
 	_big.set_anchors_preset(Control.PRESET_CENTER)
 	_big.anchor_left = 0.5
@@ -179,16 +157,34 @@ func build(left: Color, right: Color) -> void:
 	_big.offset_top = -56
 	_big.offset_bottom = 56
 	_big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_big.add_theme_font_size_override("font_size", 84)
-	_big.add_theme_color_override("font_outline_color", Color(0.14, 0.07, 0.02, 0.95))
-	_big.add_theme_constant_override("outline_size", 16)
-	_big.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
-	_big.add_theme_constant_override("shadow_offset_x", 0)
-	_big.add_theme_constant_override("shadow_offset_y", 8)
-	_big.add_theme_constant_override("shadow_outline_size", 12)
+	_big.add_theme_font_size_override("font_size", 58)
+	_big.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.75))
+	_big.add_theme_constant_override("outline_size", 7)
 	_big.modulate.a = 0.0
 	_big.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_big)
+	_mark = Label.new()
+	_mark.text = "▲"
+	_mark.add_theme_font_size_override("font_size", 30)
+	_mark.add_theme_color_override("font_color", Color(1.0, 0.86, 0.3))
+	_mark.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.8))
+	_mark.add_theme_constant_override("outline_size", 6)
+	_mark.size = Vector2(60, 40)
+	_mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_mark.modulate.a = 0.0
+	_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_mark)
+
+func ball_hint(h: Vector3, dt: float) -> void:
+	var want := 1.0 if h.z > 0.5 else 0.0
+	_mark_a += (want - _mark_a) * (1.0 - exp(-dt * 10.0))
+	_mark.modulate.a = _mark_a
+	if h.z > 0.5:
+		var vs := size
+		var x := clampf(h.x - 30.0, 8.0, vs.x - 68.0)
+		var y := clampf(h.y - 6.0, 68.0, vs.y - 48.0)
+		_mark.position = Vector2(x, y)
+		_mark.rotation = 0.0 if h.y < 0.0 else (-PI * 0.5 if h.x < 0.0 else PI * 0.5)
 
 func shout(text: String, color := Color(1, 1, 1), hold := 1.8) -> void:
 	_big.text = text
@@ -240,19 +236,14 @@ func update(m: BVMatch, dt: float) -> void:
 	_rally_pulse = maxf(0.0, _rally_pulse - dt * 4.0)
 	_rally.modulate.a = clampf(_rally_t * 3.0, 0.0, 1.0) if g.rally >= RALLY_MIN else 0.0
 	_rally.pivot_offset = _rally.size * 0.5
-	_rally.scale = Vector2.ONE * (1.0 + _rally_pulse * 0.4)
-	_rally.rotation = _rally_pulse * 0.06 * sin(Time.get_ticks_msec() * 0.05)
+	_rally.scale = Vector2.ONE * (1.0 + _rally_pulse * 0.10)
 
 	if _big_t > 0.0:
 		_big_t -= dt
-		_big_pop = maxf(0.0, _big_pop - dt * 4.5)
+		_big_pop = maxf(0.0, _big_pop - dt * 5.0)
 		var e := _big_pop * _big_pop
-		_big.modulate.a = minf(1.0, _big_t * 2.5) * (1.0 - e * 0.6)
+		_big.modulate.a = minf(1.0, _big_t * 3.0) * (1.0 - e)
 		_big.pivot_offset = _big.size * 0.5
-		var wob := 1.0 + sin(Time.get_ticks_msec() * 0.004) * 0.015
-		_big.scale = Vector2.ONE * ((1.0 + e * 1.6) * wob)
-		_big.rotation = -e * 0.12 + sin(Time.get_ticks_msec() * 0.0021) * 0.012
-		_band.modulate.a = minf(1.0, _big_t * 2.5) * (1.0 - e)
+		_big.scale = Vector2.ONE * (1.0 + e * 0.08)
 	elif _big.modulate.a > 0.0:
 		_big.modulate.a = 0.0
-		_band.modulate.a = 0.0

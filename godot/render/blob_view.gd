@@ -25,6 +25,7 @@ var _mat := ShaderMaterial.new()
 var _hair := Hair3D.new()
 var _phase := 0.0
 var _lean := 0.0
+var _idle := 0.0
 
 static var _shared_mesh: ArrayMesh
 
@@ -78,6 +79,11 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	squash_spring = clampf(squash_spring, -0.26, 0.26)
 
 	var anim := sin((st / 5.0) * PI) * 0.16
+	var still := grounded and absf(vx) < 0.05 and cr < 0.05 and w.dive_frames[i] == 0
+	_idle += ((1.0 if still else 0.0) - _idle) * (1.0 - exp(-dt * (2.0 if still else 12.0)))
+	var ph := time * 2.1 + i * 1.9
+	var breath := (sin(ph) * 0.028 + sin(ph * 0.53 + 1.0) * 0.012) * _idle
+	anim -= breath * 2.0
 	var air_stretch := clampf(-vy / 34.0, -0.16, 0.22)
 
 	# mergulho é bote, não tombo: entra rápido, sai devagar
@@ -88,8 +94,8 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	if dive < 0.002:
 		dive = 0.0
 
-	var sy := 1.0 + squash_spring + air_stretch - anim * 0.5 - cr * 0.34 - dive * 0.32
-	var sxz := 1.0 - (squash_spring + air_stretch) * 0.55 + anim * 0.45 + cr * 0.26
+	var sy := 1.0 + squash_spring + air_stretch - anim * 0.5 - cr * 0.34 - dive * 0.32 + breath
+	var sxz := 1.0 - (squash_spring + air_stretch) * 0.55 + anim * 0.45 + cr * 0.26 - breath * 0.6
 	var sq := Vector3(sxz + dive * 0.46, sy, sxz - dive * 0.1)
 	_mat.set_shader_parameter("squash", sq)
 
@@ -109,7 +115,8 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	var lean := -w.dive_dir[i] * 0.44 * dive if dive > 0.01 \
 		else -vx * 0.028 + (0.0 if grounded else vy * 0.004)
 	_lean = lerpf(_lean, lean, 1.0 - exp(-dt * (17.0 if air else 9.0)))
-	rotation.z = _lean
+	rotation.z = _lean + sin(time * 0.9 + i * 2.4) * 0.035 * _idle
+	rotation.y = sin(time * 0.6 + i * 1.3) * 0.12 * _idle
 
 	if w.stun[i] > 0:
 		rotation.z += sin(time * 9.5) * 0.24

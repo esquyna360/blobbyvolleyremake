@@ -26,11 +26,37 @@ const THEMES := {
 		"falls": true, "rays": true, "ray_col": Color(1.0, 0.97, 0.72),
 		"glow": {"col": Color(1.0, 0.94, 0.68, 0.28), "scale": Vector2(50, 34),
 			"pos": Vector3(0.6, 9.0, -95.0)},
-		"butterflies": true, "birds": false, "torches": false, "sparks": false,
+		"butterflies": true, "birds": false, "fire": null,
 		"mote_col": Color(1.0, 0.98, 0.80, 0.35), "fog_col": Color(0.90, 0.96, 0.92, 0.22),
 		"leaf_ramp": [Color(0.45, 0.72, 0.30), Color(0.80, 0.85, 0.30),
 			Color(0.98, 0.78, 0.25), Color(0.95, 0.55, 0.20)],
-		"plant_h": 1.0,
+		"props": [
+			{"m": "tree_palmBend", "x": -11.5, "z": 10.5, "h": 9.5, "ry": 35, "tint": 0.5},
+			{"m": "grass_leafsLarge", "x": 8.8, "z": 15.5, "h": 2.6, "ry": -20, "tint": 0.5},
+			{"m": "log", "x": -6.5, "y": -0.1, "z": 17.5, "h": 1.1, "ry": 25, "tint": 0.55},
+			{"m": "mushroom_redGroup", "x": -5.3, "z": 16.8, "h": 0.9, "tint": 0.7},
+			{"m": "tree_fat", "x": -13.5, "z": 1.5, "h": 8.5, "ry": 10},
+			{"m": "tree_detailed", "x": 14.5, "z": -1.0, "h": 9.0, "ry": -30},
+			{"m": "tree_palmTall", "x": -17.0, "z": -7.0, "h": 10.0, "ry": 60},
+			{"m": "tree_palmDetailedTall", "x": 18.0, "z": -6.0, "h": 9.5, "ry": 120},
+			{"m": "tree_tall", "x": -20.0, "z": -12.0, "h": 11.0},
+			{"m": "tree_oak", "x": 22.0, "z": -12.0, "h": 10.0, "ry": 40},
+			{"m": "plant_bushLarge", "x": -11.0, "z": 5.5, "h": 1.6, "ry": 15},
+			{"m": "plant_bushDetailed", "x": 12.0, "z": 6.0, "h": 1.8, "ry": -40},
+			{"m": "plant_bush", "x": -11.8, "z": -3.0, "h": 1.4},
+			{"m": "flower_redA", "x": -10.6, "z": 7.4, "h": 0.5},
+			{"m": "flower_purpleA", "x": 11.2, "z": 7.8, "h": 0.5},
+			{"m": "mushroom_red", "x": 10.4, "z": 4.6, "h": 0.55},
+			{"m": "rock_largeB", "x": -8.5, "z": -13.5, "h": 1.8, "ry": 20},
+			{"m": "stone_largeA", "x": 6.5, "z": -14.0, "h": 1.5, "ry": -50},
+			{"m": "rock_tallA", "x": 12.5, "z": -14.5, "h": 2.4},
+			{"m": "canoe", "x": -13.0, "y": 0.05, "z": -12.5, "h": 0.9, "ry": 70},
+			{"m": "lily_large", "x": -4.0, "y": -0.02, "z": -20.0, "h": 0.25},
+			{"m": "lily_large", "x": 5.5, "y": -0.02, "z": -24.0, "h": 0.25, "ry": 90},
+			{"m": "lily_large", "x": 1.0, "y": -0.02, "z": -28.0, "h": 0.25, "ry": 40},
+			{"m": "cliff_waterfall_rock", "x": -20.0, "y": -0.3, "z": -18.0, "h": 4.0, "ry": 15},
+			{"m": "cliff_large_rock", "x": 21.0, "y": -0.3, "z": -20.0, "h": 4.5, "ry": -25},
+		],
 	},
 	"praia": {
 		"dir": "res://assets/stage/beach/",
@@ -45,11 +71,50 @@ const THEMES := {
 		"falls": false, "rays": false, "ray_col": Color(1.0, 0.8, 0.6),
 		"glow": {"col": Color(1.0, 0.72, 0.40, 0.45), "scale": Vector2(90, 46),
 			"pos": Vector3(0.0, 16.0, -149.0)},
-		"butterflies": false, "birds": true, "torches": true, "sparks": true,
+		"butterflies": false, "birds": true, "fire": Vector3(11.8, 0.0, 6.5),
 		"mote_col": Color(1.0, 0.80, 0.55, 0.30), "fog_col": Color(1.0, 0.80, 0.70, 0.16),
 		"leaf_ramp": [Color(0.95, 0.30, 0.40), Color(1.0, 0.55, 0.30),
 			Color(0.35, 0.60, 0.45), Color(1.0, 0.45, 0.65)],
-		"plant_h": 0.85,
+		"props": [
+			{"m": "tree_palmBend", "x": 10.5, "z": 12.0, "h": 11.5, "ry": -35, "flip": true, "tint": 0.5},
+			{"m": "rock_largeC", "x": -8.4, "y": -0.2, "z": 16.5, "h": 1.8, "ry": 30, "tint": 0.55},
+			{"m": "plant_flatTall", "x": -6.2, "z": 17.5, "h": 1.4, "tint": 0.55},
+			{"m": "canoe", "x": -13.5, "y": 0.05, "z": 4.0, "h": 1.0, "ry": 65},
+			{"m": "campfire_logs", "x": 11.8, "z": 6.5, "h": 0.6},
+			{"m": "tree_palmDetailedTall", "x": -15.5, "z": -4.0, "h": 10.0, "ry": 30},
+			{"m": "tree_palmTall", "x": 15.5, "z": -2.5, "h": 10.5, "ry": -80},
+			{"m": "tree_palmShort", "x": -11.5, "z": -10.5, "h": 6.0, "ry": 100},
+			{"m": "tree_palmDetailedShort", "x": 19.5, "z": -9.0, "h": 6.5},
+			{"m": "tree_palmTall", "x": -21.0, "z": -12.0, "h": 11.0, "ry": 140},
+			{"m": "rock_largeA", "x": -6.0, "z": -14.0, "h": 1.4, "ry": 20},
+			{"m": "rock_tallB", "x": 7.5, "z": -13.5, "h": 2.2, "ry": -30},
+			{"m": "stone_tallA", "x": 12.0, "z": -13.0, "h": 1.6},
+			{"m": "log_large", "x": 13.0, "y": 0.0, "z": -8.5, "h": 0.9, "ry": 20},
+			{"m": "grass_large", "x": -10.5, "z": 6.0, "h": 1.0},
+			{"m": "grass_large", "x": 11.0, "z": -6.0, "h": 1.0, "ry": 60},
+			{"m": "plant_flatShort", "x": -12.0, "z": 0.5, "h": 0.9},
+		],
+	},
+	"galpao": {
+		"dir": "res://assets/stage/hangar/", "hangar": true,
+		"bg": Color(0.05, 0.07, 0.10), "ambient": Color(0.22, 0.28, 0.36),
+		"fog": Color(0.16, 0.20, 0.27), "sat": 1.0, "sky_mult": 1.0, "sky_y": 6.0,
+		"back_rot": Vector3(-20, 175, 0), "back_col": Color(0.55, 0.70, 0.95), "back_e": 0.55,
+		"key_rot": Vector3(-62, 12, 0), "key_col": Color(0.95, 0.95, 1.0), "key_e": 0.75,
+		"ground": Color(0.42, 0.44, 0.47),
+		"water": {}, "falls": false, "rays": false, "ray_col": Color(0.6, 0.75, 1.0),
+		"glow": {}, "butterflies": false, "birds": false, "fire": null, "leaves": false,
+		"mote_col": Color(0.75, 0.85, 1.0, 0.25), "fog_col": Color(0.6, 0.7, 0.85, 0.12),
+		"leaf_ramp": [Color(0.5, 0.5, 0.55), Color(0.6, 0.6, 0.65),
+			Color(0.55, 0.55, 0.6), Color(0.45, 0.45, 0.5)],
+		"props": [
+			{"m": "shipping-container-a", "dir": "industrial", "x": -19.0, "z": -13.0, "h": 2.6, "ry": 8},
+			{"m": "shipping-container-b", "dir": "industrial", "x": -19.2, "y": 2.6, "z": -13.2, "h": 2.6, "ry": 4},
+			{"m": "shipping-container-c", "dir": "industrial", "x": 16.0, "z": -14.5, "h": 2.6, "ry": -12},
+			{"m": "detail-tank", "dir": "industrial", "x": 21.5, "z": -9.0, "h": 3.2},
+			{"m": "detail-tank-large", "dir": "industrial", "x": -23.0, "z": -6.0, "h": 4.2},
+			{"m": "detail-tank", "dir": "industrial", "x": 9.0, "y": -0.4, "z": 16.5, "h": 2.6, "tint": 0.35},
+		],
 	},
 }
 
@@ -79,7 +144,6 @@ var _cam: Camera3D
 var _sky: MeshInstance3D
 var _layers: Array = []
 var _fringe: MeshInstance3D
-var _fg: Array = []
 var _shafts: Array = []
 var _falls_anim: StandardMaterial3D
 var _time := 0.0
@@ -106,13 +170,18 @@ func build(q: int) -> void:
 	_rng.seed = 0x5EEDBA5E
 	_env()
 	_light()
-	_backdrop()
+	if not _t.get("hangar", false):
+		_backdrop()
 	_ground()
-	_water()
+	if not _t.get("hangar", false):
+		_water()
 	if _t.falls:
 		_falls()
-	_glow()
-	_foreground()
+	if not _t.get("hangar", false):
+		_glow()
+	_props()
+	if _t.get("hangar", false):
+		Hangar.build(self, quality)
 	_air()
 
 
@@ -265,6 +334,8 @@ func _backdrop() -> void:
 ## Cada placa é esticada até cobrir o tronco de visão na profundidade dela. A
 ## textura fecha na horizontal, então o excesso vira repetição em vez de borda.
 func _fit_layers() -> void:
+	if _sky == null:
+		return
 	var fov := _cam.fov if _cam != null else 27.5
 	var ht := tan(deg_to_rad(fov) * 0.5)
 	var d := _cam_z - SKY_Z
@@ -306,33 +377,17 @@ func _ground() -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 
+	if _t.get("hangar", false):
+		return
 	# franja de capim na emenda entre o chão 3D e a mata pintada
 	for zz in [GROUND_FAR + 0.6, WATER_FAR + 1.2]:
 		_fringe = _quad(tex("fringe.png"), 1.0, true, true, 0.002, 1)
 		_fringe.position = Vector3(0, -0.2 + 1.1 * PADK, zz)
 		_fringe.scale = Vector3(240, 2.2 * PADK, 1)
 		_set_uv(_fringe, Vector2(12, 1))
-	_plants()
 
 
-## Plantas soltas no 3D entre a câmera e a quadra: com paralaxe de verdade, e
-## nas laterais e no pé da tela pra não tampar jogador.
-func _plants() -> void:
-	var specs := [
-		["plant_a.png", -10.5, 0.0, 6.0, 5.0, 2], ["plant_b.png", 10.8, 0.0, 6.0, 5.2, 3],
-		["plant_b.png", -12.5, 0.0, 2.0, 4.2, 2], ["plant_a.png", 12.8, 0.0, 2.0, 4.0, 3],
-		["plant_a.png", -9.6, 0.0, 10.0, 3.2, 1], ["plant_b.png", 9.8, 0.0, 10.0, 3.4, 1],
-		["plant_b.png", -14.5, 0.0, -2.0, 4.8, 2], ["plant_a.png", 14.8, 0.0, -2.0, 4.6, 3],
-	]
-	for sp in specs:
-		var t := tex(sp[0])
-		var h: float = sp[4] * float(_t.plant_h)
-		var w: float = h * float(t.get_width()) / float(t.get_height())
-		var mi := _quad(t, 1.0, true, false, 0.03, 1)
-		mi.scale = Vector3(w, h, 1)
-		mi.position = Vector3(sp[1], h * 0.5 - 0.15, sp[3])
-		if sp[5] == 3:
-			mi.scale.x = -w
+
 
 
 func _water() -> void:
@@ -409,55 +464,69 @@ func _glow() -> void:
 
 # ---------------------------------------------------------- primeiro plano
 
-## As peças do primeiro plano são filhas da câmera: assim emolduram a tela em
-## qualquer proporção, de 16:9 a celular esticado.
-func _foreground() -> void:
-	if OS.get_cmdline_user_args().has("--nofg"):
-		return
-	for spec in [
-		{"tex": "fg_left.png", "side": "left", "f": 0.155, "sw": 0.025},
-		{"tex": "fg_right.png", "side": "right", "f": 0.155, "sw": 0.025},
-		{"tex": "fg_top.png", "side": "top", "f": 0.30, "sw": 0.012},
-		{"tex": "fg_bottom.png", "side": "bottom", "f": 0.17, "sw": 0.014},
-	]:
-		var rep: bool = spec.side == "top" or spec.side == "bottom"
-		var anc: int = {"top": 0, "bottom": 1, "left": 2, "right": 3}[spec.side]
-		var mi := _quad(tex(spec.tex), 1.0, true, rep, float(spec.sw), anc)
-		mi.set_meta("spec", spec)
-		remove_child(mi)
-		_cam.add_child(mi)
-		_fg.append(mi)
 
 
-func _fit_fg(d: float) -> void:
-	if _cam == null:
-		return
-	var hh := tan(deg_to_rad(_cam.fov) * 0.5) * d
-	var hw := hh * _aspect
-	for mi in _fg:
-		var spec: Dictionary = mi.get_meta("spec")
-		var f: float = spec.f
-		var sway := sin(_time * 0.27 + float(spec.f) * 9.0) * 0.02
-		match spec.side:
-			"left":
-				mi.scale = Vector3(hw * f * 2.0, hh * 2.0, 1)
-				mi.position = Vector3(-hw + hw * f - _look_x * 0.012, sway, -d)
-			"right":
-				mi.scale = Vector3(hw * f * 2.0, hh * 2.0, 1)
-				mi.position = Vector3(hw - hw * f - _look_x * 0.012, sway, -d)
-			"top":
-				mi.scale = Vector3(hw * 2.4, hh * f * 2.0 * PADK, 1)
-				mi.position = Vector3(-_look_x * 0.02,
-					hh - hh * f * (2.0 - PADK) + sway, -d)
-			"bottom":
-				mi.scale = Vector3(hw * 2.4, hh * f * 2.0 * PADK, 1)
-				mi.position = Vector3(-_look_x * 0.02,
-					-hh + hh * f * (2.0 - PADK), -d)
-		var t := _tex_of(mi)
-		var ar: float = (mi.scale.x / mi.scale.y) \
-			/ (float(t.get_width()) / float(t.get_height()))
-		var sx := ar if spec.side == "top" or spec.side == "bottom" else 1.0
-		_set_uv(mi, Vector2(sx, 1.0))
+
+
+
+
+# ---------------------------------------------------------------- objetos
+
+## Cenário de verdade é objeto no lugar certo: tronco atravessando o canto da
+## tela, pedra no pé, árvore ao lado da quadra. Nada de moldura.
+func _props() -> void:
+	for spec in _t.props:
+		Props.place(self, spec, quality)
+
+
+func _campfire() -> void:
+	var top: Vector3 = _t.fire + Vector3(0, 0.35, 0)
+	var pm := _box(Vector3(0.5, 0.1, 0.5))
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 14.0
+	pm.initial_velocity_min = 0.9
+	pm.initial_velocity_max = 1.7
+	pm.gravity = Vector3(0, 1.4, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.1
+	pm.damping_min = 0.6
+	pm.damping_max = 1.0
+	var g := Gradient.new()
+	g.set_color(0, Color(1.0, 0.95, 0.6, 1))
+	g.set_color(1, Color(0.6, 0.1, 0.0, 0))
+	g.add_point(0.3, Color(1.0, 0.55, 0.15, 0.9))
+	g.add_point(0.7, Color(0.8, 0.2, 0.05, 0.4))
+	var gt := GradientTexture1D.new()
+	gt.gradient = g
+	pm.color_ramp = gt
+	var fire := _add_particles(pm, tex("puff.png"), 22 if quality >= 2 else 12,
+		Color(1, 1, 1, 1), 1.3, top, 0.9)
+	fire.preprocess = 1.0
+	var sm := _box(Vector3(0.4, 0.1, 0.4))
+	sm.direction = Vector3(0, 1, 0)
+	sm.spread = 35.0
+	sm.initial_velocity_min = 1.5
+	sm.initial_velocity_max = 3.2
+	sm.gravity = Vector3(0, -0.6, 0)
+	sm.turbulence_enabled = true
+	sm.turbulence_noise_strength = 1.5
+	sm.scale_min = 0.4
+	sm.scale_max = 0.9
+	var sg := Gradient.new()
+	sg.set_color(0, Color(1.0, 0.9, 0.5, 1))
+	sg.set_color(1, Color(1.0, 0.3, 0.0, 0))
+	var sgt := GradientTexture1D.new()
+	sgt.gradient = sg
+	sm.color_ramp = sgt
+	_add_particles(sm, tex("mote.png"), 12, Color(1, 1, 1, 1), 0.12, top, 1.8)
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.6, 0.25)
+	light.light_energy = 2.2
+	light.omni_range = 11.0
+	light.shadow_enabled = false
+	light.position = top + Vector3(0, 0.8, 0)
+	add_child(light)
+	_torch_fx.append(light)
 
 
 # ------------------------------------------------------------------- ar
@@ -470,9 +539,10 @@ func _air() -> void:
 		_fireflies()
 	if _t.birds:
 		_birds()
-	if _t.torches:
-		_torches()
-	_leaves()
+	if _t.get("fire", null) != null:
+		_campfire()
+	if _t.get("leaves", true):
+		_leaves()
 	_ground_fog()
 
 
@@ -597,62 +667,7 @@ func _birds() -> void:
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 
 
-## Tochas de bambu nas laterais da quadra, com fogo de partícula e faísca.
-func _torches() -> void:
-	var t := tex("torch.png")
-	for sp in [[-9.9, 6.5], [9.9, 6.5], [-10.6, -5.5], [10.6, -5.5]]:
-		var h := 3.6
-		var mi := _quad(t, 1.0, true, false)
-		mi.scale = Vector3(h * 0.25, h, 1)
-		mi.position = Vector3(sp[0], h * 0.5 - 0.1, sp[1])
-		var top := Vector3(sp[0], h * 0.88, sp[1])
-		var pm := _box(Vector3(0.25, 0.1, 0.25))
-		pm.direction = Vector3(0, 1, 0)
-		pm.spread = 12.0
-		pm.initial_velocity_min = 0.9
-		pm.initial_velocity_max = 1.6
-		pm.gravity = Vector3(0, 1.2, 0)
-		pm.scale_min = 0.5
-		pm.scale_max = 1.0
-		pm.damping_min = 0.6
-		pm.damping_max = 1.0
-		var g := Gradient.new()
-		g.set_color(0, Color(1.0, 0.95, 0.6, 1))
-		g.set_color(1, Color(0.6, 0.1, 0.0, 0))
-		g.add_point(0.3, Color(1.0, 0.55, 0.15, 0.9))
-		g.add_point(0.7, Color(0.8, 0.2, 0.05, 0.4))
-		var gt := GradientTexture1D.new()
-		gt.gradient = g
-		pm.color_ramp = gt
-		var fire := _add_particles(pm, tex("puff.png"), 18 if quality >= 2 else 10,
-			Color(1, 1, 1, 1), 0.9, top, 0.8)
-		fire.preprocess = 1.0
-		if _t.sparks:
-			var sm := _box(Vector3(0.3, 0.1, 0.3))
-			sm.direction = Vector3(0, 1, 0)
-			sm.spread = 35.0
-			sm.initial_velocity_min = 1.5
-			sm.initial_velocity_max = 3.0
-			sm.gravity = Vector3(0, -0.6, 0)
-			sm.turbulence_enabled = true
-			sm.turbulence_noise_strength = 1.5
-			sm.scale_min = 0.4
-			sm.scale_max = 0.9
-			var sg := Gradient.new()
-			sg.set_color(0, Color(1.0, 0.9, 0.5, 1))
-			sg.set_color(1, Color(1.0, 0.3, 0.0, 0))
-			var sgt := GradientTexture1D.new()
-			sgt.gradient = sg
-			sm.color_ramp = sgt
-			_add_particles(sm, tex("mote.png"), 8, Color(1, 1, 1, 1), 0.12, top, 1.6)
-		var light := OmniLight3D.new()
-		light.light_color = Color(1.0, 0.6, 0.25)
-		light.light_energy = 1.4
-		light.omni_range = 7.0
-		light.shadow_enabled = false
-		light.position = top
-		add_child(light)
-		_torch_fx.append(light)
+
 
 
 func _leaves() -> void:
@@ -744,7 +759,6 @@ func step(dt: float) -> void:
 	_cam_z = _cam.global_position.z
 	_look_x = _cam.global_position.x
 	_fit_layers()
-	_fit_fg(9.0)
 	for mi in _shafts:
 		var ph: float = mi.get_meta("ph")
 		var m: StandardMaterial3D = mi.material_override

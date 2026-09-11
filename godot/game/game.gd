@@ -94,7 +94,7 @@ func set_remote_bits(side: int, bits: int) -> void:
 func _process(dt: float) -> void:
 	if bv == null:
 		return
-	if _paused or _last_winner != BV.NO_PLAYER:
+	if _paused or _last_winner != BV.NO_PLAYER or arena.intro_active():
 		arena.render(bv, 1.0, dt)
 		return
 

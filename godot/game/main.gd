@@ -14,6 +14,7 @@ var _ui := CanvasLayer.new()
 const MATCH_SONGS := ["luau", "fundo", "praia"]
 
 var _in_match := false
+var _intro_was := false
 var _net_pending := false
 var _pause_ui: PanelContainer
 var _paused := false
@@ -101,7 +102,10 @@ func _finish_enter() -> void:
 	Aud.set_song(MATCH_SONGS[randi() % MATCH_SONGS.size()])
 	menu.visible = false
 	hud.visible = true
-	hud.shout("VALENDO", UiTheme.GOLD, 1.4)
+	if game.net_side == BV.NO_PLAYER:
+		game.arena.start_intro()
+	else:
+		hud.shout("VALENDO", UiTheme.GOLD, 1.4)
 	if touch != null:
 		touch.visible = true
 		Controls.clear_touch()
@@ -189,12 +193,12 @@ func _over_seq(title: String, col: Color) -> void:
 	_result_again.visible = game.net_side == BV.NO_PLAYER
 	_result_ui.visible = true
 	_result_ui.pivot_offset = _result_ui.size * 0.5
-	_result_ui.scale = Vector2.ONE * 0.5
+	_result_ui.scale = Vector2.ONE * 0.96
 	_result_ui.modulate.a = 0.0
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(_result_ui, "scale", Vector2.ONE, 0.55) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_result_ui, "modulate:a", 1.0, 0.25)
+	tw.tween_property(_result_ui, "scale", Vector2.ONE, 0.3) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_result_ui, "modulate:a", 1.0, 0.3)
 
 func _build_result() -> void:
 	_result_ui = PanelContainer.new()
@@ -212,11 +216,7 @@ func _build_result() -> void:
 	v.add_theme_constant_override("separation", 12)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	_result_ui.add_child(v)
-	_result_title = UiTheme.label("", 52, UiTheme.GOLD)
-	_result_title.add_theme_color_override("font_outline_color", Color(0.14, 0.07, 0.02, 0.95))
-	_result_title.add_theme_constant_override("outline_size", 10)
-	_result_title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
-	_result_title.add_theme_constant_override("shadow_offset_y", 5)
+	_result_title = UiTheme.label("", 44, UiTheme.GOLD)
 	_result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_result_title)
 	_result_score = UiTheme.label("", 40)
@@ -274,11 +274,25 @@ func _to_menu() -> void:
 func _process(dt: float) -> void:
 	if game.bv != null and _in_match:
 		hud.update(game.bv, dt)
+		var w := game.bv.world
+		var intro := game.arena.intro_active()
+		hud.ball_hint(game.arena.ball_screen_hint(Map.gx(w.ball_x), Map.gy(w.ball_y)) \
+			if not intro else Vector3(-1, -1, 0), dt)
+		hud.modulate.a = clampf(hud.modulate.a + (( -1.0 if intro else 1.0) * dt * 3.0), 0.0, 1.0)
+		if touch != null:
+			touch.visible = not intro and not _paused
+		if _intro_was and not intro:
+			hud.shout("VALENDO", UiTheme.GOLD, 1.2)
+		_intro_was = intro
 		if touch != null:
 			var side := game.net_side if game.net_side != BV.NO_PLAYER else BV.LEFT
 			touch.charge = game.bv.world.charge[side] / BV.SPECIAL_FULL
 
 func _unhandled_input(e: InputEvent) -> void:
+	if _in_match and game.arena.intro_active() and e.is_pressed() \
+			and not e.is_action_pressed("pause"):
+		game.arena.skip_intro()
+		return
 	if e.is_action_pressed("pause"):
 		if _in_match:
 			_set_pause(not _paused)
