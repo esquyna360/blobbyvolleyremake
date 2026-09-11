@@ -12,7 +12,7 @@ import type { Match } from '../core/match.ts'
 
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'insane'
 
-interface Params {
+export interface Params {
   /** frames entre replanejamentos: quanto maior, mais tarde o bot corrige o rumo */
   reaction: number
   /** até onde enxerga a trajetória; horizonte curto só reage com a bola já perto */
@@ -207,9 +207,11 @@ export class Bot {
   private diveHeld = false
   private digLock = 0
 
-  constructor(side: Side, diff: Difficulty = 'normal', seed = 12345) {
+  private params: Params
+  constructor(side: Side, diff: Difficulty = 'normal', seed = 12345, style: Partial<Params> = {}) {
     this.side = side
     this.diff = diff
+    this.params = { ...PARAMS[diff], ...style }
     let s = seed >>> 0
     this.rng = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296 }
   }
@@ -225,7 +227,7 @@ export class Bot {
   }
 
   think(match: Match): PlayerInput {
-    const p = PARAMS[this.diff]
+    const p = this.params
     const w = match.world
     const g = match.logic
     // quadra aberta muda previsão e limite de corrida: vale pro plano inteiro

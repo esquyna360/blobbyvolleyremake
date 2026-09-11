@@ -10,6 +10,8 @@ export interface AdInput {
   name: string
   rule: string
   lock: number
+  /** 1 = aparece na lista de salas abertas; sala por código fica fora dela. */
+  pub: number
   /** 1 = partida rolando, dá pra assistir. */
   live: number
   foe: string
@@ -22,8 +24,8 @@ export interface RoomAd extends AdInput {
   [k: string]: string | number
 }
 
-export const openAd = (code: string, name: string, rule: string, lock: number): AdInput =>
-  ({ code, name, rule, lock, live: 0, foe: '', sl: 0, sr: 0 })
+export const openAd = (code: string, name: string, rule: string, lock: number, pub = 1): AdInput =>
+  ({ code, name, rule, lock, pub, live: 0, foe: '', sl: 0, sr: 0 })
 
 const LOBBY_ID = 'lobby-v1'
 const CHANNEL = 'blobby-lobby-v1'

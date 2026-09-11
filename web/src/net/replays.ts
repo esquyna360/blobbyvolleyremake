@@ -1,6 +1,6 @@
 import { SIM_VERSION, decodeReplay, encodeReplay } from '../core/replay.ts'
 import type { ReplayMeta } from '../core/replay.ts'
-import { playerId, rpc } from './rank.ts'
+import { rpc } from './rank.ts'
 
 export interface ReplayCard {
   id: string
@@ -56,8 +56,8 @@ export async function saveLocalReplay(meta: ReplayMeta, l: Uint8Array, r: Uint8A
 export async function saveOnlineReplay(id: string, meta: ReplayMeta, l: Uint8Array, r: Uint8Array) {
   const data = await encodeReplay(l, r)
   if (data.length > 230_000) return false
-  const ok = await rpc<boolean>('save_replay', {
-    p_id: id, p_sim: SIM_VERSION, p_player: playerId(), p_meta: meta, p_data: data,
+  const ok = await rpc<boolean>('save_replay_v2', {
+    p_id: id, p_sim: SIM_VERSION, p_meta: meta, p_data: data,
   })
   return ok === true
 }
@@ -65,7 +65,7 @@ export async function saveOnlineReplay(id: string, meta: ReplayMeta, l: Uint8Arr
 interface ListRow { id: string; meta: ReplayMeta; created_at: string; views: number }
 
 export async function onlineReplays(limit = 20): Promise<ReplayCard[]> {
-  const rows = await rpc<ListRow[]>('list_replays', { p_sim: SIM_VERSION, p_limit: limit })
+  const rows = await rpc<ListRow[]>('list_replays', { p_sim: SIM_VERSION, p_limit: limit }, false)
   if (!rows) return []
   return rows.map(r => ({
     id: r.id, meta: r.meta, at: Date.parse(r.created_at) || 0, views: r.views ?? 0, local: false,
@@ -81,7 +81,7 @@ export async function loadReplay(card: ReplayCard): Promise<{ meta: ReplayMeta; 
     data = hit.data
     meta = hit.meta
   } else {
-    const rows = await rpc<{ sim: number; meta: ReplayMeta; data: string }[]>('get_replay', { p_id: card.id })
+    const rows = await rpc<{ sim: number; meta: ReplayMeta; data: string }[]>('get_replay', { p_id: card.id }, false)
     const hit = rows?.[0]
     if (!hit || hit.sim !== SIM_VERSION) return null
     data = hit.data

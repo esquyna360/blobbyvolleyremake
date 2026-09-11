@@ -8,7 +8,7 @@ import type { PlayerLook } from '../core/looks.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 16
+const PROTO = 17
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8, REMATCH = 9,
@@ -53,6 +53,9 @@ export interface SessionOpts {
   look: PlayerLook
   onArena?: (id: ArenaId) => void
   onWalls?: (on: boolean) => void
+  /** cenário do host: quem entra vê a mesma quadra */
+  scene: string
+  onScene?: (id: string) => void
   scoreToWin?: number
   name: string
   host: boolean
@@ -177,7 +180,8 @@ export class NetSession {
     const nameBytes = new TextEncoder().encode(this.opts.name.slice(0, 24))
     const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
     const look = packLook(this.opts.look)
-    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length)
+    const sceneBytes = new TextEncoder().encode(this.opts.scene.slice(0, 16))
+    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length + 1 + sceneBytes.length)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.WELCOME)
@@ -187,7 +191,8 @@ export class NetSession {
     dv.setUint16(o, this.scoreToWin()); o += 2
     for (const b of look) dv.setUint8(o++, b)
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
-    dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o)
+    dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o); o += ruleBytes.length
+    dv.setUint8(o++, sceneBytes.length); buf.set(sceneBytes, o)
     this.transport.send(buf, to)
   }
 
@@ -204,7 +209,12 @@ export class NetSession {
     const nl = dv.getUint8(o++)
     this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)) || 'Player'; o += nl
     const rl = dv.getUint8(o++)
-    const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl))
+    const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl)); o += rl
+    if (o < buf.length) {
+      const sl = dv.getUint8(o++)
+      const scene = new TextDecoder().decode(buf.subarray(o, o + sl))
+      if (scene) this.opts.onScene?.(scene)
+    }
     this.peer = from
     clearInterval(this.helloTimer)
     this.begin(ruleId, stw, serving, arena, walls)

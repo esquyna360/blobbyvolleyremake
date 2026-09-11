@@ -16,14 +16,16 @@ import { StagePixel } from './render/stagepixel.ts'
 import { Hud } from './ui/hud.ts'
 import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
 import { PadNav } from './ui/pad.ts'
-import type { GameConfig } from './ui/menu.ts'
+import type { GameConfig, ResultInfo, ResultSide } from './ui/menu.ts'
 import { InputManager, P1, P2, SOLO } from './ui/input.ts'
 import { NetSession, passHash } from './net/session.ts'
 import { createManualTransport, createRoomTransport, ensureIce, hasTurn, relayHealth } from './net/transport.ts'
 import { el } from './ui/dom.ts'
 import { syncArena } from './render/mapping.ts'
 import { rallyTension } from './render/face.ts'
-import { matchKey, reportMatch } from './net/rank.ts'
+import { ensureUser, matchKey, reportMatch } from './net/rank.ts'
+import { GENERIC_LOSE, GENERIC_WIN, ROSTER, fighterById, pickQuote } from './core/roster.ts'
+import type { Fighter } from './core/roster.ts'
 import { EMOTES } from './core/emote.ts'
 import { Ev } from './core/events.ts'
 import type { MatchEvent } from './core/events.ts'
@@ -36,8 +38,8 @@ import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
 import { REPLAY_SPEEDS, Recorder, ReplayPlayer } from './core/replay.ts'
-import type { ReplayMeta, ReplayMode } from './core/replay.ts'
-import { loadReplay, saveLocalReplay, saveOnlineReplay } from './net/replays.ts'
+import type { ReplayMeta } from './core/replay.ts'
+import { loadReplay, saveOnlineReplay } from './net/replays.ts'
 import type { ReplayCard } from './net/replays.ts'
 import { ONLY_3D, PIXEL_ONLY, PLATFORM } from './core/platform.ts'
 
@@ -123,7 +125,6 @@ class App {
   private botLook: PlayerLook | null = null
   private drill: Drill | null = null
   private rec = new Recorder()
-  private recMode: ReplayMode = 'bot'
   private recUpTo = -1
   private recBroken = false
   private recSaved = false
@@ -154,6 +155,7 @@ class App {
     document.body.classList.toggle('noblur', isTouch)
 
     void ensureIce()
+    void ensureUser()
     this.stage = makeRenderer(this.canvas, this.cfg.quality)
     this.stage.setScene(this.cfg.scene)
     this.stage.setWalls(this.cfg.walls)
@@ -167,14 +169,18 @@ class App {
     this.wireBigText()
 
     this.menu = new Menu(this.ui, this.cfg, {
-      onStart: c => (c.mode === 'drill' ? this.startDrill(c) : this.startLocal(c)),
+      onStart: c => { this.arcade = null; c.mode === 'drill' ? this.startDrill(c) : this.startLocal(c) },
+      onArcade: c => this.startArcade(c),
+      onArcadeNext: () => this.arcadeNext(),
+      onArcadeRetry: () => this.arcadeFight(),
+      onSaveReplay: () => this.uploadReplay(),
       onScene: id => this.applyScene(id),
       onLook: look => { this.cfg.look = look; this.applyLooks() },
       onWalls: on => {
         localStorage.setItem('bv.walls', on ? '1' : '0')
         this.applyWalls(on)
       },
-      onCreateRoom: (code, pass, c) => void this.openRoom(code, pass, c),
+      onCreateRoom: (code, pass, c, pub) => void this.openRoom(code, pass, c, pub),
       onJoinRoom: (code, pass, c) => void this.joinRoom(code, pass, c),
       onManual: (host, c) => this.startManual(host, c),
       onResume: () => this.resume(),
@@ -235,13 +241,14 @@ class App {
   private applyLooks() {
     const me = this.session ? this.localSide : LEFT
     const foe = me === LEFT ? RIGHT : LEFT
+    const mine = this.session ? this.cfg.look : (this.p1Look ?? this.cfg.look)
     const theirs = this.session?.peerLook ?? this.botLook ?? defaultLook(foe)
     // se calhar da minha cor, o outro anda uma casa: dois blobbys iguais em
     // quadra tiram a única pista de quem é quem
-    if (!this.session && theirs.body === this.cfg.look.body) {
+    if (!this.session && theirs.body === mine.body) {
       theirs.body = (theirs.body + 1) % BODY_COLORS.length
     }
-    this.stage.setLook(me, this.cfg.look)
+    this.stage.setLook(me, mine)
     this.stage.setLook(foe, theirs)
   }
 
@@ -422,6 +429,7 @@ class App {
   }
 
   private startDemo() {
+    this.p1Look = null
     this.match = this.newMatch(this.cfg, LEFT)
     this.bot = new Bot(RIGHT, 'normal', 4242)
     this.demoBot = new Bot(LEFT, 'normal', 777)
@@ -480,19 +488,62 @@ class App {
     this.demoBot = null
     this.match = this.newMatch(cfg, LEFT)
     this.localSide = LEFT
-    this.bot = cfg.mode === 'bot' ? new Bot(RIGHT, cfg.difficulty, (Math.random() * 1e9) | 0) : null
-    this.botMood = this.bot ? new BotMood(RIGHT, cfg.difficulty) : null
-    // adversário novo a cada partida: o bot se veste sozinho
-    this.botLook = this.bot ? rollLook(cfg.look.body) : null
-    this.recMode = cfg.mode === 'bot' ? 'bot' : 'local'
+    const f1 = fighterById(cfg.p1 ?? '')
+    const f2 = fighterById(cfg.p2 ?? '')
+    const diff = this.arcade && f2 ? f2.diff : cfg.difficulty
+    this.bot = cfg.mode === 'bot' ? new Bot(RIGHT, diff, (Math.random() * 1e9) | 0, f2?.style ?? {}) : null
+    this.botMood = this.bot ? new BotMood(RIGHT, diff, f2?.temper) : null
+    this.p1Look = f1 ? { ...f1.look } : { ...cfg.look }
+    // adversário sem personagem: o bot se veste sozinho
+    this.botLook = f2 ? { ...f2.look } : this.bot ? rollLook(this.p1Look.body) : null
     this.applyLooks()
-    this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
+    const nl = f1 ? f1.name : (cfg.mode === 'bot' ? cfg.name : 'P1')
+    const nr = f2 ? f2.name : (cfg.mode === 'bot' ? 'CPU' : 'P2')
+    this.hud.setNames(nl.toUpperCase(), nr.toUpperCase())
     this.hud.showNet(null)
     this.begin()
     if (this.stage instanceof StagePixel) {
-      this.stage.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
+      this.stage.setNames(nl.toUpperCase(), nr.toUpperCase())
       this.stage.startIntro()
     }
+  }
+
+  private p1Look: PlayerLook | null = null
+
+  // ---------- arcade ----------
+
+  /** Escada: todo mundo do elenco menos você, do mais leve pro campeão. */
+  private arcade: { order: Fighter[]; index: number; losses: number } | null = null
+
+  private startArcade(cfg: GameConfig) {
+    this.cfg = cfg
+    cfg.mode = 'bot'
+    this.arcade = { order: ROSTER.filter(f => f.id !== cfg.p1), index: 0, losses: 0 }
+    this.arcadeFight()
+  }
+
+  private arcadeFight() {
+    const a = this.arcade
+    if (!a) return
+    const foe = a.order[a.index]
+    this.cfg.p2 = foe.id
+    this.cfg.scene = foe.home
+    this.cfg.difficulty = foe.diff
+    this.startLocal(this.cfg)
+  }
+
+  private arcadeNext() {
+    const a = this.arcade
+    if (!a) return
+    a.index++
+    if (a.index >= a.order.length) {
+      const f = fighterById(this.cfg.p1 ?? '')
+      try { localStorage.setItem('bv.arcade', String(1 + Number(localStorage.getItem('bv.arcade') ?? 0))) } catch { /* sem storage */ }
+      this.menu.arcadeEnd(f ? f.look : this.cfg.look, f ? f.name : this.cfg.name, a.order.length + a.losses, a.losses)
+      this.arcade = null
+      return
+    }
+    this.arcadeFight()
   }
 
   /**
@@ -576,7 +627,7 @@ class App {
       if (this.phase !== 'over') return
       this.setTouchVisible(false)
       this.hud.clearFx()
-      this.menu.result(title, `${d.hits} acerto${d.hits === 1 ? '' : 's'} · recorde ${d.best}`, color)
+      this.menu.drillResult(title, `${d.hits} acerto${d.hits === 1 ? '' : 's'} · recorde ${d.best}`, color)
     }, 2000)
   }
 
@@ -615,6 +666,7 @@ class App {
   }
 
   quitToMenu() {
+    this.arcade = null
     this.clearDrill()
     this.leaveWatch(false)
     this.leaveReplay(false)
@@ -650,7 +702,7 @@ class App {
     const s = this.session
     if (!s?.opts.host) { this.stopLive(); this.lobby.advertise(null); return }
     this.lobby.advertise({
-      ...openAd(this.roomCode, this.cfg.name, getRules(this.cfg.ruleId).name, this.roomPass ? 1 : 0),
+      ...openAd(this.roomCode, this.cfg.name, getRules(this.cfg.ruleId).name, this.roomPass ? 1 : 0, this.roomPub ? 1 : 0),
       live: 1, foe: s.peerName,
     })
     this.adScore = [-1, -1]
@@ -743,9 +795,10 @@ class App {
 
   private roomCode = ''
   private roomPass = ''
+  private roomPub = true
   private peerWantsRematch = false
 
-  private async openRoom(code: string, pass: string, cfg: GameConfig) {
+  private async openRoom(code: string, pass: string, cfg: GameConfig, pub = true) {
     this.cfg = cfg
     localStorage.setItem('bv.name', cfg.name)
     this.closeSession()
@@ -754,7 +807,8 @@ class App {
     try {
       const transport = await createRoomTransport(code)
       this.attachSession(transport, cfg, true, pass)
-      this.lobby.advertise(openAd(code, cfg.name, getRules(cfg.ruleId).name, pass ? 1 : 0))
+      this.roomPub = pub
+      this.lobby.advertise(openAd(code, cfg.name, getRules(cfg.ruleId).name, pass ? 1 : 0, pub ? 1 : 0))
     } catch (e) {
       this.menu.status(`falha no relay (${String(e).slice(0, 60)})`)
     }
@@ -795,13 +849,15 @@ class App {
       look: cfg.look,
       onArena: id => this.applyArena(id),
       onWalls: on => this.applyWalls(on),
+      scene: cfg.scene,
+      onScene: id => { if (id in SCENES) this.applyScene(id as SceneId) },
       scoreToWin: cfg.scoreToWin,
       name: cfg.name,
       host,
       pass: passHash(pass),
       onPhase: (p, info) => {
         if (p === 'handshake') this.menu.status('sala encontrada · pedindo pra entrar…')
-        if (p === 'waiting' && this.phase !== 'playing') this.menu.waiting(this.roomCode, this.roomPass)
+        if (p === 'waiting' && this.phase !== 'playing') this.menu.waiting(this.roomCode, this.roomPass, this.roomPub)
         if (p === 'closed') {
           this.menu.status(`conexão encerrada${info ? ` (${info})` : ''}`)
           if (this.phase === 'playing') {
@@ -822,7 +878,7 @@ class App {
           : 'o oponente quer revanche — clica em REVANCHE')
       },
       onJoinRequest: (name, accept, reject) => {
-        this.menu.askJoin(name, accept, () => { reject(); this.menu.waiting(this.roomCode, this.roomPass) })
+        this.menu.askJoin(name, accept, () => { reject(); this.menu.waiting(this.roomCode, this.roomPass, this.roomPub) })
       },
       onReady: s => {
         this.match = s.match!
@@ -830,7 +886,6 @@ class App {
         this.recUpTo = -1
         this.recBroken = false
         this.recSaved = false
-        this.recMode = 'online'
         const r = getRules(this.cfg.ruleId)
         this.hud.setRule(r.name, this.match.logic.scoreToWin)
         this.localSide = s.localSide
@@ -839,13 +894,18 @@ class App {
         this.botLook = null
         this.clearDrill()
         this.demoBot = null
+        this.p1Look = null
         this.applyLooks()
         this.stage.capture(this.match)
         this.stage.capture(this.match)
-        this.hud.setNames(
-          s.localSide === LEFT ? cfg.name.toUpperCase() : s.peerName.toUpperCase(),
-          s.localSide === LEFT ? s.peerName.toUpperCase() : cfg.name.toUpperCase())
+        const nl = s.localSide === LEFT ? cfg.name.toUpperCase() : s.peerName.toUpperCase()
+        const nr = s.localSide === LEFT ? s.peerName.toUpperCase() : cfg.name.toUpperCase()
+        this.hud.setNames(nl, nr)
         this.begin()
+        if (this.stage instanceof StagePixel) {
+          this.stage.setNames(nl, nr)
+          this.stage.startIntro()
+        }
       },
     })
   }
@@ -932,17 +992,22 @@ class App {
     this.recUpTo = w.start + w.l.length - 1
   }
 
+  private pendingReplay: { key: string; meta: ReplayMeta; l: Uint8Array; r: Uint8Array } | null = null
+
+  /** Só online e só se alguém pedir: aqui a partida fica pronta, o upload espera o clique. */
   private saveReplay() {
     const m = this.match
+    this.pendingReplay = null
     if (!m || this.recSaved || this.viewing || this.demoBot) return
     this.recSaved = true
-    if (this.session) { this.pumpRecord(); this.pumpRecord() }
-    if (this.recBroken || this.rec.frames < 120) return
     const s = this.session
-    const nameL = s ? (s.localSide === LEFT ? this.cfg.name : s.peerName) : (this.bot ? this.cfg.name : 'P1')
-    const nameR = s ? (s.localSide === LEFT ? s.peerName : this.cfg.name) : (this.bot ? 'CPU' : 'P2')
+    if (!s) return
+    this.pumpRecord(); this.pumpRecord()
+    if (this.recBroken || this.rec.frames < 120) return
+    const nameL = s.localSide === LEFT ? this.cfg.name : s.peerName
+    const nameR = s.localSide === LEFT ? s.peerName : this.cfg.name
     const { l, r } = this.rec.take()
-    const setup = s?.setup
+    const setup = s.setup
     const meta: ReplayMeta = {
       rule: setup?.ruleId ?? this.cfg.ruleId,
       stw: m.logic.scoreToWin,
@@ -955,15 +1020,19 @@ class App {
       sr: m.logic.scores[RIGHT],
       rally: m.logic.rallyBest,
       frames: l.length,
-      mode: this.recMode,
+      mode: 'online',
       at: Date.now(),
     }
-    if (s) {
-      const key = matchKey(this.roomCode || 'direct', nameL, nameR, meta.sl, meta.sr, m.frame)
-      void saveOnlineReplay(key, meta, l, r)
-    } else {
-      void saveLocalReplay(meta, l, r)
-    }
+    const key = matchKey(this.roomCode || 'direct', nameL, nameR, meta.sl, meta.sr, m.frame)
+    this.pendingReplay = { key, meta, l, r }
+  }
+
+  private async uploadReplay() {
+    const p = this.pendingReplay
+    if (!p) return false
+    const ok = await saveOnlineReplay(p.key, p.meta, p.l, p.r)
+    if (ok) this.pendingReplay = null
+    return ok
   }
 
   // ---------- replays ----------
@@ -1131,14 +1200,46 @@ class App {
     const color = w === LEFT ? '#ff3b47' : '#3a8cff'
     this.hud.banner(title, 2200, color)
     this.reportRank(w)
-    const online = !!this.session
+    const info = this.resultInfo(w, iWon)
     setTimeout(() => {
       if (this.phase !== 'over') return
       this.setTouchVisible(false)
       this.hud.clearFx()
-      this.menu.result(title, `${m.logic.scores[LEFT]} — ${m.logic.scores[RIGHT]}`, color, online)
-      if (online && this.peerWantsRematch) this.menu.status('o oponente quer revanche — clica em REVANCHE')
+      this.menu.result(info)
+      if (info.kind === 'online' && this.peerWantsRematch) this.menu.status('o oponente quer revanche — clica em REVANCHE')
     }, 2000)
+  }
+
+  /** Quem ganhou, quem perdeu, o que cada um diz. */
+  private resultInfo(w: Side, iWon: boolean): ResultInfo {
+    const m = this.match!
+    const s = this.session
+    const seed = m.frame
+    const side = (sd: Side): ResultSide => {
+      if (s) {
+        const me = sd === s.localSide
+        return { name: me ? this.cfg.name : s.peerName, look: me ? this.cfg.look : s.peerLook, quote: '', fighter: null }
+      }
+      const f = fighterById((sd === LEFT ? this.cfg.p1 : this.cfg.p2) ?? '')
+      if (f) return { name: f.name, look: f.look, quote: '', fighter: f }
+      const name = sd === LEFT ? (this.bot ? this.cfg.name : 'P1') : (this.bot ? 'CPU' : 'P2')
+      const look = sd === LEFT ? (this.p1Look ?? this.cfg.look) : (this.botLook ?? defaultLook(RIGHT))
+      return { name, look, quote: '', fighter: null }
+    }
+    const winner = side(w)
+    const loser = side(w === LEFT ? RIGHT : LEFT)
+    winner.quote = winner.fighter ? pickQuote(winner.fighter.win, seed) : pickQuote(GENERIC_WIN, seed)
+    loser.quote = loser.fighter ? loser.fighter.lose : GENERIC_LOSE
+    const a = this.arcade
+    if (a && !iWon) a.losses++
+    return {
+      winner, loser,
+      scoreL: m.logic.scores[LEFT], scoreR: m.logic.scores[RIGHT],
+      winnerLeft: w === LEFT,
+      kind: s ? 'online' : a ? 'arcade' : this.bot ? 'bot' : 'local',
+      arcade: a ? { index: a.index, total: a.order.length, next: a.order[a.index + 1] ?? null, won: iWon } : undefined,
+      canSaveReplay: !!this.pendingReplay,
+    }
   }
 
   /** Só partida online conta ponto. Os dois lados reportam; o servidor só aplica se baterem. */
@@ -1154,7 +1255,7 @@ class App {
     const iWon = winner === s.localSide
     const my = s.localSide === LEFT ? sl : sr
     const their = s.localSide === LEFT ? sr : sl
-    void reportMatch(key, this.cfg.name, iWon, my, their)
+    void reportMatch(key, this.cfg.name, iWon, my, their, m.frame)
   }
 
   /** Controle fora da partida: anda no menu e o botão ☰ pausa e despausa. */

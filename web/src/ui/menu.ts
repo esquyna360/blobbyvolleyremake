@@ -8,13 +8,18 @@ import type { ArenaId } from '../core/constants.ts'
 import { SCENE_LIST } from '../render/scenes.ts'
 import type { SceneId } from '../render/scenes.ts'
 import { runDiag } from '../net/diag.ts'
-import { leaderboard } from '../net/rank.ts'
-import { localReplays, onlineReplays } from '../net/replays.ts'
+import { leaderboard, myRank } from '../net/rank.ts'
+import { onlineReplays } from '../net/replays.ts'
 import type { ReplayCard } from '../net/replays.ts'
 import type { RankRow } from '../net/rank.ts'
 import { BODY_COLORS, HAIR_COLORS, HAIR_STYLES, defaultLook, saveLook } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
 import { drawPortrait } from '../render/portrait.ts'
+import type { PortraitMood } from '../render/portrait.ts'
+import { PixelScene } from '../render/pixelscene.ts'
+import { getScene } from '../render/scenes.ts'
+import { ROSTER, fighterById } from '../core/roster.ts'
+import type { Fighter } from '../core/roster.ts'
 import type { PadAction } from './pad.ts'
 import { drillBest } from '../core/drill.ts'
 import { ONLY_3D, PIXEL_ONLY } from '../core/platform.ts'
@@ -35,12 +40,27 @@ export interface GameConfig {
   walls: boolean
   /** aparência do jogador local: vale no treino, no 2 jogadores e no online */
   look: PlayerLook
+  /** personagem do elenco em cada lado; null = o seu perfil (P1) ou visual sorteado (P2) */
+  p1: string | null
+  p2: string | null
+}
+
+export interface ResultSide { name: string; look: PlayerLook; quote: string; fighter: Fighter | null }
+export interface ResultInfo {
+  winner: ResultSide
+  loser: ResultSide
+  scoreL: number
+  scoreR: number
+  winnerLeft: boolean
+  kind: 'bot' | 'local' | 'online' | 'arcade'
+  arcade?: { index: number; total: number; next: Fighter | null; won: boolean }
+  canSaveReplay: boolean
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
   scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default', showFps: false,
-  scene: 'praia', walls: true, look: defaultLook(0),
+  scene: 'praia', walls: true, look: defaultLook(0), p1: null, p2: null,
 }
 
 const WALL_OPTS: ['on' | 'off', string, string][] = [
@@ -77,7 +97,11 @@ const randomCode = () => {
 
 export interface MenuHandlers {
   onStart(cfg: GameConfig): void
-  onCreateRoom(code: string, pass: string, cfg: GameConfig): void
+  onArcade(cfg: GameConfig): void
+  onArcadeNext(): void
+  onArcadeRetry(): void
+  onSaveReplay(): Promise<boolean>
+  onCreateRoom(code: string, pass: string, cfg: GameConfig, pub: boolean): void
   onJoinRoom(code: string, pass: string, cfg: GameConfig): void
   onScene(id: SceneId): void
   onLook(look: PlayerLook): void
@@ -261,21 +285,55 @@ export class Menu {
 
   /** O retrato é o mesmo desenho do jogo, então mexer na cor se vê na hora. */
   private runPortrait(cv: HTMLCanvasElement, k = 0.44) {
+    const stop = this.animPortrait(cv, () => this.cfg.look, 'idle', k)
+    this.cleanup = stop
+  }
+
+  /**
+   * No tema pixel o retrato é desenhado pequeno e ampliado sem filtro: o
+   * mesmo desenho vira pixel art de graça. Devolve o cancelamento.
+   */
+  private animPortrait(cv: HTMLCanvasElement, look: () => PlayerLook, mood: PortraitMood, k = 0.44, still = false) {
     const start = performance.now()
     let raf = 0
     const paint = () => {
-      const dpr = Math.min(2, devicePixelRatio || 1)
-      const w = cv.clientWidth || 200, h = cv.clientHeight || 200
-      if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr) }
+      const w0 = cv.clientWidth || 200, h0 = cv.clientHeight || 200
+      const dpr = PIXEL_ONLY ? 0.36 : Math.min(2, devicePixelRatio || 1)
+      const w = Math.max(24, Math.round(w0 * dpr)), h = Math.max(24, Math.round(h0 * dpr))
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h }
       const c = cv.getContext('2d')
       if (!c) return
-      c.setTransform(dpr, 0, 0, dpr, 0, 0)
+      c.setTransform(1, 0, 0, 1, 0, 0)
       c.clearRect(0, 0, w, h)
-      drawPortrait(c, w / 2, h * 0.58, Math.min(w, h) * k, this.cfg.look, (performance.now() - start) / 1000)
-      raf = requestAnimationFrame(paint)
+      drawPortrait(c, w / 2, h * 0.58, Math.min(w, h) * k, look(), still ? 0 : (performance.now() - start) / 1000, mood)
+      if (!still) raf = requestAnimationFrame(paint)
     }
-    raf = requestAnimationFrame(paint)
-    this.cleanup = () => cancelAnimationFrame(raf)
+    if (still) paint()
+    else raf = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(raf)
+  }
+
+  /** Miniatura do cenário: o mesmo desenho procedural da quadra, parado. */
+  private sceneThumb(id: SceneId) {
+    const cv = el('canvas', { class: 'thumb', width: 160, height: 72 }) as HTMLCanvasElement
+    const c = cv.getContext('2d')
+    if (!c) return cv
+    c.imageSmoothingEnabled = false
+    try {
+      const px = new PixelScene(getScene(id), 160, 72)
+      const gy = 60
+      px.background(c, 3, 0, gy, 0)
+      c.fillStyle = px.pal.sand1
+      c.fillRect(0, gy, 160, 72 - gy)
+      c.fillStyle = px.pal.sand2
+      for (let x = 0; x < 160; x += 6) c.fillRect(x, gy + 3 + ((x / 6) % 3), 2, 1)
+      px.foreground(c, 3, gy, 0)
+    } catch {
+      const sc = getScene(id)
+      c.fillStyle = sc.d2.mid[0]
+      c.fillRect(0, 0, 160, 72)
+    }
+    return cv
   }
 
   private back(to: () => void) {
@@ -370,26 +428,22 @@ export class Menu {
 
   main() {
     this.currentScreen = () => this.main()
-    const cfg = this.cfg
     const cv = this.portraitCanvas()
     this.panel(
       el('div', { class: 'home' },
         el('div', { class: 'home-id' }, this.brand(), cv),
         el('div', { class: 'home-act' },
-          this.act('1 JOGADOR', 'versus, campanha e minigames',
-            () => this.solo(), 'go'),
-          this.act('ONLINE', 'sala direta entre vocês, sem servidor no meio',
+          this.act('ARCADE', 'escolha um lutador e encare os dez, cada um na sua quadra',
+            () => this.charSelect('arcade'), 'go'),
+          this.act('VERSUS', 'contra o computador ou dois no mesmo aparelho',
+            () => this.versus()),
+          this.act('ONLINE', 'sala aberta, sala com código, assistir e replays',
             () => this.online()),
-          this.act('2 JOGADORES', TOUCH ? 'dois controles no mesmo aparelho' : 'os dois no mesmo teclado',
-            () => { cfg.mode = 'local'; this.handlers.onStart(cfg) }),
-          el('div', { class: 'opts pre' },
-            this.opt('Cenário', SCENE_LIST, cfg.scene,
-              v => { cfg.scene = v; this.handlers.onScene(v) })),
           el('div', { class: 'minor' },
-            this.item('MEU PERFIL', 'cor, cabelo e cor do cabelo', () => this.blobby()),
-            this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings()),
+            this.item('MEU PERFIL', 'nome, cor e cabelo do seu blob', () => this.blobby()),
+            this.item('MINIGAMES', 'treinos de um jogador só', () => this.minigames()),
             this.item('RANKING', 'só partida online pontua', () => this.ranking()),
-            this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays())),
+            this.item('AJUSTES', 'regras, arena, som', () => this.settings())),
           this.tipLine(TOUCH
             ? '▲ pula · dois toques no ar = especial · ▼ manchete, segurar agacha · ↘ se joga'
             : 'passa o cursor numa opção pra ver o que ela faz'))),
@@ -397,39 +451,32 @@ export class Menu {
         this.keyRow(['◀', '▶'], 'anda'),
         this.keyRow(['▲'], 'pula — dois toques no ar = especial'),
         this.keyRow(['▼'], 'toque = manchete, segurar = agachar'),
-        this.keyRow(['↘'], 'se joga pro lado: no chão desliza, no ar cai e demora a levantar'),
-        this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
-        this.keyRow(['☺'], 'emotes no canto da tela'),
+        this.keyRow(['↘'], 'se joga pro lado'),
         this.keyRow(['MENU'], 'pausa e volta'),
       ] : [
         this.keyRow(['A', 'D', 'W', 'S'], 'jogador 1'),
         this.keyRow(['←', '→', '↑', '↓'], 'jogador 2'),
         this.keyRow(['S'], 'toque = manchete, segurar = agachar'),
-        this.keyRow(['E', 'CTRL'], 'se joga pro lado (no ar cai e demora a levantar)'),
-        this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
+        this.keyRow(['E', 'CTRL'], 'se joga pro lado'),
         this.keyRow(['1', '5'], 'emotes'),
         this.keyRow(['ESC'], 'pausa e volta'),
-        this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X se joga, ○/B especial, ☰ pausa'),
       ])),
     )
     this.runPortrait(cv)
   }
 
-  /** Um jogador: a partida de sempre, a campanha que vem, e os minigames. */
-  solo() {
-    this.currentScreen = () => this.solo()
+  versus() {
+    this.currentScreen = () => this.versus()
     const cfg = this.cfg
     this.panel(
-      this.title('1 JOGADOR'),
+      this.title('VERSUS'),
       el('div', { class: 'cards' },
-        this.card('Versus', 'contra o computador — a dificuldade fica em AJUSTES',
-          () => { cfg.mode = 'bot'; this.handlers.onStart(cfg) }, 'go'),
-        this.soon('Campanha', 'uma escada de adversários, cada um com o seu jeito'),
-        this.card('Minigames', 'treinos de um jogador só, sem adversário',
-          () => this.minigames())),
+        this.card('Contra o computador', 'escolha os dois lutadores e a quadra',
+          () => { cfg.mode = 'bot'; this.charSelect('bot') }, 'go'),
+        this.card('2 jogadores', TOUCH ? 'dois controles no mesmo aparelho' : 'os dois no mesmo teclado',
+          () => { cfg.mode = 'local'; this.charSelect('local') })),
       el('div', { class: 'opts pre' },
-        this.opt('Cenário', SCENE_LIST, cfg.scene,
-          v => { cfg.scene = v; this.handlers.onScene(v) })),
+        this.opt('Computador', DIFFS, cfg.difficulty, v => { cfg.difficulty = v })),
       this.back(() => this.main()),
     )
   }
@@ -442,77 +489,160 @@ export class Menu {
       this.title('MINIGAMES'),
       el('div', { class: 'cards' },
         this.card('Mira', 'uma faixa acende no campo vazio: três toques pra derrubar a bola lá dentro. três erros e acabou.',
-          () => { cfg.mode = 'drill'; this.handlers.onStart(cfg) }, 'go'),
-        this.soon('Mais treinos', 'outros modos de um jogador só entram aqui')),
+          () => { cfg.mode = 'drill'; cfg.p1 = null; this.handlers.onStart(cfg) }, 'go')),
       best > 0
         ? el('div', { class: 'tipline', textContent: `seu recorde na Mira: ${best} acertos` })
         : el('span'),
-      this.back(() => this.solo()),
+      this.back(() => this.main()),
     )
   }
 
-  /** Cartão do que ainda não existe: aparece, explica e não clica. */
-  private soon(name: string, desc: string) {
-    const b = this.card(name, desc, () => { /* em breve */ }, 'soon')
-    b.setAttribute('disabled', '')
-    b.append(el('span', { class: 'tag', textContent: 'EM BREVE' }))
-    return b
+  /**
+   * Seleção de lutador. O primeiro quadro é o seu perfil; os outros são o
+   * elenco. No arcade escolhe um e vai; no versus escolhe os dois e a quadra.
+   */
+  charSelect(kind: 'arcade' | 'bot' | 'local', slot: 1 | 2 = 1) {
+    this.currentScreen = () => this.charSelect(kind, slot)
+    const cfg = this.cfg
+    const slots: (Fighter | null)[] = slot === 1 ? [null, ...ROSTER] : [...ROSTER]
+    let cur = slot === 1 ? cfg.p1 : cfg.p2
+    let at = Math.max(0, slots.findIndex(f => (f?.id ?? null) === cur))
+    if (slot === 2 && cur === null) at = 0
+    const big = el('canvas', { class: 'portrait big' }) as HTMLCanvasElement
+    const nameEl = el('b', { class: 'fname' })
+    const titleEl = el('span', { class: 'ftitle' })
+    const bioEl = el('p', { class: 'fbio' })
+    const homeEl = el('span', { class: 'fhome' })
+    const cells: HTMLButtonElement[] = []
+    let stopAnim: (() => void) | null = null
+    const show = () => {
+      const f = slots[at]
+      cells.forEach((c, i) => c.classList.toggle('sel', i === at))
+      nameEl.textContent = f ? f.name.toUpperCase() : (slot === 1 ? cfg.name.toUpperCase() : 'P2')
+      titleEl.textContent = f ? f.title : 'o seu blob, do jeito que está no perfil'
+      bioEl.textContent = f ? f.bio : 'Mude cor e cabelo em MEU PERFIL.'
+      homeEl.textContent = f ? `quadra: ${getScene(f.home).name}` : ''
+      stopAnim?.()
+      stopAnim = this.animPortrait(big, () => f ? f.look : cfg.look, 'idle', 0.46)
+    }
+    const confirm = () => {
+      const f = slots[at]
+      if (slot === 1) cfg.p1 = f?.id ?? null
+      else cfg.p2 = f?.id ?? null
+      if (kind === 'arcade') { this.handlers.onArcade(cfg); return }
+      if (slot === 1) {
+        if (kind === 'bot' && cfg.p2 === cfg.p1) cfg.p2 = null
+        this.charSelect(kind, 2)
+        return
+      }
+      this.levelSelect()
+    }
+    const grid = el('div', { class: 'roster' })
+    slots.forEach((f, i) => {
+      const cv = el('canvas', { class: 'portrait mini' }) as HTMLCanvasElement
+      const b = el('button', { class: 'cell', onclick: () => { if (at === i) confirm(); else { at = i; show() } } },
+        cv, el('small', { textContent: f ? f.name : 'VOCÊ' }))
+      b.addEventListener('focus', () => { if (at !== i) { at = i; show() } })
+      b.addEventListener('pointerenter', () => { if (at !== i) { at = i; show() } })
+      cells.push(b)
+      grid.append(b)
+      const stop = this.animPortrait(cv, () => f ? f.look : cfg.look, 'idle', 0.5, true)
+      stop()
+    })
+    const who = kind === 'arcade' ? 'SEU LUTADOR' : slot === 1 ? 'JOGADOR 1' : (kind === 'bot' ? 'COMPUTADOR' : 'JOGADOR 2')
+    const random = kind !== 'arcade' && slot === 2
+      ? el('button', { class: 'ghost center small', onclick: () => { at = Math.floor(Math.random() * slots.length); show() } }, 'Aleatório')
+      : null
+    this.panel(
+      this.title(who, kind === 'arcade' ? 'os outros dez esperam, cada um na própria quadra' : 'escolhe e confirma'),
+      el('div', { class: 'select' },
+        el('div', { class: 'fcard' }, big, nameEl, titleEl, homeEl, bioEl,
+          el('button', { class: 'primary', onclick: confirm }, kind === 'arcade' ? 'LUTAR' : 'CONFIRMAR')),
+        el('div', { class: 'rostercol' }, grid, random)),
+      this.tipLine(TOUCH ? 'toca duas vezes pra confirmar' : 'setas escolhem, Enter confirma'),
+      this.back(() => {
+        if (slot === 2) this.charSelect(kind, 1)
+        else if (kind === 'arcade') this.main()
+        else this.versus()
+      }),
+    )
+    show()
+    const prev = this.cleanup
+    this.cleanup = () => { prev?.(); stopAnim?.() }
+    cells[at]?.focus()
+  }
+
+  /** Quadra do versus. No arcade não passa por aqui: é sempre a do adversário. */
+  levelSelect() {
+    this.currentScreen = () => this.levelSelect()
+    const cfg = this.cfg
+    const grid = el('div', { class: 'levels' })
+    for (const [id, name, hint] of SCENE_LIST) {
+      const b = el('button', { class: `level${cfg.scene === id ? ' sel' : ''}`, onclick: () => {
+        cfg.scene = id
+        this.handlers.onScene(id)
+        this.handlers.onStart(cfg)
+      } }, this.sceneThumb(id), el('b', { textContent: name }), el('small', { textContent: hint }))
+      grid.append(b)
+    }
+    const p1 = fighterById(cfg.p1 ?? '')
+    const p2 = fighterById(cfg.p2 ?? '')
+    this.panel(
+      this.title('QUADRA', `${p1 ? p1.name : cfg.name}  ×  ${p2 ? p2.name : (cfg.mode === 'bot' ? 'CPU' : 'P2')}`),
+      grid,
+      this.back(() => this.charSelect(cfg.mode === 'local' ? 'local' : 'bot', 2)),
+    )
   }
 
   /** Escolher olhando pro bicho: o retrato ao lado é o mesmo desenho do jogo. */
   blobby() {
     this.currentScreen = () => this.blobby()
     const look = this.cfg.look
+    const cfg = this.cfg
     const cv = this.portraitCanvas()
     const pick = (list: { name: string }[]) =>
       list.map((x, i) => [String(i), x.name, ''] as [string, string, string])
     const commit = () => { saveLook(look); this.handlers.onLook(look) }
+    const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16, class: 'nome' })
+    nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby'; localStorage.setItem('bv.name', cfg.name) })
 
     this.panel(
       this.title('MEU PERFIL'),
       el('div', { class: 'dress' },
         cv,
         el('div', { class: 'opts' },
+          el('div', { class: 'opt' }, el('span', { class: 'lab', textContent: 'Nome' }), nameIn),
           this.opt('Cor', pick(BODY_COLORS), String(look.body),
             v => { look.body = Number(v); commit() }),
           this.opt('Cabelo', pick(HAIR_STYLES), String(look.hair),
             v => { look.hair = Number(v); commit() }),
           this.opt('Cor do cabelo', pick(HAIR_COLORS), String(look.hairColor),
             v => { look.hairColor = Number(v); commit() }))),
-      this.tipLine('vale contra o computador, no 2 jogadores e no online'),
+      this.tipLine('é você no arcade, no versus e no online'),
       this.back(() => this.main()),
     )
     this.runPortrait(cv)
   }
 
-  /** Partida inteira cabe em ~3 KB de input: dá pra guardar tudo e reproduzir exato. */
+  /** Só as online, e só as que alguém escolheu gravar. */
   replays() {
     this.currentScreen = () => this.replays()
     const list = el('div', { class: 'grid rep-list' },
       el('p', { class: 'hint center', textContent: 'carregando…' }))
     const status = el('div', { class: 'status' })
     this.panel(
-      this.title('REPLAYS', 'a partida inteira, lance a lance'),
+      this.title('REPLAYS', 'partidas online que alguém quis guardar'),
       list,
       status,
-      el('div', { class: 'hint foot' }, 'Suas partidas ficam neste aparelho. As online ficam pra todo mundo.'),
-      this.back(() => this.main()),
+      this.back(() => this.online()),
     )
-
-    const render = (cards: ReplayCard[]) => {
+    void onlineReplays(30).then(rows => {
       clear(list)
-      if (!cards.length) {
-        list.append(el('p', { class: 'hint center', textContent: 'nenhum replay ainda. joga uma partida.' }))
+      if (!rows.length) {
+        list.append(el('p', { class: 'hint center', textContent: 'nenhum replay ainda. no fim de uma partida online dá pra gravar.' }))
         return
       }
-      for (const c of cards) list.append(this.replayRow(c))
-    }
-
-    const mine = localReplays()
-    render(mine)
-    void onlineReplays(20).then(rows => {
-      const seen = new Set(mine.map(c => c.id))
-      render([...mine, ...rows.filter(r => !seen.has(r.id))])
+      for (const c of rows) list.append(this.replayRow(c))
     })
     return status
   }
@@ -521,23 +651,24 @@ export class Menu {
     const m = c.meta
     const mins = Math.max(1, Math.round((m.frames || 0) / 60 / 60))
     const when = c.at ? new Date(c.at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
-    const tag = c.local ? (m.mode === 'bot' ? 'vs CPU' : 'local') : 'online'
     return el('button', {
-      class: `center room replay${c.local ? ' mine' : ''}`,
+      class: 'center room replay',
       onclick: () => this.handlers.onWatchReplay(c),
     },
       el('span', { class: 'who', textContent: `${m.nl || 'P1'} × ${m.nr || 'P2'}` }),
       el('b', { class: 'sc mono', textContent: `${m.sl}—${m.sr}` }),
-      el('small', { class: 'meta', textContent: `${tag} · ${mins} min · rally ${m.rally || 0}${when ? ` · ${when}` : ''}` }))
+      el('small', { class: 'meta', textContent: `${mins} min · rally ${m.rally || 0}${when ? ` · ${when}` : ''}` }))
   }
 
   ranking() {
     this.currentScreen = () => this.ranking()
     const list = el('div', { class: 'rank-list' },
       el('p', { class: 'hint center', textContent: 'carregando…' }))
+    const mine = el('div', { class: 'hint center' })
     this.panel(
       this.title('RANKING', 'só partidas online valem pontos'),
       list,
+      mine,
       this.back(() => this.main()),
     )
     void leaderboard(30).then((rows: RankRow[]) => {
@@ -548,25 +679,26 @@ export class Menu {
       }
       rows.forEach((r, i) => list.append(el('div', { class: `rank-row${i < 3 ? ' top' : ''}` },
         el('b', { class: 'pos', textContent: String(i + 1) }),
-        el('span', { class: 'who', textContent: r.name }),
+        el('span', { class: 'who' }, r.name, el('i', { class: 'tag', textContent: `#${r.tag}` })),
         el('span', { class: 'wl mono', textContent: `${r.wins}v ${r.losses}d` }),
         el('b', { class: 'elo mono', textContent: String(r.rating) }))))
+    })
+    void myRank().then(me => {
+      mine.textContent = me
+        ? `você: ${me.name}#${me.tag} · ${me.rating} pts · ${me.pos > 0 ? `${me.pos}º` : 'sem partida ainda'}`
+        : 'ranking indisponível agora'
     })
   }
 
   settings() {
     this.currentScreen = () => this.settings()
     const cfg = this.cfg
-    const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16, class: 'nome' })
-    nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby' })
     this.panel(
       this.title('AJUSTES'),
       el('div', { class: 'cols' },
         el('div', {},
           el('h2', { class: 'sec', textContent: 'Partida' }),
           el('div', { class: 'opts' },
-            el('div', { class: 'opt' }, el('span', { class: 'lab', textContent: 'Nome' }), nameIn),
-            this.opt('Bot', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
             this.opt(
               'Regras',
               RULES.map(r => [r.id, r.name, r.desc] as [string, string, string]),
@@ -576,16 +708,14 @@ export class Menu {
             this.opt('Paredes', WALL_OPTS, cfg.walls ? 'on' : 'off',
               v => { cfg.walls = v === 'on'; this.handlers.onWalls(cfg.walls) }))),
         el('div', {},
-          el('h2', { class: 'sec', textContent: 'Apresentação' }),
+          el('h2', { class: 'sec', textContent: 'Som' }),
+          el('div', { class: 'opts' }, ...this.volumeRows()),
+          el('h2', { class: 'sec', textContent: 'Tela' }),
           el('div', { class: 'opts' },
-            this.opt('Cenário', SCENE_LIST, cfg.scene,
-              v => { cfg.scene = v; this.handlers.onScene(v) }),
             PIXEL_ONLY ? null : this.opt('Gráficos', QUALITIES, cfg.quality,
               v => { cfg.quality = v; this.handlers.onQuality(v) }),
             this.opt('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
-              v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) })),
-          el('h2', { class: 'sec', textContent: 'Som' }),
-          el('div', { class: 'opts' }, ...this.volumeRows()))),
+              v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) })))),
       this.tipLine('trilha e efeitos são sintetizados pelo próprio jogo'),
       this.back(() => this.main()),
     )
@@ -595,28 +725,103 @@ export class Menu {
     this.currentScreen = () => this.online()
     const cfg = this.cfg
     cfg.mode = 'online'
-    const nameIn = el('input', { type: 'text', value: cfg.name, maxLength: 16 })
-    nameIn.addEventListener('input', () => { cfg.name = nameIn.value.trim() || 'Blobby' })
     this.panel(
-      this.title('ONLINE'),
-      el('div', { class: 'onl' },
-        el('h2', { class: 'sec', textContent: 'Seu nome' }),
-        nameIn,
-        el('div', { class: 'opts pre' },
-          this.opt('Cenário', SCENE_LIST, cfg.scene,
-            v => { cfg.scene = v; this.handlers.onScene(v) })),
-        el('div', { class: 'cards', style: 'margin-top:16px' },
-          this.card('Criar sala', 'você abre e manda o código pro outro', () => this.createRoom(), 'go'),
-          this.card('Entrar', 'lista de salas abertas, ou pelo código', () => this.joinRoom()),
-          this.card('Assistir', 'partidas rolando agora, ao vivo', () => this.watchList()))),
+      this.title('ONLINE', `você entra como ${cfg.name}`),
+      el('div', { class: 'cards' },
+        this.card('Salas abertas', 'entra numa sala pública ou abre a sua', () => this.openRooms(), 'go'),
+        this.card('Sala com código', 'só entra quem tem o código', () => this.codeRoom()),
+        this.card('Assistir', 'partidas rolando agora, ao vivo', () => this.watchList()),
+        this.card('Replays', 'partidas online que alguém gravou', () => this.replays())),
       this.netLine(),
-      el('div', { class: 'hint foot' }, 'Sem servidor: WebRTC direto entre vocês.'),
       el('div', { class: 'grid' },
         el('button', { class: 'ghost center small', onclick: () => this.diag() }, 'Testar minha conexão')),
       this.back(() => { this.handlers.onLeaveOnline(); this.main() }),
     )
-    // abre o lobby já aqui: é o que faz a linha de status dizer algo de verdade
     this.cleanup = this.handlers.onWatchRooms(() => { /* só pra manter o canal vivo */ })
+  }
+
+  /** Salas públicas: lista pra entrar e um botão pra abrir a sua. */
+  openRooms() {
+    this.currentScreen = () => this.openRooms()
+    const cfg = this.cfg
+    const status = el('div', { class: 'status' })
+    const list = el('div', { class: 'grid rooms' })
+    const render = (rooms: RoomAd[]) => {
+      clear(list)
+      const open = rooms.filter(r => !r.live && r.pub !== 0 && !r.lock)
+      if (!open.length) {
+        list.append(el('div', { class: 'hint center', textContent: 'nenhuma sala aberta agora — abre a sua e espera' }))
+        return
+      }
+      for (const r of open) {
+        list.append(el('button', { class: 'center room', onclick: () => {
+          status.textContent = `entrando na sala de ${r.name}…`
+          this.handlers.onJoinRoom(r.code, '', cfg)
+        } }, `🎾 ${r.name}`, el('small', { textContent: r.rule })))
+      }
+    }
+    render([])
+    this.panel(
+      this.title('SALAS ABERTAS'),
+      list,
+      status,
+      this.netLine(),
+      el('div', { class: 'grid', style: 'margin-top:12px' },
+        el('button', { class: 'primary', onclick: () => {
+          const c = randomCode()
+          this.handlers.onCreateRoom(c, '', cfg, true)
+          this.waiting(c, '', true)
+        } }, 'ABRIR MINHA SALA')),
+      el('div', { class: 'hint foot' }, 'Você aprova quem entrar.'),
+      this.back(() => { this.handlers.onLeaveOnline(); this.online() }),
+    )
+    this.cleanup = this.handlers.onWatchRooms(render)
+    return status
+  }
+
+  /** Sala fechada: cria com código (e senha, se quiser) ou entra com o código de alguém. */
+  codeRoom() {
+    this.currentScreen = () => this.codeRoom()
+    const cfg = this.cfg
+    const code = el('input', { type: 'text', value: randomCode(), maxLength: 8 })
+    const pass = el('input', { type: 'text', value: '', maxLength: 16, placeholder: 'senha (opcional)' })
+    const joinCode = el('input', { type: 'text', value: '', maxLength: 8, placeholder: 'CÓDIGO' })
+    const joinPass = el('input', { type: 'text', value: '', maxLength: 16, placeholder: 'senha (se tiver)' })
+    const status = el('div', { class: 'status' })
+    this.panel(
+      this.title('SALA COM CÓDIGO'),
+      el('div', { class: 'cols' },
+        el('div', {},
+          el('h2', { class: 'sec', textContent: 'Criar' }),
+          el('div', { class: 'row' },
+            code,
+            el('button', { class: 'center icon', onclick: () => { code.value = randomCode() } }, '⟳')),
+          el('div', { style: 'margin-top:9px' }, pass),
+          el('div', { class: 'grid', style: 'margin-top:12px' },
+            el('button', { class: 'primary', onclick: () => {
+              const c = code.value.trim().toUpperCase() || 'BLOBBY'
+              this.handlers.onCreateRoom(c, pass.value.trim(), cfg, false)
+              this.waiting(c, pass.value.trim(), false)
+            } }, 'CRIAR'))),
+        el('div', {},
+          el('h2', { class: 'sec', textContent: 'Entrar' }),
+          joinCode,
+          el('div', { style: 'margin-top:9px' }, joinPass),
+          el('div', { class: 'grid', style: 'margin-top:12px' },
+            el('button', { class: 'primary', onclick: () => {
+              const c = joinCode.value.trim().toUpperCase()
+              if (!c) { status.textContent = 'digita o código'; return }
+              status.textContent = `entrando em ${c}…`
+              this.handlers.onJoinRoom(c, joinPass.value.trim(), cfg)
+            } }, 'ENTRAR')))),
+      status,
+      this.netLine(),
+      el('div', { class: 'grid' },
+        el('button', { class: 'ghost center small', onclick: () => this.manual(true) }, 'Conexão direta, sem relay')),
+      this.back(() => { this.handlers.onLeaveOnline(); this.online() }),
+    )
+    this.cleanup = this.handlers.onWatchRooms(() => { /* canal vivo */ })
+    return status
   }
 
   /** Roda os testes de rede e mostra linha a linha — pra quem não consegue conectar. */
@@ -647,48 +852,19 @@ export class Menu {
     return list
   }
 
-  createRoom() {
-    this.currentScreen = () => this.createRoom()
-    const cfg = this.cfg
-    const code = el('input', { type: 'text', value: randomCode(), maxLength: 8 })
-    const pass = el('input', { type: 'text', value: '', maxLength: 16, placeholder: 'opcional' })
-    const status = el('div', { class: 'status' })
-    const open = () => {
-      const c = code.value.trim().toUpperCase() || 'BLOBBY'
-      this.handlers.onCreateRoom(c, pass.value.trim(), cfg)
-      this.waiting(c, pass.value.trim())
-    }
-    this.panel(
-      this.title('CRIAR SALA'),
-      el('h2', { class: 'sec', textContent: 'Código da sala' }),
-      el('div', { class: 'row' },
-        code,
-        el('button', { class: 'center icon', onclick: () => { code.value = randomCode() } }, '⟳')),
-      el('h2', { class: 'sec', textContent: 'Senha' }),
-      pass,
-      el('div', { class: 'grid', style: 'margin-top:18px' },
-        el('button', { class: 'primary', onclick: open }, 'ABRIR SALA')),
-      status,
-      el('div', { class: 'hint foot' }, 'Você aprova quem entrar. Com senha, a sala fica trancada.'),
-      el('div', { class: 'grid' },
-        el('button', { class: 'ghost center small', onclick: () => this.manual(true) }, 'Conexão direta (sem relay)')),
-      this.back(() => { this.handlers.onLeaveOnline(); this.online() }),
-    )
-    return status
-  }
-
-  waiting(code: string, pass: string) {
-    this.currentScreen = () => this.waiting(code, pass)
+  waiting(code: string, pass: string, pub = false) {
+    this.currentScreen = () => this.waiting(code, pass, pub)
     const status = el('div', { class: 'status' })
     status.textContent = 'esperando alguém entrar…'
     this.panel(
-      this.title('SALA ABERTA'),
+      this.title(pub ? 'SALA ABERTA' : 'SUA SALA'),
       el('div', { class: 'code-big mono', textContent: code }),
       el('div', { class: 'hint center' },
-        pass ? `senha: ${pass}` : 'sem senha · qualquer um pode pedir pra entrar'),
+        pub ? 'está na lista pública · qualquer um pode pedir pra entrar'
+          : pass ? `manda o código e a senha: ${pass}` : 'manda esse código pra quem vai jogar'),
       el('div', { class: 'spinner' }),
       status,
-      this.back(() => { this.handlers.onLeaveOnline(); this.online() }),
+      this.back(() => { this.handlers.onLeaveOnline(); pub ? this.openRooms() : this.codeRoom() }),
     )
     return status
   }
@@ -702,55 +878,6 @@ export class Menu {
         el('button', { class: 'primary', onclick: accept }, 'ACEITAR'),
         el('button', { class: 'center danger', onclick: reject }, 'Recusar')),
     )
-  }
-
-  joinRoom() {
-    this.currentScreen = () => this.joinRoom()
-    const cfg = this.cfg
-    const code = el('input', { type: 'text', value: '', maxLength: 8, placeholder: 'CÓDIGO' })
-    const pass = el('input', { type: 'text', value: '', maxLength: 16, placeholder: 'senha (se tiver)' })
-    const status = el('div', { class: 'status' })
-
-    const enter = (roomCode: string) => {
-      status.textContent = `entrando em ${roomCode}…`
-      this.handlers.onJoinRoom(roomCode, pass.value.trim(), cfg)
-    }
-
-    const list = el('div', { class: 'grid rooms' })
-    const render = (rooms: RoomAd[]) => {
-      clear(list)
-      const open = rooms.filter(r => !r.live)
-      if (!open.length) {
-        list.append(el('div', { class: 'hint center', textContent: 'nenhuma sala aberta agora' }))
-        return
-      }
-      for (const r of open) {
-        list.append(el('button', { class: 'center room', onclick: () => { code.value = r.code; enter(r.code) } },
-          `${r.lock ? '🔒' : '🎾'} ${r.name}`, el('small', { textContent: `${r.code} · ${r.rule}` })))
-      }
-    }
-    render([])
-
-    this.panel(
-      this.title('ENTRAR'),
-      el('h2', { class: 'sec', textContent: 'Salas abertas' }),
-      list,
-      this.netLine(),
-      el('h2', { class: 'sec', textContent: 'Ou pelo código' }),
-      code,
-      el('div', { style: 'margin-top:9px' }, pass),
-      el('div', { class: 'grid', style: 'margin-top:16px' },
-        el('button', {
-          class: 'primary',
-          onclick: () => enter(code.value.trim().toUpperCase() || 'BLOBBY'),
-        }, 'ENTRAR')),
-      status,
-      el('div', { class: 'grid' },
-        el('button', { class: 'ghost center small', onclick: () => this.manual(false) }, 'Conexão direta (sem relay)')),
-      this.back(() => { this.handlers.onLeaveOnline(); this.online() }),
-    )
-    this.cleanup = this.handlers.onWatchRooms(render)
-    return status
   }
 
   /** Salas com partida rolando: entra só pra ver, sem atrapalhar quem joga. */
@@ -842,7 +969,9 @@ export class Menu {
           },
         }, 'CONECTAR')),
       status,
-      this.back(() => { this.handlers.onLeaveOnline(); this.online() }),
+      el('div', { class: 'grid' },
+        asHost ? el('button', { class: 'ghost center small', onclick: () => this.manual(false) }, 'Sou eu que vou entrar') : null),
+      this.back(() => { this.handlers.onLeaveOnline(); this.codeRoom() }),
     )
     return status
   }
@@ -856,8 +985,6 @@ export class Menu {
         this.item('CONTINUAR', '', () => this.handlers.onResume?.(), 'lead'),
         this.item('SAIR PRO MENU', 'a partida em andamento se perde', () => this.handlers.onQuit?.())),
       el('div', { class: 'opts' },
-        this.opt('Cenário', SCENE_LIST, this.cfg.scene,
-          v => { this.cfg.scene = v; this.handlers.onScene(v) }),
         this.opt('Paredes', WALL_OPTS, this.cfg.walls ? 'on' : 'off',
           v => this.handlers.onWalls(v === 'on')),
         PIXEL_ONLY ? null : this.opt('Gráficos', QUALITIES, this.cfg.quality,
@@ -867,29 +994,109 @@ export class Menu {
     )
   }
 
-  /** Online a revanche precisa dos dois lados; local reinicia na hora. */
-  result(title: string, subtitle: string, color: string, online = false) {
-    this.currentScreen = () => this.result(title, subtitle, color, online)
+  /**
+   * Fim de partida à la Street Fighter II: o vencedor grande e feliz, a frase
+   * dele, o perdedor amassado no canto. Vale pra CPU, 2 jogadores e online.
+   */
+  result(r: ResultInfo) {
+    this.currentScreen = () => this.result(r)
     this.show()
-    const rematch = el('button', { class: 'primary' }, 'REVANCHE')
-    rematch.onclick = () => {
-      if (!online) { this.handlers.onStart(this.cfg); return }
-      rematch.setAttribute('disabled', '')
-      rematch.textContent = 'ESPERANDO O OPONENTE…'
-      this.handlers.onRematch?.()
+    const winCv = el('canvas', { class: 'portrait win' }) as HTMLCanvasElement
+    const loseCv = el('canvas', { class: 'portrait lose' }) as HTMLCanvasElement
+
+    const buttons: HTMLElement[] = []
+    const status = el('div', { class: 'status' })
+    if (r.kind === 'arcade' && r.arcade) {
+      const a = r.arcade
+      if (a.won) {
+        buttons.push(el('button', { class: 'primary', onclick: () => this.handlers.onArcadeNext() },
+          a.next ? `PRÓXIMO: ${a.next.name.toUpperCase()}` : 'VER O FINAL'))
+      } else {
+        buttons.push(el('button', { class: 'primary', onclick: () => this.handlers.onArcadeRetry() }, 'CONTINUAR?'))
+      }
+      buttons.push(el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, a.won ? 'Parar por aqui' : 'Desistir'))
+    } else if (r.kind === 'online') {
+      const rematch = el('button', { class: 'primary' }, 'REVANCHE')
+      rematch.onclick = () => {
+        rematch.setAttribute('disabled', '')
+        rematch.textContent = 'ESPERANDO O OPONENTE…'
+        this.handlers.onRematch?.()
+      }
+      buttons.push(rematch)
+      if (r.canSaveReplay) {
+        const save = el('button', { class: 'center' }, 'GRAVAR REPLAY')
+        save.onclick = () => {
+          save.setAttribute('disabled', '')
+          save.textContent = 'GRAVANDO…'
+          void this.handlers.onSaveReplay().then(ok => { save.textContent = ok ? 'REPLAY GRAVADO' : 'NÃO DEU PRA GRAVAR' })
+        }
+        buttons.push(save)
+      }
+      buttons.push(el('button', { class: 'center', onclick: () => { this.handlers.onLeaveOnline(); this.handlers.onQuit?.() } }, 'Menu'))
+    } else {
+      buttons.push(el('button', { class: 'primary', onclick: () => this.handlers.onStart(this.cfg) }, 'REVANCHE'))
+      buttons.push(el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Menu'))
     }
+
+    const headline = r.kind === 'local' ? `${r.winner.name.toUpperCase()} VENCE`
+      : r.kind === 'arcade' ? (r.arcade?.won ? `VITÓRIA ${r.arcade.index + 1}/${r.arcade.total}` : 'DERROTA')
+      : (r.winner.fighter || r.kind === 'online' ? `${r.winner.name.toUpperCase()} VENCE` : 'VITÓRIA')
+    const iLost = r.kind !== 'local' && (r.kind === 'arcade' ? !r.arcade?.won : r.loser.fighter === null)
+    this.panel(
+      el('div', { class: `sf ${iLost ? 'lost' : 'won'}` },
+        el('div', { class: 'sf-head' },
+          el('h1', { textContent: headline }),
+          el('div', { class: 'sf-score mono', textContent: `${r.scoreL} — ${r.scoreR}` })),
+        el('div', { class: 'sf-body' },
+          el('div', { class: 'sf-win' },
+            winCv,
+            el('b', { textContent: r.winner.name.toUpperCase() }),
+            el('p', { class: 'quote', textContent: `“${r.winner.quote}”` })),
+          el('div', { class: 'sf-lose' },
+            loseCv,
+            el('b', { textContent: r.loser.name.toUpperCase() }),
+            el('small', { textContent: r.loser.quote })))),
+      el('div', { class: 'grid' }, ...buttons),
+      status,
+    )
+    const stopW = this.animPortrait(winCv, () => r.winner.look, 'happy', 0.46)
+    const stopL = this.animPortrait(loseCv, () => r.loser.look, 'hurt', 0.46)
+    this.cleanup = () => { stopW(); stopL() }
+  }
+
+  /** Fim do minigame: número, recorde, de novo. */
+  drillResult(title: string, subtitle: string, color: string) {
+    this.currentScreen = () => this.drillResult(title, subtitle, color)
+    this.show()
     this.panel(
       el('div', { class: 'brand' },
         el('h1', { textContent: title, style: `background:none;-webkit-text-fill-color:${color};color:${color}` }),
         el('p', { textContent: subtitle })),
       el('div', { class: 'grid' },
-        rematch,
-        el('button', {
-          class: 'center',
-          onclick: () => { if (online) this.handlers.onLeaveOnline(); this.handlers.onQuit?.() },
-        }, 'Menu')),
-      el('div', { class: 'status' }),
+        el('button', { class: 'primary', onclick: () => this.handlers.onStart(this.cfg) }, 'DE NOVO'),
+        el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Menu')),
     )
+  }
+
+  /** Fim do arcade: os dez caíram. */
+  arcadeEnd(look: PlayerLook, name: string, fights: number, losses: number) {
+    this.currentScreen = () => this.arcadeEnd(look, name, fights, losses)
+    this.show()
+    const cv = el('canvas', { class: 'portrait win' }) as HTMLCanvasElement
+    const line = losses === 0 ? 'Sem perder uma. O Rex vai fingir que não viu.'
+      : losses < 3 ? 'Tropeçou, levantou, ganhou. É assim que se faz.'
+      : 'Deu trabalho, mas deu. Os dez sabem o seu nome agora.'
+    this.panel(
+      el('div', { class: 'sf won end' },
+        el('div', { class: 'sf-head' }, el('h1', { textContent: 'CAMPEÃO' }),
+          el('div', { class: 'sf-score mono', textContent: `${fights} lutas · ${losses} ${losses === 1 ? 'derrota' : 'derrotas'}` })),
+        el('div', { class: 'sf-body one' },
+          el('div', { class: 'sf-win' }, cv, el('b', { textContent: name.toUpperCase() }),
+            el('p', { class: 'quote', textContent: line })))),
+      el('div', { class: 'grid' },
+        el('button', { class: 'primary', onclick: () => this.handlers.onQuit?.() }, 'MENU')),
+    )
+    this.cleanup = this.animPortrait(cv, () => look, 'happy', 0.46)
   }
 
   status(text: string) {

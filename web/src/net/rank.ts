@@ -1,29 +1,37 @@
-const API = 'https://vzxnnixegwfdtexmqbos.supabase.co/rest/v1/rpc'
-const KEY = 'sb_publishable_6EHgiq7g9D1vE0s2yyoqtA_PdS2EZiG'
+import { supa } from './supa.ts'
 
-const PID_KEY = 'blobby.pid'
+export interface RankRow { name: string; tag: string; rating: number; wins: number; losses: number }
+export interface MyRank { name: string; tag: string; rating: number; wins: number; losses: number; pos: number }
 
-export interface RankRow { name: string; rating: number; wins: number; losses: number }
+let authP: Promise<string | null> | null = null
 
-export function playerId(): string {
-  let id = ''
-  try { id = localStorage.getItem(PID_KEY) ?? '' } catch { /* modo privado */ }
-  if (!/^[0-9a-f-]{36}$/i.test(id)) {
-    id = crypto.randomUUID()
-    try { localStorage.setItem(PID_KEY, id) } catch { /* modo privado */ }
-  }
-  return id
+/**
+ * Usuário único por aparelho via login anônimo do Supabase: o servidor só
+ * aceita resultado assinado por esse token, então ninguém reporta em nome
+ * de outro. Sem token (provider desligado, sem rede) o ranking fica off.
+ */
+export function ensureUser(): Promise<string | null> {
+  if (authP) return authP
+  authP = (async () => {
+    try {
+      const c = supa()
+      const { data } = await c.auth.getSession()
+      if (data.session?.user) return data.session.user.id
+      const r = await c.auth.signInAnonymously()
+      return r.data.user?.id ?? null
+    } catch {
+      return null
+    }
+  })()
+  return authP
 }
 
-export async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T | null> {
+export async function rpc<T>(fn: string, body: Record<string, unknown>, auth = true): Promise<T | null> {
   try {
-    const r = await fetch(`${API}/${fn}`, {
-      method: 'POST',
-      headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!r.ok) return null
-    return (await r.json()) as T
+    if (auth && !(await ensureUser())) return null
+    const { data, error } = await supa().rpc(fn, body)
+    if (error) return null
+    return data as T
   } catch {
     return null
   }
@@ -43,20 +51,25 @@ export function matchKey(room: string, nameL: string, nameR: string, sl: number,
 }
 
 export async function leaderboard(limit = 30): Promise<RankRow[]> {
-  const rows = await rpc<RankRow[]>('leaderboard', { p_limit: limit })
+  const rows = await rpc<RankRow[]>('leaderboard_v2', { p_limit: limit }, false)
   return rows ?? []
 }
 
+export async function myRank(): Promise<MyRank | null> {
+  const rows = await rpc<MyRank[]>('my_rank', {})
+  return rows?.[0] ?? null
+}
+
 export async function reportMatch(
-  match: string, name: string, won: boolean, my: number, their: number,
+  match: string, name: string, won: boolean, my: number, their: number, frames: number,
 ): Promise<{ rating: number; applied: boolean } | null> {
-  const rows = await rpc<{ rating: number; applied: boolean }[]>('report_match', {
+  const rows = await rpc<{ rating: number; applied: boolean }[]>('report_match_v2', {
     p_match: match,
-    p_player: playerId(),
     p_name: name.slice(0, 24) || 'blob',
     p_won: won,
     p_my: my,
     p_their: their,
+    p_frames: frames,
   })
   return rows?.[0] ?? null
 }

@@ -11,7 +11,7 @@ const NONE = -1
  * Temperamento do bot. Nada disso entra na simulação — é reação a evento que
  * já aconteceu, sorteada na hora, então pode usar `Math.random` à vontade.
  */
-interface Temper {
+export interface Temper {
   /** chance de abrir a boca num ponto qualquer */
   talk: number
   /** perdeu o ponto: acima disso xinga, abaixo chora */
@@ -42,8 +42,8 @@ export class BotMood {
   private won = 0
   private t: Temper
 
-  constructor(private side: Side, diff: Difficulty) {
-    this.t = TEMPER[diff] ?? TEMPER.normal
+  constructor(private side: Side, diff: Difficulty, temper?: Temper) {
+    this.t = temper ?? TEMPER[diff] ?? TEMPER.normal
   }
 
   /** Reage aos eventos do quadro. Devolve o emote, ou -1 se ficar quieto. */
