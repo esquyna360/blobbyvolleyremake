@@ -7,7 +7,7 @@ import {
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
   SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
-  SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
+  SPECIAL_GRAVITY_MUL, DOUBLE_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
   TEMPO_MAX, TEMPO_STEP,
   SPIN_FROM_VX, SPIN_MAX, SPIN_DECAY, MAGNUS_K, SPIN_ROT, APEX_WINDOW, APEX_MUL, FALL_MUL,
   DIVE_SPEED, DIVE_HOP, DIVE_FRAMES, DIVE_RECOVER, DIVE_CD, DIVE_WIDE, CROUCH_WIDE,
@@ -168,7 +168,7 @@ export class PhysicWorld {
 
   /** A bola do especial pesa mais: é o que a faz cair no campo do outro em vez de planar. */
   private ballG() {
-    const base = this.superFrames > 0 ? BALL_GRAVITATION * SPECIAL_GRAVITY_MUL : BALL_GRAVITATION
+    const base = this.superFrames > 0 ? BALL_GRAVITATION * this.superGravity() : BALL_GRAVITATION
     return base * this.tempo * this.tempo
   }
 
@@ -212,6 +212,8 @@ export class PhysicWorld {
    * Mira do especial: alvo fundo no campo adversário, e o menor tempo de voo que
    * ainda passa da rede dentro do teto de velocidade. Menor tempo = bola mais rápida.
    */
+  superGravity() { return this.superKind === 1 ? DOUBLE_GRAVITY_MUL : SPECIAL_GRAVITY_MUL }
+
   private aimSpecial(p: Side, boost = 1) {
     const dir = p === LEFT ? 1 : -1
     const ty = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
@@ -228,7 +230,7 @@ export class PhysicWorld {
     }
 
     const max2 = vmax * vmax
-    const g = BALL_GRAVITATION * SPECIAL_GRAVITY_MUL
+    const g = BALL_GRAVITATION * this.superGravity()
     const skip = Math.floor(this.noise(p, 1) * SPECIAL_ARC_JITTER)
     let seen = 0
     let fx = 0, fy = 0, got = false

@@ -4,7 +4,7 @@ import {
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
   DIVE_SPEED, OPEN_MARGIN, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
-  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, HIT_REACH, HIT_V_MIN, HIT_V_MAX, HIT_TAP, HIT_CHARGE_MAX, other,
+  SPECIAL_REACH, HIT_REACH, HIT_V_MIN, HIT_V_MAX, HIT_TAP, HIT_CHARGE_MAX, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -92,7 +92,7 @@ function simulate(match: Match, horizon: number): number {
   let vx = running ? w.ballVX : 0
   let vy = running ? w.ballVY : 0
   const g = !running ? 0
-    : w.superFrames > 0 ? BALL_GRAVITATION * SPECIAL_GRAVITY_MUL : BALL_GRAVITATION
+    : w.superFrames > 0 ? BALL_GRAVITATION * w.superGravity() : BALL_GRAVITATION
 
   for (let t = 1; t <= n; t++) {
     x += vx

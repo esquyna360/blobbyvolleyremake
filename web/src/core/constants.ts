@@ -57,6 +57,8 @@ export const SPECIAL_POP = -9
 export const KNOCK_DECAY = 0.9
 export const SPECIAL_NET_CLEARANCE = 48
 export const SPECIAL_GRAVITY_MUL = 3.2
+/** Double special cai mais reto e mais rápido que o especial normal. */
+export const DOUBLE_GRAVITY_MUL = 4.6
 export const SPECIAL_TARGET_DEPTH = 0.62
 export const SPECIAL_TIME_MIN = 24
 export const SPECIAL_TIME_STEP = 1.25
