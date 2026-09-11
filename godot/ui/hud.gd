@@ -5,6 +5,8 @@ extends Control
 ## o jogo empurra o estado a cada quadro.
 
 const BAR_W := 170.0
+const RALLY_MIN := 6
+const RALLY_HOLD := 1.9
 const BAR_H := 12.0
 
 var _score := [null, null]
@@ -14,7 +16,14 @@ var _rally: Label
 var _info: Label
 var _big: Label
 var _big_t := 0.0
+var _big_pop := 0.0
+var _band: TextureRect
 var _pulse := [0.0, 0.0]
+var _rally_shown := -1
+var _rally_base := 0
+var _rally_rec := false
+var _rally_pulse := 0.0
+var _rally_t := 0.0
 var _disc := [null, null]
 var pause_btn: Button
 
@@ -136,20 +145,47 @@ func build(left: Color, right: Color) -> void:
 	_rally.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_rally)
 
+	_band = TextureRect.new()
+	var bg := GradientTexture2D.new()
+	var bgr := Gradient.new()
+	bgr.set_color(0, Color(0, 0, 0, 0))
+	bgr.set_color(1, Color(0, 0, 0, 0))
+	bgr.add_point(0.25, Color(0.02, 0.01, 0.0, 0.55))
+	bgr.add_point(0.75, Color(0.02, 0.01, 0.0, 0.55))
+	bg.gradient = bgr
+	bg.fill_from = Vector2(0, 0.5)
+	bg.fill_to = Vector2(1, 0.5)
+	bg.width = 512
+	bg.height = 8
+	_band.texture = bg
+	_band.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_band.anchor_top = 0.36
+	_band.anchor_bottom = 0.36
+	_band.offset_top = -64
+	_band.offset_bottom = 64
+	_band.stretch_mode = TextureRect.STRETCH_SCALE
+	_band.modulate.a = 0.0
+	_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_band)
+
 	_big = Label.new()
 	_big.set_anchors_preset(Control.PRESET_CENTER)
 	_big.anchor_left = 0.5
 	_big.anchor_right = 0.5
 	_big.anchor_top = 0.36
 	_big.anchor_bottom = 0.36
-	_big.offset_left = -340
-	_big.offset_right = 340
-	_big.offset_top = -40
-	_big.offset_bottom = 40
+	_big.offset_left = -460
+	_big.offset_right = 460
+	_big.offset_top = -56
+	_big.offset_bottom = 56
 	_big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_big.add_theme_font_size_override("font_size", 64)
-	_big.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_big.add_theme_constant_override("outline_size", 10)
+	_big.add_theme_font_size_override("font_size", 84)
+	_big.add_theme_color_override("font_outline_color", Color(0.14, 0.07, 0.02, 0.95))
+	_big.add_theme_constant_override("outline_size", 16)
+	_big.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
+	_big.add_theme_constant_override("shadow_offset_x", 0)
+	_big.add_theme_constant_override("shadow_offset_y", 8)
+	_big.add_theme_constant_override("shadow_outline_size", 12)
 	_big.modulate.a = 0.0
 	_big.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_big)
@@ -158,6 +194,7 @@ func shout(text: String, color := Color(1, 1, 1), hold := 1.8) -> void:
 	_big.text = text
 	_big.add_theme_color_override("font_color", color)
 	_big_t = hold
+	_big_pop = 1.0
 
 func update(m: BVMatch, dt: float) -> void:
 	var g := m.logic
@@ -181,12 +218,41 @@ func update(m: BVMatch, dt: float) -> void:
 	_info.add_theme_color_override("font_color",
 		Color(1.0, 0.5, 0.35) if mp else Color(1, 1, 1, 0.78))
 
-	_rally.text = "rally %d" % g.rally if g.rally >= 4 else ""
+	if g.rally != _rally_shown:
+		_rally_shown = g.rally
+		if g.rally == 0:
+			_rally_base = g.rally_best
+			_rally_rec = false
+		elif g.rally >= RALLY_MIN:
+			var rec := g.rally > _rally_base
+			if rec and not _rally_rec:
+				_rally_rec = true
+				shout("NOVO RECORDE!", UiTheme.GOLD, 1.5)
+			elif g.rally % 10 == 0:
+				shout("RALLY %d!" % g.rally, Color(1.0, 0.6, 0.3), 1.2)
+			_rally.text = ("RECORDE %d" if rec else "RALLY %d") % g.rally
+			_rally_pulse = 1.0
+			_rally_t = RALLY_HOLD
+			_rally.add_theme_color_override("font_color",
+				UiTheme.GOLD if rec else Color(1.0, 0.85, 0.35))
+			_rally.add_theme_font_size_override("font_size", 24 + mini(g.rally, 30))
+	_rally_t -= dt
+	_rally_pulse = maxf(0.0, _rally_pulse - dt * 4.0)
+	_rally.modulate.a = clampf(_rally_t * 3.0, 0.0, 1.0) if g.rally >= RALLY_MIN else 0.0
+	_rally.pivot_offset = _rally.size * 0.5
+	_rally.scale = Vector2.ONE * (1.0 + _rally_pulse * 0.4)
+	_rally.rotation = _rally_pulse * 0.06 * sin(Time.get_ticks_msec() * 0.05)
 
 	if _big_t > 0.0:
 		_big_t -= dt
-		_big.modulate.a = minf(1.0, _big_t * 2.5)
+		_big_pop = maxf(0.0, _big_pop - dt * 4.5)
+		var e := _big_pop * _big_pop
+		_big.modulate.a = minf(1.0, _big_t * 2.5) * (1.0 - e * 0.6)
 		_big.pivot_offset = _big.size * 0.5
-		_big.scale = Vector2.ONE * (1.0 + maxf(0.0, _big_t - 1.4) * 0.5)
+		var wob := 1.0 + sin(Time.get_ticks_msec() * 0.004) * 0.015
+		_big.scale = Vector2.ONE * ((1.0 + e * 1.6) * wob)
+		_big.rotation = -e * 0.12 + sin(Time.get_ticks_msec() * 0.0021) * 0.012
+		_band.modulate.a = minf(1.0, _big_t * 2.5) * (1.0 - e)
 	elif _big.modulate.a > 0.0:
 		_big.modulate.a = 0.0
+		_band.modulate.a = 0.0

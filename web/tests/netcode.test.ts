@@ -18,7 +18,7 @@ function rng(seed: number) {
 }
 
 function randomBits(r: () => number) {
-  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12 })
+  return packInput({ left: r() < 0.35, right: r() < 0.35, up: r() < 0.25, special: r() < 0.08, down: r() < 0.12, dive: r() < 0.06 })
 }
 
 test('simulation is deterministic for the same input stream', () => {
@@ -121,8 +121,8 @@ test('rollback never exceeds the configured window', () => {
 
 test('special state survives save/restore', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, down: false }
-  const UP = { left: false, right: false, up: true, special: false, down: false }
+  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false }
+  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_CAP
@@ -152,8 +152,8 @@ test('special state survives save/restore', () => {
 
 test('special only fires on a second jump press in the air', () => {
   const m = new Match('default', 15, LEFT)
-  const NONE = { left: false, right: false, up: false, special: false, down: false }
-  const UP = { left: false, right: false, up: true, special: false, down: false }
+  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false }
+  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_CAP
@@ -190,7 +190,7 @@ test('ação de borda do remoto chega na apresentação mesmo nascendo no rollba
   assert.equal(seen.includes(Ev.DIVE), false, 'mergulho previsto sem input real do remoto')
 
   const bits = new Uint8Array(10)
-  bits[4] = packInput({ ...NO_INPUT, down: true, right: true })
+  bits[4] = packInput({ ...NO_INPUT, dive: true, right: true })
   rb.onRemotePacket(0, bits, 10)
   drain()
 
@@ -220,14 +220,14 @@ test('estado de agachar sobrevive ao save/restore', () => {
 })
 
 /**
- * Mergulho: baixo + lado no chão joga o blob de lado muito além do que a
+ * Mergulho: botão de se jogar (com o lado segurado) joga o blob de lado muito além do que a
  * caminhada alcança, e o estado dele tem que sobreviver ao rollback.
  */
 test('mergulho estica o alcance e sobrevive ao save/restore', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world
   const x0 = w.blobX[LEFT]
-  m.step({ ...NO_INPUT, down: true, right: true }, NO_INPUT)
+  m.step({ ...NO_INPUT, dive: true, right: true }, NO_INPUT)
 
   assert.ok(m.events.some(e => e.event === Ev.DIVE), 'mergulho não saiu')
   assert.ok(w.diveFrames[LEFT] > 0, 'não entrou no estado de mergulho')
@@ -328,7 +328,7 @@ test('quadra aberta: fora é cair fora, não cruzar a linha', () => {
 test('quadra aberta deixa o blob sair da linha; com parede ele para nela', () => {
   const go = (walls: boolean) => {
     const m = new Match('default', 15, LEFT, walls)
-    const left = packInput({ left: true, right: false, up: false, special: false, down: false })
+    const left = packInput({ left: true, right: false, up: false, special: false, down: false, dive: false })
     for (let f = 0; f < 220; f++) m.step(unpackInput(left), NO_INPUT)
     return m.world.blobX[LEFT]
   }

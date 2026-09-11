@@ -16,8 +16,8 @@ const lines: string[] = []
 let lbits = 0, rbits = 0
 
 for (let n = 0; n < FRAMES; n++) {
-  if ((next() & 7) === 0) lbits = (next() >>> 3) & 31
-  if ((next() & 7) === 0) rbits = (next() >>> 3) & 31
+  if ((next() & 7) === 0) lbits = (next() >>> 3) & 63
+  if ((next() & 7) === 0) rbits = (next() >>> 3) & 63
   m.step(unpackInput(lbits), unpackInput(rbits))
   m.save(s)
   const b = Buffer.concat([

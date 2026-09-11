@@ -6,14 +6,16 @@ var right := false
 var up := false
 var special := false
 var down := false
+var dive := false
 
-static func make(l := false, r := false, u := false, sp := false, d := false) -> PlayerInput:
+static func make(l := false, r := false, u := false, sp := false, d := false, dv := false) -> PlayerInput:
 	var i := PlayerInput.new()
 	i.left = l
 	i.right = r
 	i.up = u
 	i.special = sp
 	i.down = d
+	i.dive = dv
 	return i
 
 func copy_from(o: PlayerInput) -> void:
@@ -22,10 +24,11 @@ func copy_from(o: PlayerInput) -> void:
 	up = o.up
 	special = o.special
 	down = o.down
+	dive = o.dive
 
 func pack() -> int:
 	return (1 if left else 0) | (2 if right else 0) | (4 if up else 0) \
-		| (8 if special else 0) | (16 if down else 0)
+		| (8 if special else 0) | (16 if down else 0) | (32 if dive else 0)
 
 func unpack(b: int) -> void:
 	left = (b & 1) != 0
@@ -33,6 +36,7 @@ func unpack(b: int) -> void:
 	up = (b & 4) != 0
 	special = (b & 8) != 0
 	down = (b & 16) != 0
+	dive = (b & 32) != 0
 
 static func from_bits(b: int) -> PlayerInput:
 	var i := PlayerInput.new()
@@ -45,3 +49,4 @@ func clear() -> void:
 	up = false
 	special = false
 	down = false
+	dive = false

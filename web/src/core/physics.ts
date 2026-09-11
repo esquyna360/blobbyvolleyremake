@@ -55,6 +55,7 @@ export class PhysicWorld {
   diveDir = [0, 0]
   diveCd = [0, 0]
   diveRecover = [0, 0]
+  prevDive = [0, 0]
   /** Espelho do rally da lógica: a barra carrega mais rápido em troca longa. */
   rally = 0
   /** Escala de tempo do rally: 1 no saque, sobe a cada toque até TEMPO_MAX. */
@@ -276,8 +277,7 @@ export class PhysicWorld {
 
     // baixo + lado no chão é mergulho, não manchete: sem esse corte a manchete
     // pega a bola de 128px de distância e o mergulho nunca serve pra nada
-    if (raw.down && this.prevDown[p] === 0 && this.stun[p] <= 0 && this.digCd[p] === 0 &&
-        !this.divePress(p, raw)) {
+    if (raw.down && this.prevDown[p] === 0 && this.stun[p] <= 0 && this.digCd[p] === 0) {
       this.digActive[p] = DIG_WINDOW
       this.digCd[p] = DIG_CD
     }
@@ -320,21 +320,23 @@ export class PhysicWorld {
    * ficando deitado no fim.
    */
   /** Esse toque de baixo é mergulho? Vale pra manchete e pro mergulho lerem igual. */
-  private divePress(p: Side, raw: PlayerInput) {
-    return raw.left !== raw.right && this.stun[p] === 0 && this.diveCd[p] === 0 &&
-      this.diveFrames[p] === 0 && this.diveRecover[p] === 0 && this.blobHitGround(p)
+  private divePress(p: Side) {
+    return this.stun[p] === 0 && this.diveCd[p] === 0 &&
+      this.diveFrames[p] === 0 && this.diveRecover[p] === 0
   }
 
   private tryDive(p: Side, raw: PlayerInput, out: MatchEvent[]) {
-    if (!raw.down || this.prevDown[p] !== 0) return
-    if (!this.divePress(p, raw)) return
-    const dir = raw.right ? 1 : -1
+    if (!raw.dive || this.prevDive[p] !== 0) return
+    if (!this.divePress(p)) return
+    const dir = raw.left !== raw.right ? (raw.right ? 1 : -1) : (p === LEFT ? 1 : -1)
+    const ground = this.blobHitGround(p)
 
     this.diveFrames[p] = DIVE_FRAMES
     this.diveDir[p] = dir
     this.diveCd[p] = DIVE_CD
     this.blobVX[p] = dir * DIVE_SPEED * this.tempo
-    this.blobVY[p] = DIVE_HOP * this.tempo
+    // no ar não ganha impulso: só corta a subida e se joga de lado até cair
+    this.blobVY[p] = ground ? DIVE_HOP * this.tempo : Math.max(this.blobVY[p], DIVE_HOP * this.tempo)
     out.push({ event: Ev.DIVE, side: p, intensity: 0 })
   }
 
@@ -685,6 +687,8 @@ export class PhysicWorld {
     this.prevSpecial[RIGHT] = ri.special ? 1 : 0
     this.prevDown[LEFT] = li.down ? 1 : 0
     this.prevDown[RIGHT] = ri.down ? 1 : 0
+    this.prevDive[LEFT] = li.dive ? 1 : 0
+    this.prevDive[RIGHT] = ri.dive ? 1 : 0
 
     this.handleBallWorldCollisions(out)
 

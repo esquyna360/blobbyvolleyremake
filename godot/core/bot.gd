@@ -225,7 +225,7 @@ func think(m: BVMatch) -> PlayerInput:
 		_sp_held = false
 		_out.left = dive_dir < 0
 		_out.right = dive_dir > 0
-		_out.down = true
+		_out.dive = true
 		return _out
 	_dive_held = false
 

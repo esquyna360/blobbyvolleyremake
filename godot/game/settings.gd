@@ -10,6 +10,7 @@ var rules := "default"
 var score_to_win := 15
 var walls := true
 var difficulty := "normal"
+var scene := "selva"
 
 func load_all() -> void:
 	var c := ConfigFile.new()
@@ -21,6 +22,7 @@ func load_all() -> void:
 		score_to_win = c.get_value("v", "stw", 15)
 		walls = c.get_value("v", "walls", true)
 		difficulty = c.get_value("v", "diff", "normal")
+		scene = c.get_value("v", "scene", "selva")
 	if quality < 0:
 		quality = detect_quality()
 
@@ -33,6 +35,7 @@ func save() -> void:
 	c.set_value("v", "stw", score_to_win)
 	c.set_value("v", "walls", walls)
 	c.set_value("v", "diff", difficulty)
+	c.set_value("v", "scene", scene)
 	c.save(PATH)
 
 ## Primeiro palpite de preset. Celular entra no baixo e sobe se o jogador

@@ -14,6 +14,7 @@ signal quit_game()
 
 const DIFFS := [["easy", "Fácil"], ["normal", "Normal"], ["hard", "Difícil"], ["insane", "Insano"]]
 const QUALS := ["Baixo", "Médio", "Alto", "Máximo"]
+const SCENES := [["selva", "Selva"], ["praia", "Praia ao pôr do sol"]]
 
 var settings: Settings
 
@@ -184,6 +185,21 @@ func _options() -> void:
 	_root.add_child(UiTheme.label(
 		"Trocar de preset reconstrói o cenário — leva um segundo.", 13,
 		Color(1, 1, 1, 0.5)))
+	_root.add_child(HSeparator.new())
+	_root.add_child(UiTheme.label("Cenário", 22, UiTheme.GOLD))
+	var srow := HBoxContainer.new()
+	srow.add_theme_constant_override("separation", 8)
+	for sc in SCENES:
+		var sb := UiTheme.style(Button.new(),
+			UiTheme.GOLD if sc[0] == settings.scene else Color(0.55, 0.62, 0.58), 17)
+		sb.text = sc[1]
+		sb.pressed.connect(func():
+			settings.scene = sc[0]
+			settings.save()
+			quality_changed.emit(settings.quality)
+			show_page("options"))
+		srow.add_child(sb)
+	_root.add_child(srow)
 	_root.add_child(HSeparator.new())
 	_root.add_child(UiTheme.label("Som", 22, UiTheme.GOLD))
 	_slider("Música", Aud.music_vol, func(v): Aud.set_volume("music", v))

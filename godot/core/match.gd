@@ -5,7 +5,7 @@ extends RefCounted
 ## estado inteiro cabe em dois vetores e voltar no tempo é copiar dois vetores.
 
 const STATE_FLOATS := 26
-const STATE_INTS := 42
+const STATE_INTS := 44
 
 var world := PhysicWorld.new()
 var logic: GameLogic
@@ -122,6 +122,7 @@ func save(f: PackedFloat64Array, i: PackedInt32Array) -> void:
 	i[37] = w.dive_recover[0]; i[38] = w.dive_recover[1]
 	i[39] = w.dive_dir[0]; i[40] = w.dive_dir[1]
 	i[41] = w.ball_out
+	i[42] = w.prev_dive[0]; i[43] = w.prev_dive[1]
 
 func restore(f: PackedFloat64Array, i: PackedInt32Array) -> void:
 	var w := world
@@ -159,6 +160,7 @@ func restore(f: PackedFloat64Array, i: PackedInt32Array) -> void:
 	w.dive_recover[0] = i[37]; w.dive_recover[1] = i[38]
 	w.dive_dir[0] = i[39]; w.dive_dir[1] = i[40]
 	w.ball_out = i[41]
+	w.prev_dive[0] = i[42]; w.prev_dive[1] = i[43]
 	w.rally = g.rally
 	w.match_point = _at_match_point()
 

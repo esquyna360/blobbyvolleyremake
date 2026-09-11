@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 26
-export const STATE_INTS = 42
+export const STATE_INTS = 44
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -66,8 +66,8 @@ export class Match {
     if (tf) {
       const [ll, lr, lu] = tf(LEFT, li.left, li.right, li.up)
       const [rl, rr, ru] = tf(RIGHT, ri.left, ri.right, ri.up)
-      l = { left: ll, right: lr, up: lu, special: li.special, down: li.down }
-      r = { left: rl, right: rr, up: ru, special: ri.special, down: ri.down }
+      l = { left: ll, right: lr, up: lu, special: li.special, down: li.down, dive: li.dive }
+      r = { left: rl, right: rr, up: ru, special: ri.special, down: ri.down, dive: ri.dive }
     }
 
     w.scores[0] = g.scores[0]; w.scores[1] = g.scores[1]
@@ -142,6 +142,7 @@ export class Match {
     i[37] = w.diveRecover[0]; i[38] = w.diveRecover[1]
     i[39] = w.diveDir[0]; i[40] = w.diveDir[1]
     i[41] = w.ballOut
+    i[42] = w.prevDive[0]; i[43] = w.prevDive[1]
     f[24] = w.tempo; f[25] = w.ballSpin
   }
 
@@ -178,6 +179,7 @@ export class Match {
     w.diveRecover[0] = i[37]; w.diveRecover[1] = i[38]
     w.diveDir[0] = i[39]; w.diveDir[1] = i[40]
     w.ballOut = i[41]
+    w.prevDive[0] = i[42]; w.prevDive[1] = i[43]
     w.tempo = f[24]; w.ballSpin = f[25]
     w.rally = g.rally
     w.matchPoint = this.atMatchPoint()

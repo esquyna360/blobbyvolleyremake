@@ -170,6 +170,7 @@ func set_solo(on: bool) -> void:
 
 func set_walls(on: bool) -> void:
 	walls_on = on
+	court.set_walls_visible(on)
 
 ## Guarda o estado da simulação pra interpolar. Chamar logo após cada passo fixo.
 func capture(m: BVMatch) -> void:
@@ -239,6 +240,7 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 
 		Ev.BALL_HIT_WALL:
 			_squash_ball(w, 0.12)
+			court.wall_hit(0 if w.ball_x < BV.NET_POSITION_X else 1, Map.gy(w.ball_y))
 			trauma = minf(1.0, trauma + 0.12)
 			fx.burst(Vector3(Map.gx(w.ball_x), Map.gy(w.ball_y), 0), 60, 3.5, 0.6,
 				0.4, 0.55, 0.03, Color(0.5, 0.85, 1.0), 3.2)
@@ -477,7 +479,7 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 		_cam_z - trauma * 0.5)
 	camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0), Vector3.UP)
 	camera.rotate_object_local(Vector3.FORWARD, shr)
-	camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036
+	camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036 - tension * 1.4
 
 	ball.update(bx, by, brot, sin(time * 0.7) * 0.25, dt)
 	_blob_shadow(_shadow[2], bx, by, 1.5)

@@ -602,7 +602,35 @@ def make_falls_anim():
     return Image.fromarray(np.dstack([rgb, (a * 255).astype(np.uint8)]))
 
 
+def make_plant(seed, kind):
+    """Planta solta pro 3D: raiz embaixo no centro, transparente em volta."""
+    n, rng = 512, np.random.default_rng(seed)
+    img = new(n, n)
+    d = ImageDraw.Draw(img)
+    cx, base = n * 0.5, n * 0.98
+    if kind == "a":
+        for k in range(3):
+            fern2(d, cx + rng.uniform(-n * 0.12, n * 0.12), base, n * rng.uniform(0.34, 0.48),
+                  -math.pi / 2, FG, FG_HI, rng, n=7)
+        for _ in range(3):
+            c = [PINK, ORANGE, WHITE][int(rng.integers(0, 3))]
+            flower(d, cx + rng.uniform(-n * 0.3, n * 0.3), base - n * rng.uniform(0.2, 0.45),
+                   n * rng.uniform(0.03, 0.045), c)
+    else:
+        for k in range(7):
+            a = -math.pi / 2 + (k / 6 - 0.5) * 2.2 + rng.uniform(-0.15, 0.15)
+            L = n * rng.uniform(0.34, 0.50)
+            leaf2(d, cx + rng.uniform(-n * 0.04, n * 0.04), base, L, L * 0.36, a,
+                  FG, FG_HI, notch=0.18)
+    img = organic_edge(img, rng, 2.0, 12.0, 0.3)
+    img = shade_v(img, 1.08, 0.72)
+    img = rim(img, FG_RIM[:3] + (150,), px=3, dy=1, soft=2)
+    return saturate(grain(img, 0.04, rng, 3.0), 1.1)
+
+
 def make_sprites():
+    save(make_plant(301, "a"), "plant_a.png")
+    save(make_plant(307, "b"), "plant_b.png")
     save(radial(128, 1.5, hexc("#ffffff")), "mote.png")
     save(radial(256, 2.4, hexc("#ffffff")), "puff.png")
     save(radial(512, 1.6, hexc("#ffffff")), "glow.png")

@@ -17,9 +17,15 @@ var _in_match := false
 var _net_pending := false
 var _pause_ui: PanelContainer
 var _paused := false
+var _result_ui: PanelContainer
+var _result_title: Label
+var _result_score: Label
+var _result_again: Button
+var _restart: Callable
 
 func _ready() -> void:
 	settings.load_all()
+	Stage.theme = settings.scene
 	Controls.setup()
 	randomize()
 
@@ -37,6 +43,7 @@ func _ready() -> void:
 	hud.pause_pressed.connect(func(): _set_pause(true))
 	_ui.add_child(hud)
 	_build_pause()
+	_build_result()
 	get_tree().set_quit_on_go_back(false)
 
 	menu.build(settings)
@@ -102,11 +109,13 @@ func _finish_enter() -> void:
 func _play_bot(diff: String) -> void:
 	settings.difficulty = diff
 	settings.save()
+	_restart = _play_bot.bind(diff)
 	game.touch_slot = [0, -1]
 	_enter_match(Game.Source.LOCAL_SOLO, Game.Source.BOT, diff,
 		[settings.look, Looks.roll_look(settings.look[0])])
 
 func _play_local() -> void:
+	_restart = _play_local
 	game.touch_slot = [-1, -1]
 	_enter_match(Game.Source.LOCAL_P1, Game.Source.LOCAL_P2, "normal",
 		[settings.look, Looks.roll_look(settings.look[0])])
@@ -155,17 +164,86 @@ func _on_closed() -> void:
 func _on_match_over(winner: int) -> void:
 	if not _in_match:
 		return
+	var local2: bool = game.src[BV.RIGHT] == Game.Source.LOCAL_P2
 	var mine := winner == BV.LEFT
 	if game.net_side != BV.NO_PLAYER:
 		mine = winner == game.net_side
-	elif game.src[BV.RIGHT] == Game.Source.LOCAL_P2:
-		mine = true
-	hud.shout("GANHOU!" if mine else "PERDEU", UiTheme.GOLD if mine
-		else Color(0.8, 0.4, 0.4), 3.0)
+	var title := ("P1 VENCE" if winner == BV.LEFT else "P2 VENCE") if local2 \
+		else ("VITÓRIA!" if mine else "DERROTA")
+	var col := game.arena.blobs[winner].body_color
+	hud.shout(title, col.lightened(0.3), 3.0)
+	_over_seq(title, col)
+
+func _over_seq(title: String, col: Color) -> void:
+	var m := game.bv
+	if touch != null:
+		touch.visible = false
+	Controls.clear_touch()
+	await get_tree().create_timer(2.6).timeout
+	if not _in_match or game.bv != m:
+		return
+	game.set_paused(true)
+	_result_title.text = title
+	_result_title.add_theme_color_override("font_color", col.lightened(0.3))
+	_result_score.text = "%d  —  %d" % [m.logic.scores[BV.LEFT], m.logic.scores[BV.RIGHT]]
+	_result_again.visible = game.net_side == BV.NO_PLAYER
+	_result_ui.visible = true
+	_result_ui.pivot_offset = _result_ui.size * 0.5
+	_result_ui.scale = Vector2.ONE * 0.5
+	_result_ui.modulate.a = 0.0
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(_result_ui, "scale", Vector2.ONE, 0.55) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_result_ui, "modulate:a", 1.0, 0.25)
+
+func _build_result() -> void:
+	_result_ui = PanelContainer.new()
+	_result_ui.set_anchors_preset(Control.PRESET_CENTER)
+	_result_ui.anchor_left = 0.5
+	_result_ui.anchor_right = 0.5
+	_result_ui.anchor_top = 0.5
+	_result_ui.anchor_bottom = 0.5
+	_result_ui.offset_left = -230
+	_result_ui.offset_right = 230
+	_result_ui.offset_top = -170
+	_result_ui.offset_bottom = 170
+	_result_ui.add_theme_stylebox_override("panel", UiTheme.wood())
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	_result_ui.add_child(v)
+	_result_title = UiTheme.label("", 52, UiTheme.GOLD)
+	_result_title.add_theme_color_override("font_outline_color", Color(0.14, 0.07, 0.02, 0.95))
+	_result_title.add_theme_constant_override("outline_size", 10)
+	_result_title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
+	_result_title.add_theme_constant_override("shadow_offset_y", 5)
+	_result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_result_title)
+	_result_score = UiTheme.label("", 40)
+	_result_score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_result_score)
+	_result_again = Button.new()
+	_result_again.text = "Jogar de novo"
+	UiTheme.style(_result_again, Color(0.45, 0.85, 0.40))
+	_result_again.pressed.connect(func():
+		_result_ui.visible = false
+		if _restart.is_valid():
+			_restart.call())
+	v.add_child(_result_again)
+	var q := Button.new()
+	q.text = "Menu"
+	UiTheme.style(q, Color(0.6, 0.65, 0.62))
+	q.pressed.connect(func():
+		_result_ui.visible = false
+		_to_menu())
+	v.add_child(q)
+	_result_ui.visible = false
+	_ui.add_child(_result_ui)
 
 func _requality(q: int) -> void:
 	settings.quality = q
 	settings.save()
+	Stage.theme = settings.scene
 	var old := game.arena
 	game.remove_child(old)
 	old.queue_free()
@@ -184,6 +262,7 @@ func _relook(look: Array) -> void:
 func _to_menu() -> void:
 	_paused = false
 	_pause_ui.visible = false
+	_result_ui.visible = false
 	link.stop()
 	game.net_side = BV.NO_PLAYER
 	game.link = null
@@ -263,6 +342,10 @@ func _dev_shot() -> void:
 	var path := ""
 	var wait := 200
 	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--scene="):
+			settings.scene = a.substr(8)
+			_requality(settings.quality)
+	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			path = a.substr(7)
 		elif a.begins_with("--wait="):
@@ -275,12 +358,21 @@ func _dev_shot() -> void:
 			menu.show_page(a.substr(7))
 		elif a.begins_with("--quality="):
 			_requality(int(a.substr(10)))
+		elif a.begins_with("--stw="):
+			settings.score_to_win = int(a.substr(6))
+		elif a == "--bots":
+			_restart = _dev_bots
+			_dev_bots()
 	if path == "":
 		return
 	for i in wait:
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(path)
+	if game.bv != null:
+		print("frame=%d placar=%d-%d rally=%d slow=%.2f" % [game.bv.frame,
+			game.bv.logic.scores[0], game.bv.logic.scores[1], game.bv.logic.rally,
+			game.slow_factor()])
 	print("shot: ", path)
 	get_tree().quit()
 
@@ -288,6 +380,11 @@ func _dev_shot() -> void:
 ## Teste de rede sem ninguém no teclado: os dois lados geram a mesma sequência
 ## pseudoaleatória de entrada e comparam checksum. Se a resimulação do rollback
 ## divergisse, aparecia aqui.
+func _dev_bots() -> void:
+	game.touch_slot = [-1, -1]
+	_enter_match(Game.Source.BOT, Game.Source.BOT, "hard",
+		[Looks.roll_look(-1), Looks.roll_look(-1)])
+
 func _dev_net() -> void:
 	var mode := ""
 	var frames := 1800

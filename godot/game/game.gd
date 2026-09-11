@@ -34,6 +34,28 @@ var _stalled := false
 var _send_t := 0.0
 var _resim := false
 var _last_winner := BV.NO_PLAYER
+var _slow := 1.0
+
+## No match point, quando a bola cai no lado de quem está perdendo, o tempo
+## abre: é o lance que decide, e ele merece ser visto.
+func _slowmo() -> float:
+	if rb != null or bv.logic.winner != BV.NO_PLAYER:
+		return 1.0
+	var w := bv.world
+	if not w.match_point:
+		return 1.0
+	var g := bv.logic
+	var leader := BV.LEFT if g.scores[BV.LEFT] >= g.scores[BV.RIGHT] else BV.RIGHT
+	var ball_side := BV.LEFT if w.ball_x < BV.NET_POSITION_X else BV.RIGHT
+	if ball_side == leader or w.ball_vy <= 0.0:
+		return 1.0
+	var h := Map.gy(w.ball_y)
+	if h > 4.5:
+		return 1.0
+	return 0.28
+
+func slow_factor() -> float:
+	return _slow
 
 func start(rules: String, score_to_win: int, walls: bool, q: int,
 		left_src: int, right_src: int, difficulty := "normal",
@@ -57,6 +79,7 @@ func start(rules: String, score_to_win: int, walls: bool, q: int,
 	_acc = 0.0
 	_paused = false
 	_last_winner = BV.NO_PLAYER
+	_slow = 1.0
 	if net_side != BV.NO_PLAYER:
 		rb = Rollback.new()
 		rb.save(bv)
@@ -71,10 +94,13 @@ func set_remote_bits(side: int, bits: int) -> void:
 func _process(dt: float) -> void:
 	if bv == null:
 		return
-	if _paused:
+	if _paused or _last_winner != BV.NO_PLAYER:
 		arena.render(bv, 1.0, dt)
 		return
 
+	var slow := _slowmo()
+	_slow += (slow - _slow) * (1.0 - exp(-dt * (12.0 if slow < _slow else 4.0)))
+	dt *= _slow
 	_acc += minf(dt, 0.25)
 	var n := 0
 	while _acc >= STEP and n < MAX_CATCHUP:

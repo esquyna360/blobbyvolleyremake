@@ -594,6 +594,7 @@ textarea:focus { outline: none; border-color: var(--accent); color: var(--ink); 
   background: rgba(255,205,70,0.82); border-color: rgba(255,238,190,0.9);
   color: #21170a; text-shadow: none;
 }
+.tbtn.dive { background: rgba(70,150,230,0.62); border-color: rgba(190,225,255,0.9); }
 .tbtn.press { background: rgba(255,255,255,0.5); transform: scale(0.94); }
 
 .tmenu {

@@ -33,9 +33,9 @@ func _initialize() -> void:
 	var out := PackedStringArray()
 	for n in FRAMES:
 		if (_next() & 7) == 0:
-			lbits = (_next() >> 3) & 31
+			lbits = (_next() >> 3) & 63
 		if (_next() & 7) == 0:
-			rbits = (_next() >> 3) & 31
+			rbits = (_next() >> 3) & 63
 		li.unpack(lbits)
 		ri.unpack(rbits)
 		m.step(li, ri)

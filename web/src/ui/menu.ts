@@ -390,13 +390,13 @@ export class Menu {
             this.item('RANKING', 'só partida online pontua', () => this.ranking()),
             this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays())),
           this.tipLine(TOUCH
-            ? '▲ pula · dois toques no ar = especial · ▼ manchete, segurar agacha · ▼+◀ mergulha'
+            ? '▲ pula · dois toques no ar = especial · ▼ manchete, segurar agacha · ↘ se joga'
             : 'passa o cursor numa opção pra ver o que ela faz'))),
       el('div', { class: 'homefoot' }, ...(TOUCH ? [
         this.keyRow(['◀', '▶'], 'anda'),
         this.keyRow(['▲'], 'pula — dois toques no ar = especial'),
         this.keyRow(['▼'], 'toque = manchete, segurar = agachar'),
-        this.keyRow(['▼', '◀'], 'no chão = mergulho'),
+        this.keyRow(['↘'], 'se joga pro lado: no chão desliza, no ar cai e demora a levantar'),
         this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
         this.keyRow(['☺'], 'emotes no canto da tela'),
         this.keyRow(['MENU'], 'pausa e volta'),
@@ -404,11 +404,11 @@ export class Menu {
         this.keyRow(['A', 'D', 'W', 'S'], 'jogador 1'),
         this.keyRow(['←', '→', '↑', '↓'], 'jogador 2'),
         this.keyRow(['S'], 'toque = manchete, segurar = agachar'),
-        this.keyRow(['↓', '←'], 'no chão = mergulho'),
+        this.keyRow(['E', 'CTRL'], 'se joga pro lado (no ar cai e demora a levantar)'),
         this.keyRow([], 'bate correndo pro lado e a bola curva pra lá'),
         this.keyRow(['1', '5'], 'emotes'),
         this.keyRow(['ESC'], 'pausa e volta'),
-        this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X corta, ☰ pausa'),
+        this.keyRow([], 'controle: direcional anda, ✕/A pula, □/X se joga, ○/B especial, ☰ pausa'),
       ])),
     )
     this.runPortrait(cv)

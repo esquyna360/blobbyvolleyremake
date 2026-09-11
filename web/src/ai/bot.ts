@@ -237,7 +237,7 @@ export class Bot {
 
     if (w.stun[me] > 0) {
       this.upHeld = false; this.spHeld = false; this.diveHeld = false
-      return { left: false, right: false, up: false, special: false, down: false }
+      return { left: false, right: false, up: false, special: false, down: false, dive: false }
     }
 
     if (--this.cool <= 0) {
@@ -255,7 +255,7 @@ export class Bot {
       this.diveHeld = true
       this.upHeld = false; this.spHeld = false
       return {
-        left: diveDir < 0, right: diveDir > 0, up: false, special: false, down: true,
+        left: diveDir < 0, right: diveDir > 0, up: false, special: false, down: false, dive: true,
       }
     }
     this.diveHeld = false
@@ -275,7 +275,7 @@ export class Bot {
     this.upHeld = up
 
     const special = this.wantSpecial(w, me, onGround, p)
-    return { left, right, up, special, down }
+    return { left, right, up, special, down, dive: false }
   }
 
   /**

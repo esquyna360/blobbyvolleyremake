@@ -115,12 +115,24 @@ void fragment() {
 	vec4 face = face_layer(base_pos, face_zone);
 	float gloss = 1.0 - face_zone * 0.82;
 
-	ALBEDO = mix(body_color, face.rgb, face.a) + body_color * hit_flash * 1.6;
-	ROUGHNESS = mix(0.24, 0.55, face.a);
-	SPECULAR = 0.5 * gloss;
+	// mais escuro embaixo, como geleia com fundo: dá volume e brilho de bala
+	float depth_k = clamp(0.35 - base_pos.y * 0.45, 0.0, 0.5);
+	vec3 body = mix(body_color, deep_color, depth_k);
+	ALBEDO = mix(body, face.rgb, face.a) + body_color * hit_flash * 1.6;
+	ROUGHNESS = mix(0.12, 0.5, face.a);
+	SPECULAR = 0.85 * gloss;
 	METALLIC = 0.0;
+	CLEARCOAT = 1.0 * gloss;
+	CLEARCOAT_ROUGHNESS = 0.08;
 	// a luz que atravessa a geleia: o que dá a leitura de corpo mole
-	BACKLIGHT = deep_color * (1.0 - face.a) * 0.55;
-	RIM = 0.55 * gloss * (1.0 - face.a * 0.7);
-	RIM_TINT = 0.25;
+	BACKLIGHT = deep_color * (1.0 - face.a) * 0.6;
+	RIM = 0.7 * gloss * (1.0 - face.a * 0.7);
+	RIM_TINT = 0.35;
+	// reflexo pintado: o ponto de luz branco no alto e a janela do céu no ombro
+	vec3 l1 = normalize(vec3(-0.45, 0.75, 0.55));
+	vec3 h1 = normalize(l1 + VIEW);
+	float spot = pow(max(dot(NORMAL, h1), 0.0), 90.0);
+	float win = pow(max(dot(NORMAL, normalize(vec3(-0.3, 0.55, 0.8))), 0.0), 14.0) * 0.35;
+	float sky = smoothstep(-0.2, 0.9, NORMAL.y) * 0.10;
+	EMISSION = vec3(1.0, 0.98, 0.95) * (spot * 1.1 + win + sky) * gloss * (1.0 - face.a * 0.8);
 }

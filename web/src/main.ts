@@ -346,8 +346,8 @@ class App {
 
   private buildTouch() {
     if (!isTouch) return
-    const mk = (label: string, key: 'left' | 'right' | 'up' | 'down', big = false) => {
-      const b = el('div', { class: `tbtn${big ? ' big' : ''}`, textContent: label })
+    const mk = (label: string, key: 'left' | 'right' | 'up' | 'down' | 'dive', big = false) => {
+      const b = el('div', { class: `tbtn${big ? ' big' : ''}${key === 'dive' ? ' dive' : ''}`, textContent: label })
       const on = (v: boolean) => (e: Event) => {
         e.preventDefault()
         this.input.touch[key] = v
@@ -359,8 +359,8 @@ class App {
       return b
     }
     this.touchEls = el('div', { class: 'touch' },
-      el('div', { class: 'tpad' }, mk('◀', 'left'), mk('▶', 'right')),
-      el('div', { class: 'tpad' }, mk('▼', 'down'), mk('▲', 'up', true)))
+      el('div', { class: 'tpad' }, mk('◀', 'left'), mk('▶', 'right'), mk('▼', 'down')),
+      el('div', { class: 'tpad' }, mk('↘', 'dive'), mk('▲', 'up', true)))
 
     const menu = el('div', { class: 'tmenu', textContent: 'MENU' })
     const openMenu = (e: Event) => {

@@ -13,11 +13,15 @@ var _mat: ShaderMaterial
 var _impacts := PackedVector3Array([Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO])
 var _ages := PackedFloat32Array([0, 0, 0, 0])
 var _slot := 0
+var _walls: Array = []
+var _wall_t := PackedFloat32Array([10.0, 10.0])
+var _wall_time := 0.0
 
 func build(quality: int) -> void:
 	_cloth(quality)
 	_post(quality)
 	_lines()
+	_walls_build()
 
 func _cloth(quality: int) -> void:
 	var cols := 60 if quality >= 2 else 26
@@ -127,6 +131,85 @@ func _lines() -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 
+## A parede da quadra fechada: uma placa de energia com grade hexagonal que
+## some pra cima e acende em anel onde a bola bate.
+func _walls_build() -> void:
+	var half := Map.court_half_w()
+	var h := 9.0
+	var sh := load("res://render/wall.gdshader")
+	for i in 2:
+		var qm := QuadMesh.new()
+		qm.size = Vector2(Map.COURT_DEPTH + 3.0, h)
+		var mi := MeshInstance3D.new()
+		mi.mesh = qm
+		var sm := ShaderMaterial.new()
+		sm.shader = sh
+		sm.set_shader_parameter("height", h)
+		sm.set_shader_parameter("color", Color(0.45, 0.85, 1.0))
+		sm.set_shader_parameter("hit_t", 10.0)
+		mi.material_override = sm
+		mi.rotation_degrees = Vector3(0, 90, 0)
+		mi.position = Vector3(-half if i == 0 else half, h * 0.5, 0)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		_walls.append(mi)
+		for j in 2:
+			var z := (Map.COURT_DEPTH * 0.5 + 0.9) * (1.0 if j == 0 else -1.0)
+			var post := _wall_post(h)
+			post.position = Vector3(mi.position.x, 0.0, z)
+			post.set_meta("wall_post", true)
+			mi.add_sibling(post)
+
+## Poste de canto da parede: um pilar de metal com a ponta acesa, pra parede
+## ter onde começar e terminar.
+func _wall_post(h: float) -> Node3D:
+	var root := Node3D.new()
+	var metal := StandardMaterial3D.new()
+	metal.albedo_color = Color(0.55, 0.60, 0.66)
+	metal.roughness = 0.35
+	metal.metallic = 0.8
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.09
+	cm.bottom_radius = 0.14
+	cm.height = h
+	cm.radial_segments = 10
+	cm.rings = 1
+	var mi := MeshInstance3D.new()
+	mi.mesh = cm
+	mi.material_override = metal
+	mi.position = Vector3(0, h * 0.5, 0)
+	root.add_child(mi)
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color(0.7, 0.95, 1.0)
+	glow.emission_enabled = true
+	glow.emission = Color(0.45, 0.85, 1.0)
+	glow.emission_energy_multiplier = 2.2
+	var sm := SphereMesh.new()
+	sm.radius = 0.2
+	sm.height = 0.4
+	sm.radial_segments = 12
+	sm.rings = 6
+	var tip := MeshInstance3D.new()
+	tip.mesh = sm
+	tip.material_override = glow
+	tip.position = Vector3(0, h + 0.1, 0)
+	root.add_child(tip)
+	return root
+
+func set_walls_visible(on: bool) -> void:
+	for mi in _walls:
+		mi.visible = on
+		for s in mi.get_parent().get_children():
+			if s.has_meta("wall_post"):
+				s.visible = on
+
+func wall_hit(side: int, world_y: float) -> void:
+	if side < 0 or side >= _walls.size():
+		return
+	_wall_t[side] = 0.0
+	var sm: ShaderMaterial = _walls[side].material_override
+	sm.set_shader_parameter("hit_y", world_y)
+
 func hit(world_y: float, world_z: float) -> void:
 	_impacts[_slot] = Vector3(0.0, world_y, world_z)
 	_ages[_slot] = 0.0001
@@ -138,6 +221,12 @@ func _push_uniforms() -> void:
 	_mat.set_shader_parameter("impact_t", _ages)
 
 func step(dt: float) -> void:
+	_wall_time += dt
+	for i in _walls.size():
+		_wall_t[i] += dt
+		var sm: ShaderMaterial = _walls[i].material_override
+		sm.set_shader_parameter("t", _wall_time)
+		sm.set_shader_parameter("hit_t", _wall_t[i])
 	var any := false
 	for i in 4:
 		if _ages[i] > 0.0:

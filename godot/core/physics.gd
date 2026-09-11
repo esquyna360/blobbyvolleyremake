@@ -40,6 +40,7 @@ var scores := PackedInt32Array([0, 0])
 
 var crouch := PackedFloat64Array([0.0, 0.0])
 var prev_down := PackedInt32Array([0, 0])
+var prev_dive := PackedInt32Array([0, 0])
 var dig_cd := PackedInt32Array([0, 0])
 var dig_active := PackedInt32Array([0, 0])
 
@@ -229,8 +230,7 @@ func _try_crouch(p: int, raw: PlayerInput) -> void:
 	else:
 		crouch[p] = maxf(0.0, crouch[p] - BV.CROUCH_RELEASE)
 
-	if raw.down and prev_down[p] == 0 and stun[p] <= 0 and dig_cd[p] == 0 \
-			and not _dive_press(p, raw):
+	if raw.down and prev_down[p] == 0 and stun[p] <= 0 and dig_cd[p] == 0:
 		dig_active[p] = BV.DIG_WINDOW
 		dig_cd[p] = BV.DIG_CD
 
@@ -264,22 +264,27 @@ func _push_out(p: int, cy: float, dx: float, dy: float, l: float, r: float) -> v
 	ball_x = blob_x[p] + (dx / k) * need
 	ball_y = cy + (dy / k) * need
 
-func _dive_press(p: int, raw: PlayerInput) -> bool:
-	return raw.left != raw.right and stun[p] == 0 and dive_cd[p] == 0 \
-		and dive_frames[p] == 0 and dive_recover[p] == 0 and blob_hit_ground(p)
+func _dive_press(p: int) -> bool:
+	return stun[p] == 0 and dive_cd[p] == 0 \
+		and dive_frames[p] == 0 and dive_recover[p] == 0
 
 func _try_dive(p: int, raw: PlayerInput, out: EventBuf) -> void:
-	if not raw.down or prev_down[p] != 0:
+	if not raw.dive or prev_dive[p] != 0:
 		return
-	if not _dive_press(p, raw):
+	if not _dive_press(p):
 		return
-	var dir := 1 if raw.right else -1
+	var dir: int
+	if raw.left != raw.right:
+		dir = 1 if raw.right else -1
+	else:
+		dir = 1 if p == BV.LEFT else -1
+	var ground := blob_hit_ground(p)
 
 	dive_frames[p] = BV.DIVE_FRAMES
 	dive_dir[p] = dir
 	dive_cd[p] = BV.DIVE_CD
 	blob_vx[p] = dir * BV.DIVE_SPEED * tempo
-	blob_vy[p] = BV.DIVE_HOP * tempo
+	blob_vy[p] = BV.DIVE_HOP * tempo if ground else maxf(blob_vy[p], BV.DIVE_HOP * tempo)
 	out.push(Ev.DIVE, p, 0.0)
 
 func _try_special(p: int, raw: PlayerInput, is_ball_valid: bool, was_ground: bool, out: EventBuf) -> void:
@@ -643,6 +648,8 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	prev_special[BV.RIGHT] = 1 if ri.special else 0
 	prev_down[BV.LEFT] = 1 if li.down else 0
 	prev_down[BV.RIGHT] = 1 if ri.down else 0
+	prev_dive[BV.LEFT] = 1 if li.dive else 0
+	prev_dive[BV.RIGHT] = 1 if ri.dive else 0
 
 	_handle_ball_world_collisions(out)
 
