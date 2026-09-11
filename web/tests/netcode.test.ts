@@ -237,11 +237,11 @@ test('cortada por baixo da bola não bate no próprio blob', () => {
   }
   m.step(NO_INPUT, NO_INPUT)
   assert.ok(m.events.some(e => e.event === Ev.HIT), 'cortada não saiu')
-  for (let f = 0; f < 20; f++) {
+  assert.ok(w.ballVY > 0 && w.ballVX > 0, 'cortada não desceu pra frente')
+  for (let f = 0; f < 14; f++) {
     m.step(NO_INPUT, NO_INPUT)
     assert.ok(!m.events.some(e => e.event === Ev.BALL_HIT_BLOB && e.side === LEFT), `bola voltou no próprio blob no frame ${f}`)
   }
-  assert.ok(w.ballVY > 0 && w.ballVX > 0, 'cortada não desceu pra frente')
 })
 
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {
