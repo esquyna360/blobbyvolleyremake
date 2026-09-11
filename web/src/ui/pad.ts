@@ -15,7 +15,14 @@ const REPEATS = new Set<PadAction>(['up', 'down', 'left', 'right'])
 export interface PadState {
   left: boolean; right: boolean; up: boolean; down: boolean
   jump: boolean; dive: boolean; special: boolean; hit: boolean; ok: boolean; back: boolean; start: boolean
+  /** RB segurado: os botões da frente viram emote em vez de ação. */
+  emoteHold: boolean
+  /** Qual emote (A B X Y LB → 0..4), ou -1. Só vale com `emoteHold`. */
+  emote: number
 }
+
+export const EMOTE_HOLD = 5
+const EMOTE_BTNS = [0, 1, 2, 3, 4]
 
 /** Índice do botão (mapeamento padrão) de cada ação. Xbox: A pula, B mergulha, X bate, Y especial. */
 export type PadMap = { jump: number; dive: number; hit: number; special: number }
@@ -78,6 +85,8 @@ export function readPad(gp: Gamepad, map: PadMap = padMap()): PadState {
       ok: b(0),
       back: b(1),
       start: b(9) || b(16),
+      emoteHold: b(EMOTE_HOLD),
+      emote: EMOTE_BTNS.findIndex(i => b(i)),
     }
   }
   const hat = gp.axes[9] ?? gp.axes[gp.axes.length - 1] ?? 1.5
@@ -96,6 +105,8 @@ export function readPad(gp: Gamepad, map: PadMap = padMap()): PadState {
     ok: b(1),
     back: b(2),
     start: b(9) || b(12),
+    emoteHold: b(5),
+    emote: [1, 2, 0, 3, 4].findIndex(i => b(i)),
   }
 }
 

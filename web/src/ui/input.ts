@@ -1,3 +1,4 @@
+import { NO_INPUT } from '../core/input.ts'
 import type { PlayerInput } from '../core/input.ts'
 
 import { pads, readPad, padMap } from './pad.ts'
@@ -89,10 +90,20 @@ export class InputManager {
     addEventListener('blur', () => this.keys.clear())
   }
 
+  private emoteDown = [false, false]
+  onEmote?: (padIndex: number, id: number) => void
+
   private pad(index: number, map: PadMap): PlayerInput | null {
     const gp = pads()[index]
     if (!gp) return null
     const s = readPad(gp, map)
+    if (s.emoteHold) {
+      const down = s.emote >= 0
+      if (down && !this.emoteDown[index]) this.onEmote?.(index, s.emote)
+      this.emoteDown[index] = down
+      return { ...NO_INPUT, left: s.left, right: s.right }
+    }
+    this.emoteDown[index] = false
     return {
       left: s.left, right: s.right, up: s.jump || (s.up && this.aimMode), special: s.special,
       down: s.down, dive: s.dive, hit: s.hit,

@@ -776,7 +776,7 @@ export class Menu {
         keyCol(0), keyCol(1),
         el('div', {}, el('h2', { class: 'sec', textContent: 'Controle' }),
           el('div', { class: 'kmap' }, ...padRows),
-          el('div', { class: 'tipline', textContent: 'direcional e analógico esquerdo andam' }))),
+          el('div', { class: 'tipline', textContent: 'direcional e analógico esquerdo andam · RB segurado + A B X Y LB = emotes' }))),
       el('div', { class: 'grid two' },
         el('button', { onclick: () => { resetKeys(); resetPad(); this.handlers.onControlsChanged(); this.controls() } }, 'PADRÃO'),
         el('button', { class: 'center', onclick: () => this.settings() }, 'Voltar')),

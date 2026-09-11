@@ -349,6 +349,10 @@ class App {
   private bindEmotes() {
     const P1_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5']
     const P2_KEYS = ['Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0']
+    this.input.onEmote = (pad, id) => {
+      if (this.session || this.bot || this.drill || this.tutorial) { if (pad === 0) this.sendEmote(this.localSide, id); return }
+      this.sendEmote(pad === 0 ? LEFT : RIGHT, id)
+    }
     addEventListener('keydown', e => {
       if (e.repeat || e.target instanceof HTMLInputElement) return
       let id = P1_KEYS.indexOf(e.code)
