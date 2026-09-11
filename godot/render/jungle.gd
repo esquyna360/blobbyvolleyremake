@@ -27,16 +27,41 @@ const TEX := {
 ## Quanto cada material balança e o verde que a selva pede em cima dele.
 const LOOK := {
 	"PalmTree_Trunk": {"sway": 0.010, "tint": Color(0.72, 0.66, 0.52)},
-	"PalmTree_Leaves": {"sway": 0.055, "tint": Color(0.50, 0.76, 0.42)},
+	"PalmTree_Leaves": {"sway": 0.055, "tint": Color(0.50, 0.76, 0.42), "back": 0.55},
 	"NormalTree_Bark": {"sway": 0.006, "tint": Color(0.60, 0.52, 0.42)},
-	"NormalTree_Leaves": {"sway": 0.030, "tint": Color(0.46, 0.74, 0.40)},
+	"NormalTree_Leaves": {"sway": 0.030, "tint": Color(0.46, 0.74, 0.40), "back": 0.50},
 	"MapleTree_Bark": {"sway": 0.006, "tint": Color(0.54, 0.47, 0.39)},
-	"MapleTree_Leaves": {"sway": 0.034, "tint": Color(0.40, 0.70, 0.36)},
-	"Bush_Leaves": {"sway": 0.060, "tint": Color(0.44, 0.74, 0.40)},
-	"Flowers": {"sway": 0.070, "tint": Color(0.90, 0.80, 0.76)},
-	"Grass": {"sway": 0.090, "tint": Color(0.50, 0.80, 0.38)},
+	"MapleTree_Leaves": {"sway": 0.034, "tint": Color(0.40, 0.70, 0.36), "back": 0.50},
+	"Bush_Leaves": {"sway": 0.060, "tint": Color(0.44, 0.74, 0.40), "back": 0.40},
+	"Flowers": {"sway": 0.070, "tint": Color(0.68, 0.80, 0.58), "back": 0.42},
+	"Grass": {"sway": 0.090, "tint": Color(0.50, 0.80, 0.38), "back": 0.45},
 	"Rock": {"sway": 0.0, "tint": Color(0.62, 0.64, 0.58)},
 }
+
+static var _soft := {}
+
+## Partícula sem textura vira quadrado de borda dura, e a névoa do rio usa
+## bilboard de 6 a 16 metros: aparecia como caixas cinzas no meio da mata.
+static func soft_tex(kind: String) -> ImageTexture:
+	if _soft.has(kind):
+		return _soft[kind]
+	var n := 64
+	var img := Image.create(n, n, true, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var u := (x + 0.5) / n * 2.0 - 1.0
+			var v := (y + 0.5) / n * 2.0 - 1.0
+			var a := 0.0
+			if kind == "shaft":
+				a = pow(clampf(1.0 - absf(u), 0.0, 1.0), 2.0) \
+					* smoothstep(1.0, 0.35, absf(v))
+			else:
+				var r := clampf(1.0 - sqrt(u * u + v * v), 0.0, 1.0)
+				a = r * r * (3.0 - 2.0 * r)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	img.generate_mipmaps()
+	_soft[kind] = ImageTexture.create_from_image(img)
+	return _soft[kind]
 
 var quality := 2
 var _rng := RandomNumberGenerator.new()
@@ -67,6 +92,7 @@ func _mat_for(name: String) -> ShaderMaterial:
 	var look: Dictionary = LOOK.get(name, {"sway": 0.03, "tint": Color.WHITE})
 	m.set_shader_parameter("tint", look.tint)
 	m.set_shader_parameter("sway", look.sway)
+	m.set_shader_parameter("backlight", look.get("back", 0.0))
 	_mats[name] = m
 	return m
 
@@ -133,13 +159,13 @@ func _sky() -> void:
 	var sky := Sky.new()
 	var pano := PanoramaSkyMaterial.new()
 	pano.panorama = load("res://assets/sky/rainforest_trail_2k.hdr")
-	pano.energy_multiplier = 0.30
+	pano.energy_multiplier = 0.62
 	sky.sky_material = pano
 	sky.radiance_size = Sky.RADIANCE_SIZE_128
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
+	env.ambient_light_energy = 0.40
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 6.0
@@ -148,14 +174,14 @@ func _sky() -> void:
 	# neblina: é ela que separa as camadas de mata e dá a profundidade
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_light_color = Color(0.30, 0.44, 0.34)
+	env.fog_light_color = Color(0.66, 0.78, 0.68)
 	env.fog_light_energy = 1.0
 	env.fog_sun_scatter = 0.18
 	env.fog_density = 0.016
 	env.fog_depth_begin = 24.0
 	env.fog_depth_end = 190.0
 	env.fog_aerial_perspective = 0.5
-	env.fog_sky_affect = 0.85
+	env.fog_sky_affect = 0.92
 
 	if quality >= 2:
 		env.glow_enabled = true
@@ -274,6 +300,7 @@ func _river() -> void:
 	var sm := ShaderMaterial.new()
 	sm.shader = load("res://render/water.gdshader")
 	sm.set_shader_parameter("flow", 0.30)
+	sm.set_shader_parameter("sky_tint", env.fog_light_color * 1.2)
 	m.material_override = sm
 	m.position = Vector3(0, -0.16, RIVER_Z)
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -316,6 +343,7 @@ func _mist() -> void:
 	sm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	sm.vertex_color_use_as_albedo = true
 	sm.disable_receive_shadows = true
+	sm.albedo_texture = soft_tex("puff")
 	q.material = sm
 	p.draw_pass_1 = q
 	p.amount = 40 if quality >= 2 else 14
@@ -529,9 +557,10 @@ func _shafts() -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.albedo_color = Color(1.0, 0.93, 0.62, 0.055)
+	mat.albedo_color = Color(1.0, 0.93, 0.62, 0.075)
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.disable_receive_shadows = true
+	mat.albedo_texture = soft_tex("shaft")
 	for i in 7:
 		var q := QuadMesh.new()
 		q.size = Vector2(_rng.randf_range(1.6, 4.2), 26.0)

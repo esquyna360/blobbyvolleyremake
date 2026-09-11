@@ -6,12 +6,13 @@ render_mode cull_back, depth_draw_always;
 // A câmera olha a água quase de lado, então a ondulação some com a distância:
 // de longe ela vira faixa espelhada em vez de listra serrilhada.
 
-uniform vec3 shallow_color : source_color = vec3(0.16, 0.34, 0.30);
+uniform vec3 shallow_color : source_color = vec3(0.22, 0.42, 0.36);
 uniform vec3 deep_color : source_color = vec3(0.02, 0.08, 0.09);
 uniform vec3 foam_color : source_color = vec3(0.82, 0.92, 0.90);
 uniform float flow = 0.30;
 uniform float wave = 0.22;
 uniform float scale = 0.9;
+uniform vec3 sky_tint : source_color = vec3(0.70, 0.82, 0.72);
 
 varying vec3 wpos;
 
@@ -34,7 +35,7 @@ void fragment() {
 
 	// de longe a crista some: senão o rio vira serrilha de listras
 	float d = length(wpos - (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz);
-	n = normalize(mix(n, vec3(0.0, 1.0, 0.0), smoothstep(14.0, 60.0, d)));
+	n = normalize(mix(n, vec3(0.0, 1.0, 0.0), smoothstep(40.0, 120.0, d)));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 
 	// a margem fica rasa: clareia e ganha espuma
@@ -42,7 +43,12 @@ void fragment() {
 	float foam = smoothstep(0.45, 0.88, bank + h * 0.30);
 	ALBEDO = mix(deep_color, shallow_color, bank * 0.8);
 	ALBEDO = mix(ALBEDO, foam_color, foam * 0.75);
-	ROUGHNESS = mix(0.16, 0.6, foam);
+	// visto quase de lado o rio é quase todo reflexo: sem esse termo o mapa de
+	// radiância devolve a mata escura do panorama e a água vira listra preta
+	float fres = pow(1.0 - clamp(dot(normalize(-VERTEX), NORMAL), 0.0, 1.0), 3.0);
+	ALBEDO = mix(ALBEDO, sky_tint, clamp(fres, 0.0, 1.0) * 0.78);
+	EMISSION = sky_tint * fres * 0.12;
+	ROUGHNESS = mix(0.10, 0.6, foam);
 	METALLIC = 0.0;
-	SPECULAR = 0.55;
+	SPECULAR = 0.9;
 }

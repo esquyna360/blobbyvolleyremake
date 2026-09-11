@@ -208,6 +208,8 @@ func _dev_shot() -> void:
 			_play_bot(settings.difficulty)
 		elif a.begins_with("--page="):
 			menu.show_page(a.substr(7))
+		elif a.begins_with("--quality="):
+			_requality(int(a.substr(10)))
 	if path == "":
 		return
 	for i in wait:
