@@ -248,6 +248,13 @@ html, body {
   scrollbar-width: thin;
   text-shadow: 0 1px 2px rgba(0,0,0,0.55);
 }
+/* A máscara pinta a moldura do painel, não o conteúdo rolado: a borda fica
+   parada embaixo enquanto o texto passa por baixo dela. */
+.panel[data-more='1'] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 54px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 54px), transparent);
+}
+
 /* Medida de leitura: bloco largo é exceção declarada, não o padrão. Formulário
    esticado em 1000px é pior que formulário estreito. */
 .panel > * { width: 100%; max-width: 404px; }

@@ -108,6 +108,7 @@ export class Menu {
   private cleanup: (() => void) | null = null
   private netOff: (() => void) | null = null
   private pendingNet: (() => void) | null = null
+  private scrollOff: (() => void) | null = null
   private currentScreen: () => void = () => this.main()
   /** Pra onde o ESC e o ○/B voltam nesta tela. Sai do próprio botão Voltar. */
   private escBack: (() => void) | null = null
@@ -125,7 +126,7 @@ export class Menu {
 
   hide() { this.container.style.display = 'none' }
   show() { this.container.style.display = '' }
-  destroy() { this.cleanup?.(); this.container.remove() }
+  destroy() { this.cleanup?.(); this.scrollOff?.(); this.container.remove() }
   release() {
     this.cleanup?.(); this.cleanup = null
     this.netOff?.(); this.netOff = null
@@ -153,10 +154,26 @@ export class Menu {
     clear(this.container)
     const p = el('div', { class: 'panel' }, ...children)
     this.container.append(p)
+    this.watchScroll(p)
     // o caminho de volta já está escrito no botão Voltar: ler dele evita uma
     // segunda fonte de verdade que sai do lugar quando uma tela muda de pai
     const b = p.querySelector('.item.back') as HTMLButtonElement | null
     this.escBack = b ? () => b.click() : null
+  }
+
+  /**
+   * Painel mais alto que a tela. Sem aviso a última linha aparece cortada no
+   * meio e quem joga no celular acha que acabou ali. A borda desbotada diz que
+   * desce mais e some quando chega no fim.
+   */
+  private watchScroll(p: HTMLElement) {
+    this.scrollOff?.()
+    const mark = () => { p.dataset.more = p.scrollHeight - p.scrollTop - p.clientHeight > 2 ? '1' : '0' }
+    p.addEventListener('scroll', mark, { passive: true })
+    const ro = new ResizeObserver(mark)
+    ro.observe(p)
+    requestAnimationFrame(mark)
+    this.scrollOff = () => ro.disconnect()
   }
 
   /** ESC e ○/B voltam uma tela. Na inicial não têm pra onde ir. */
