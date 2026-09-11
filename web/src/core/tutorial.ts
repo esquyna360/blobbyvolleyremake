@@ -159,8 +159,8 @@ export class Tutorial {
         switch (e.event) {
           case Ev.HIT:
             if (this.step === 1 && mine) this.pendingCross = 90
-            if (this.step === 3 && mine && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20 && w.ballVY > 0) this.score(true)
-            if (this.step === 4 && mine && this.digAt >= 0 && m.frame - this.digAt < 150 && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20) { this.digAt = -1; this.score(true) }
+            if (this.step === 3 && mine && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20 && w.ballVY > 0) this.pendingCross = 90
+            if (this.step === 4 && mine && this.digAt >= 0 && m.frame - this.digAt < 150 && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20) { this.digAt = -1; this.pendingCross = 90 }
             break
           case Ev.DROP: if (this.step === 2 && mine) this.pendingCross = 90; break
           case Ev.DIG: if (this.step === 4 && mine) this.digAt = m.frame; break
