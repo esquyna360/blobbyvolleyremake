@@ -53,6 +53,8 @@ export class Hud {
   private lives: HTMLElement[] = []
   private livesEl: HTMLElement
   private barL!: HTMLElement
+  private markEl: HTMLElement
+  private markA = 0
   private barR!: HTMLElement
   private fillL!: HTMLElement
   private fillR!: HTMLElement
@@ -95,10 +97,23 @@ export class Hud {
     this.fpsEl.style.display = 'none'
 
     this.rallyEl = el('div', { class: 'rally mono' })
+    this.markEl = el('div', { class: 'mark', textContent: '▲' })
 
     this.root = el('div', { class: 'hud' },
-      el('div', { class: 'score-card' }, left, mid, right), this.rallyEl, this.barL, this.barR)
+      el('div', { class: 'score-card' }, left, mid, right), this.rallyEl, this.barL, this.barR, this.markEl)
     parent.append(this.root, this.netbar, this.fpsEl)
+  }
+
+  /** Bola fora da tela: seta apontando pra onde ela está. */
+  ballHint(h: [number, number, boolean] | null, dt: number) {
+    const off = !!h && h[2]
+    this.markA += ((off ? 1 : 0) - this.markA) * (1 - Math.exp(-dt * 10))
+    this.markEl.style.opacity = String(this.markA)
+    if (!h || !off) return
+    const vw = innerWidth, vh = innerHeight
+    const x = Math.max(8, Math.min(vw - 68, h[0] - 30))
+    const y = Math.max(68, Math.min(vh - 48, h[1] - 6))
+    this.markEl.style.transform = `translate(${x}px, ${y}px) rotate(${h[1] < 0 ? 0 : (h[0] < 0 ? -90 : 90)}deg)`
   }
 
   setFps(on: boolean) {

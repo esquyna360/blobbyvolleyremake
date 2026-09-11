@@ -111,6 +111,9 @@ const CAM_FOV = 27.5
 const CAM_FOV_MIN = 26.7
 const CAM_Z = 28.2
 const CAM_Z_MAX = 47
+const CAM_TOP_MIN = 8.8
+const CAM_TOP_PAD = 1.2
+const CAM_TOP_MAX = 13.0
 const CAM_MARGIN = 1.4
 /** Quanto o alvo do lookAt corre atrás da bola, em fração da meia-quadra. */
 const CAM_LOOK = 0.14
@@ -137,6 +140,8 @@ export interface GameRenderer {
   setTarget(t: TargetMark | null): void
   /** Multiplicador do relógio da simulação local (câmera lenta do especial). */
   timeScale(): number
+  /** Bola na tela: [x, y, fora]. `null` quando o renderer não sabe (2D). */
+  ballHint(match: Match): [number, number, boolean] | null
   /**
    * Texto grande na tela. O 2D desenha dentro do canvas e devolve `true`; o 3D
    * devolve `false` e o HUD segue com o overlay em DOM, que lá não pesa.
@@ -390,6 +395,9 @@ export class Stage implements GameRenderer {
   camShakeSeed = Math.random() * 100
   private camZ = CAM_Z
   private camSpan = 0
+  private camTop = CAM_TOP_MIN
+  private vw = 1
+  private vh = 1
   audioBar = 0
   audioBeat = 0
 
@@ -684,6 +692,7 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   setSize(w: number, h: number) {
+    this.vw = w; this.vh = h
     this.renderer.setPixelRatio(pixelTarget(this.quality, w, h))
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
@@ -700,8 +709,11 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   private fitArena() {
     // o lookAt segue a bola e gira a câmera: essa folga entra na conta junto
     const need = COURT_HALF_W * (1 + CAM_LOOK) + CAM_MARGIN + this.openExtra
-    const ht = Math.tan((CAM_FOV_MIN * Math.PI) / 360) * Math.max(0.5, this.camera.aspect)
-    this.camZ = Math.min(CAM_Z_MAX, Math.max(CAM_Z, need / ht))
+    const vt = Math.tan((CAM_FOV_MIN * Math.PI) / 360)
+    const ht = vt * Math.max(0.5, this.camera.aspect)
+    // a bola alta puxa a câmera pra trás em vez de sair pelo teto da tela
+    const zv = (this.camTop - CAM_LOOK_Y) / vt
+    this.camZ = Math.min(CAM_Z_MAX, Math.max(Math.max(CAM_Z, need / ht), zv))
     this.camSpan = Math.max(0, this.camZ * ht - need)
   }
 
@@ -1109,6 +1121,14 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
   }
 
   /** Multiplicador de tempo da simulação local: 0.2 durante o zoom do especial. */
+  ballHint(match: Match): [number, number, boolean] | null {
+    const w = match.world
+    const v = new THREE.Vector3(gx(w.ballX), gy(w.ballY), 0).project(this.camera)
+    if (v.z > 1) return null
+    const sx = (v.x + 1) * 0.5 * this.vw, sy = (1 - v.y) * 0.5 * this.vh
+    return [sx, sy, sy < -8 || sx < -8 || sx > this.vw + 8]
+  }
+
   timeScale() {
     return 1
   }
@@ -1285,6 +1305,8 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
     const wantOpen = Math.max(0, Math.min(OPEN_HALF, far + 0.5))
     const openRate = wantOpen > this.openExtra ? 5.5 : 1.4
     this.openExtra += (wantOpen - this.openExtra) * (1 - Math.exp(-dt * openRate))
+    const wantTop = Math.max(CAM_TOP_MIN, Math.min(CAM_TOP_MAX, by + CAM_TOP_PAD))
+    this.camTop += (wantTop - this.camTop) * (1 - Math.exp(-dt * (wantTop > this.camTop ? 7 : 1.1)))
     this.fitArena()
 
     this.camTargetX = THREE.MathUtils.lerp(this.camTargetX, bx * 0.30, 1 - Math.exp(-dt * 3.2))

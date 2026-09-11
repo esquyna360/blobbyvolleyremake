@@ -1208,3 +1208,10 @@ h2.sec { text-align: left; }
   .home { grid-template-columns: 1fr; grid-template-areas: 'brand' 'act'; }
   .home-id .portrait { display: none; }
 }
+
+.hud .mark {
+  position: fixed; left: 0; top: 0; width: 60px; height: 40px; z-index: 5;
+  font-size: 30px; line-height: 40px; text-align: center; color: #ffdb4d;
+  text-shadow: 0 0 6px rgba(12,10,8,0.8), 0 2px 4px rgba(0,0,0,0.9);
+  opacity: 0; pointer-events: none; will-change: transform, opacity;
+}

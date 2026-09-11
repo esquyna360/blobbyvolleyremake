@@ -71,6 +71,8 @@ func _ready() -> void:
 		touch = TouchPad.new()
 		touch.build(0)
 		touch.visible = false
+		touch.emote.connect(func(id):
+			game.emote(game.net_side if game.net_side != BV.NO_PLAYER else BV.LEFT, id))
 		_ui.add_child(touch)
 
 	game.match_over.connect(_on_match_over)

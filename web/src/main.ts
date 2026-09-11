@@ -1190,6 +1190,7 @@ class App {
       if (this.drill) this.drillScore[0] = this.drill.hits
       this.hud.update(this.drill ? this.drillScore : m.logic.scores,
         m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)
+      this.hud.ballHint(this.phase === 'playing' ? this.stage.ballHint(m) : null, dt)
       if (this.phase === 'playing') {
         this.hud.setRally(m.logic.rally, m.logic.rallyBest)
         this.audio.setTension(rallyTension(m.logic.rally))

@@ -10,6 +10,10 @@ var charge := 0.0
 var _btn_touch := {}
 var _buttons: Array = []
 var _font: Font
+var _emotes: Array = []
+var _emote_flash := {}
+
+signal emote(id: int)
 
 func build(slot_index := 0) -> void:
 	slot = slot_index
@@ -28,7 +32,21 @@ func build(slot_index := 0) -> void:
 		{"act": "dive", "icon": "↯", "label": "SE JOGAR", "pos": Vector2(-268, -104),
 			"r": 58.0, "col": Color(0.55, 0.82, 1.0), "side": 1},
 	]
+	_emotes = [
+		{"id": 0, "tex": "laugh", "col": Color(1.0, 0.82, 0.34)},
+		{"id": 1, "tex": "cry", "col": Color(0.44, 0.79, 1.0)},
+		{"id": 2, "tex": "rage", "col": Color(1.0, 0.42, 0.24)},
+		{"id": 3, "tex": "finger", "col": Color(1.0, 0.37, 0.82)},
+		{"id": 4, "tex": "taunt", "col": Color(0.62, 1.0, 0.56)},
+	]
+	for e in _emotes:
+		e["img"] = load("res://assets/emoji/%s.png" % e.tex)
 	queue_redraw()
+
+const EMO_R := 26.0
+
+func _emote_pos(k: int) -> Vector2:
+	return Vector2(size.x - 44.0, 150.0 + k * 62.0)
 
 func _btn_pos(b: Dictionary) -> Vector2:
 	return Vector2(b.pos.x if b.side == 0 else size.x + b.pos.x, size.y + b.pos.y)
@@ -38,6 +56,18 @@ func _process(_dt: float) -> void:
 		queue_redraw()
 
 func _draw() -> void:
+	for k in _emotes.size():
+		var e: Dictionary = _emotes[k]
+		var p := _emote_pos(k)
+		var fl: float = _emote_flash.get(k, 0.0)
+		var c: Color = e.col
+		draw_circle(p, EMO_R + fl * 6.0, Color(0.1, 0.07, 0.05, 0.42 + fl * 0.3))
+		draw_arc(p, EMO_R - 1.0 + fl * 6.0, 0, TAU, 32, Color(c.r, c.g, c.b, 0.6 + fl * 0.4), 2.0, true)
+		var tex: Texture2D = e.img
+		if tex != null:
+			var s := EMO_R * 1.3
+			draw_texture_rect(tex, Rect2(p - Vector2(s, s) * 0.5, Vector2(s, s)), false, Color(1, 1, 1, 0.9))
+		_emote_flash[k] = maxf(0.0, fl - 0.05)
 	for b in _buttons:
 		var p := _btn_pos(b)
 		var on := _btn_touch.values().has(b.act)
@@ -90,6 +120,11 @@ func _hit(pos: Vector2, slack: float) -> Dictionary:
 	return best
 
 func _press(idx: int, pos: Vector2) -> void:
+	for k in _emotes.size():
+		if pos.distance_to(_emote_pos(k)) <= EMO_R * 1.25:
+			_emote_flash[k] = 1.0
+			emote.emit(_emotes[k].id)
+			return
 	var b := _hit(pos, 1.3)
 	if b.is_empty():
 		return

@@ -19,6 +19,8 @@ var quality := 2
 
 var src := [Source.LOCAL_SOLO, Source.BOT]
 var bots: Array = [null, null]
+var moods: Array = [null, null]
+var _emote_at := [-1e9, -1e9]
 var touch_slot := [-1, -1]
 
 var script_input: Callable
@@ -93,6 +95,7 @@ func start(rules: String, score_to_win: int, walls: bool, q: int,
 	src = [left_src, right_src]
 	for i in 2:
 		bots[i] = Bot.new(i, difficulty, randi()) if src[i] == Source.BOT else null
+		moods[i] = BotMood.new(i, difficulty) if src[i] == Source.BOT else null
 	if arena.get_parent() == null:
 		add_child(arena)
 		arena.build(q)
@@ -161,11 +164,19 @@ func _step() -> void:
 	arena.capture(bv)
 	if not _resim:
 		arena.on_events(bv)
+		for i in 2:
+			if moods[i] != null:
+				var id: int = moods[i].react(bv.events)
+				if id >= 0:
+					_emote_later(i, id, 0.26 + randf() * 0.32)
 
 	if bv.logic.winner != BV.NO_PLAYER and _last_winner == BV.NO_PLAYER:
 		_last_winner = bv.logic.winner
 		arena.celebrate(_last_winner)
 		Aud.finish(_last_winner == arena.local_side)
+		for i in 2:
+			if moods[i] != null:
+				_emote_later(i, moods[i].finish(_last_winner == i), 0.7)
 		match_over.emit(_last_winner)
 
 ## A janela de entradas sai todo quadro, inclusive quando o lado local está
@@ -230,9 +241,29 @@ func _read_side(i: int) -> void:
 			o.unpack(script_input.call(rb.frame if rb != null else bv.frame, i))
 
 func emote(side: int, id: int) -> void:
+	if bv == null or id < 0:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _emote_at[side] < 0.7:
+		return
+	_emote_at[side] = now
 	arena.emote(side, id)
+	Aud.play("emote_%d" % mini(id, 2), 0.7)
 	if link != null and link.online() and side == net_side:
 		link.send_emote(side, id)
+	var o := BV.other(side)
+	if moods[o] != null and bots[side] == null:
+		var back: int = moods[o].answer(id)
+		if back >= 0:
+			_emote_later(o, back, 0.52 + randf() * 0.38)
+
+func _emote_later(side: int, id: int, delay: float) -> void:
+	if id < 0:
+		return
+	var m := bv
+	await get_tree().create_timer(delay).timeout
+	if bv == m and is_inside_tree():
+		emote(side, id)
 
 func attach_link(l: NetLink, side: int) -> void:
 	link = l

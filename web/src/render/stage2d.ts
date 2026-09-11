@@ -101,6 +101,7 @@ const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUN
 
 export class Stage2D implements GameRenderer {
   timeScale() { return 1 }
+  ballHint() { return null }
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private cw = 1
