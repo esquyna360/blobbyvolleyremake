@@ -200,7 +200,7 @@ test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', ()
   for (let f = 0; f < 12; f++) m.step(NO_INPUT, NO_INPUT)
 
   w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0
-  for (let f = 0; f < 25; f++) { m.step(HOLD, NO_INPUT); w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0 }
+  for (let f = 0; f < 34; f++) { m.step(HOLD, NO_INPUT); w.ballX = 240; w.ballY = w.upperY(LEFT) - 70; w.ballVX = 0; w.ballVY = 0 }
   m.step({ ...NO_INPUT, right: true, up: true }, NO_INPUT)
   assert.ok(m.events.some(e => e.event === Ev.HIT), 'batida não saiu')
   assert.ok(w.ballVX > 0 && w.ballVY < 0, `mira errada: ${w.ballVX} ${w.ballVY}`)

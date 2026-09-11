@@ -319,7 +319,7 @@ export class Bot {
     const ax = back ? -this.dir : this.dir
     const bx = px[t], by = py[t]
     const cands: (-1 | 0 | 1)[] = onGround ? [-1, 0] : [1, 0, -1]
-    const holds = onGround ? [22, 30, 42] : [22, 26]
+    const holds = onGround ? [26, 34, 44] : [26, 30]
     let vy: -1 | 0 | 1 | null = null
     let hold = 10
     let bestGap = -1e9
@@ -340,7 +340,7 @@ export class Bot {
     if (vy === null) {
       if (distNet < 260 && by > NET_TOP_Y - 60) {
         this.hitTap = true; vy = -1
-        if (Math.abs(w.blobX[other(me)] - NET_POSITION_X) < 170) { this.hitTap = false; hold = 14 }
+        if (Math.abs(w.blobX[other(me)] - NET_POSITION_X) < 170) { this.hitTap = false; hold = 17 }
       }
       else if (must) { vy = -1; hold = 40 }
       else return false

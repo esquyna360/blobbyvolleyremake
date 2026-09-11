@@ -132,11 +132,11 @@ export const DROP_TIME_STEP = 3
 export const DROP_TIME_STEPS = 24
 
 /** Lob: segurar um pouco mais que a deixadinha. Passa por cima de quem pula na rede. */
-export const LOB_MAX = 18
-export const LOB_VELOCITY = BALL_COLLISION_VELOCITY * 1.1
-export const LOB_TARGET_DEPTH = 0.4
-export const LOB_NET_CLEARANCE = 190
-export const LOB_TIME_MIN = 34
+export const LOB_MAX = 22
+export const LOB_VELOCITY = BALL_COLLISION_VELOCITY * 1.25
+export const LOB_TARGET_DEPTH = 0.62
+export const LOB_NET_CLEARANCE = 150
+export const LOB_TIME_MIN = 30
 export const LOB_TIME_STEP = 3
 export const LOB_TIME_STEPS = 20
 

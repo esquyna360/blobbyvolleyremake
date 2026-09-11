@@ -128,6 +128,13 @@ export class StagePixel implements GameRenderer {
   private energy = 0
   private blobFlash = [0, 0]
   private blobKick = [0, 0]
+  /** Cabelo com inércia: atrasa contra o movimento do blob e balança ao pousar. */
+  private hairX = [0, 0]
+  private hairY = [0, 0]
+  private hairVX = [0, 0]
+  private hairVY = [0, 0]
+  private wasAir = [false, false]
+  private lastWorld: Match['world'] | null = null
   /** parry à la SF3: o blob inteiro vira azul-gelo por um instante */
   private parryTint = [0, 0]
   private doubleTint = [0, 0]
@@ -149,7 +156,7 @@ export class StagePixel implements GameRenderer {
   /** cinemática de abertura: -1 desligada */
   private intro = -1
   private cut = 0
-  private onKey = (e: KeyboardEvent) => { if (this.intro >= 0 && !e.repeat) this.skipIntro() }
+  private onKey = (e: KeyboardEvent) => { if (this.intro >= 0 && !e.repeat && (e.code === 'Enter' || e.code === 'Escape')) this.skipIntro() }
   private onPointer = () => { if (this.intro >= 0) this.skipIntro() }
 
   constructor(canvas: HTMLCanvasElement) {
@@ -605,18 +612,27 @@ export class StagePixel implements GameRenderer {
     }
     const tx = Math.round(cx + nx * len), ty = Math.round(cy + ny * len)
     g.fillRect(tx - 1, ty, 3, 1); g.fillRect(tx, ty - 1, 1, 3)
-    // braços: dois tracinhos pra cima, tremendo quando a carga enche
+    g.globalAlpha = 1
+  }
+
+  /** Braços da batida: dois tracinhos pra cima, na frente do cabelo, tremendo quando a carga enche. */
+  private arms(p: Side, x: number, y: number, w: Match['world']) {
+    const g = this.g
+    const k = Math.min(1, w.hitCharge[p] / HIT_CHARGE_MAX)
+    const cx = this.X(x), cy = this.Y(y) - Math.round(this.S(BLOBBY_UPPER_SPHERE))
     const c = this.cols[p]
     const jit = k >= 0.999 ? Math.round(Math.sin(this.time * 40)) : 0
     const ru = this.S(BLOBBY_UPPER_RADIUS)
     for (const sgn of [-1, 1]) {
-      const ax = Math.round(cx + sgn * ru * 0.9), ay = Math.round(cy - ru * 0.2 + jit)
+      const ax = Math.round(cx + sgn * ru * 0.95), ay = Math.round(cy - ru * 0.2 + jit)
+      const h = Math.round(ru * 0.9 * (0.4 + 0.6 * k))
+      g.fillStyle = c.dk2
+      g.fillRect(ax - 1, ay - h - 1, 4, h + 2)
       g.fillStyle = c.dk
-      g.fillRect(ax, ay - Math.round(ru * 0.9 * (0.4 + 0.6 * k)), 2, Math.round(ru * 0.9 * (0.4 + 0.6 * k)))
+      g.fillRect(ax, ay - h, 2, h)
       g.fillStyle = c.hi
-      g.fillRect(ax, ay - Math.round(ru * 0.9 * (0.4 + 0.6 * k)) - 1, 2, 2)
+      g.fillRect(ax, ay - h - 1, 2, 2)
     }
-    g.globalAlpha = 1
   }
 
   private step(dt: number) {
@@ -631,6 +647,17 @@ export class StagePixel implements GameRenderer {
     this.aber = Math.max(0, this.aber - dt * 4)
     this.cut = Math.max(0, this.cut - dt * 5)
     for (const i of [0, 1]) {
+      const wv = this.lastWorld
+      const air = wv ? wv.blobY[i] < GROUND_PLANE_HEIGHT - 0.5 : false
+      const tx = wv ? clamp(-wv.blobVX[i] * 0.55, -5, 5) : 0
+      const ty = wv ? clamp(-wv.blobVY[i] * 0.32, -4, 4) : 0
+      if (this.wasAir[i] && !air) this.hairVY[i] -= 22
+      this.wasAir[i] = air
+      const st = 120, dp = 11
+      this.hairVX[i] += ((tx - this.hairX[i]) * st - this.hairVX[i] * dp) * dt
+      this.hairVY[i] += ((ty - this.hairY[i]) * st - this.hairVY[i] * dp) * dt
+      this.hairX[i] += this.hairVX[i] * dt
+      this.hairY[i] += this.hairVY[i] * dt
       this.blobFlash[i] = Math.max(0, this.blobFlash[i] - dt * 3.5)
       this.blobKick[i] = Math.max(0, this.blobKick[i] - dt * 3)
       this.parryTint[i] = Math.max(0, this.parryTint[i] - dt)
@@ -669,6 +696,7 @@ export class StagePixel implements GameRenderer {
     const hc = this.doubleTint[p] > 0 ? DOUBLE_COLS : this.parryTint[p] > 0 ? PARRY_COLS : this.hairCols[p]
     const isBack = (a: number) => Math.abs(a) >= 88
     const sway = Math.sin(this.time * 5 + p) * 0.35
+    const mx = this.hairX[p], my = this.hairY[p]
     for (const t of st.tufts) {
       if (isBack(t.a) !== back) continue
       const beads = tuftBeads(t, 6)
@@ -676,19 +704,19 @@ export class StagePixel implements GameRenderer {
         const b = beads[i]
         const k = i / (beads.length - 1)
         const r = Math.max(0.5, b.hw * ru)
-        discP(g, cx + fac * b.x * ru + sway * k, cy - b.y * ru, r + 0.5, hc.dk2)
+        discP(g, cx + fac * b.x * ru + (sway + mx) * k * k, cy - b.y * ru + my * k * k, r + 0.5, hc.dk2)
       }
       for (let i = 0; i < beads.length; i++) {
         const b = beads[i]
         const k = i / (beads.length - 1)
         const r = Math.max(0.5, b.hw * ru)
-        discP(g, cx + fac * b.x * ru + sway * k, cy - b.y * ru, Math.max(0, r - 0.5), k < 0.35 ? hc.base : hc.hi)
+        discP(g, cx + fac * b.x * ru + (sway + mx) * k * k, cy - b.y * ru + my * k * k, Math.max(0, r - 0.5), k < 0.35 ? hc.base : hc.hi)
       }
     }
     for (const pf of st.puffs) {
       if (isBack(pf.a) !== back) continue
       const q = puffCenter(pf)
-      ellipseP(g, cx + fac * q.x * ru, cy - q.y * ru, pf.r * ru, pf.r * ru, hc)
+      ellipseP(g, cx + fac * q.x * ru + mx * 0.35, cy - q.y * ru + my * 0.35, pf.r * ru, pf.r * ru, hc)
     }
   }
 
@@ -1151,36 +1179,34 @@ export class StagePixel implements GameRenderer {
     g.globalAlpha = 1
   }
 
+  /** Emotes são emoji nativos: desenhados por cima do blit, na resolução da tela. */
   private pop(px: number[], py: number[]) {
-    const g = this.g
+    this.popDraw.length = 0
     for (const e of this.pops) {
       const t = e.life / e.max
       const pop = t < 0.16 ? t / 0.16 : 1
-      const sc = pop < 1 ? 1 : 2
       const x = this.X(px[e.side] + Math.sin(this.time * 3 + e.seed) * 6)
       const y = this.Y(py[e.side] - BLOBBY_UPPER_SPHERE - 62 - t * 34)
-      g.globalAlpha = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1
-      this.emoteGlyph(e.id, x, y, sc)
+      const alpha = t > 0.72 ? 1 - (t - 0.72) / 0.28 : 1
+      this.popDraw.push({ glyph: emoteAt(e.id).glyph, x, y, sc: 0.6 + 0.4 * pop, alpha })
     }
-    g.globalAlpha = 1
   }
 
-  /** emotes em pixel: carinha 7x7 em duas escalas */
-  private emoteGlyph(id: number, cx: number, cy: number, sc: number) {
-    const g = this.g
-    const def = emoteAt(id)
-    const r = 4 * sc
-    discP(g, cx, cy, r, '#1a1620')
-    discP(g, cx, cy, r - 1, id === 3 ? '#ffd9a6' : '#ffd257')
-    g.fillStyle = '#1a1620'
-    const p = (x: number, y: number, w = 1, h = 1) => g.fillRect(cx + x * sc, cy + y * sc, w * sc, h * sc)
-    switch (def.key) {
-      case 'laugh': p(-2, -2, 1, 1); p(2, -2, 1, 1); p(-3, -1); p(-2, -3); p(3, -1); p(2, -3); p(-2, 1, 5, 2); g.fillStyle = '#fff'; p(-1, 1, 3, 1); g.fillStyle = '#8fd6ff'; p(-4, 0); p(4, 0); break
-      case 'cry': p(-2, -1, 1, 2); p(2, -1, 1, 2); p(-1, 2, 3, 1); p(-2, 3); p(2, 3); g.fillStyle = '#8fd6ff'; p(-3, 1, 1, 3); p(3, 1, 1, 3); break
-      case 'rage': g.fillStyle = '#ff6b3d'; discP(g, cx, cy, r - 1, '#ff6b3d'); g.fillStyle = '#1a1620'; p(-3, -3, 2, 1); p(2, -3, 2, 1); p(-2, -1); p(2, -1); p(-2, 2, 5, 1); g.fillStyle = '#fff'; p(-1, 2); p(1, 2); break
-      case 'finger': g.fillStyle = '#1a1620'; p(-1, -4, 3, 6); g.fillStyle = '#ffd9a6'; p(0, -3, 1, 5); p(-2, 0, 5, 3); break
-      case 'taunt': p(-2, -2, 1, 1); p(1, -2, 2, 1); p(-2, 1, 4, 1); g.fillStyle = '#ff5e8a'; p(0, 2, 2, 2); break
+  private popDraw: { glyph: string; x: number; y: number; sc: number; alpha: number }[] = []
+
+  private popBlit() {
+    if (!this.popDraw.length) return
+    const sg = this.screen
+    const k = this.cw / this.W
+    sg.textAlign = 'center'
+    sg.textBaseline = 'middle'
+    for (const e of this.popDraw) {
+      const size = Math.round(k * 26 * e.sc)
+      sg.font = `${size}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`
+      sg.globalAlpha = e.alpha
+      sg.fillText(e.glyph, Math.round(e.x * k), Math.round(e.y * k))
     }
+    sg.globalAlpha = 1
   }
 
   private bigsDraw() {
@@ -1218,10 +1244,10 @@ export class StagePixel implements GameRenderer {
       const k = ease(t / 1.9)
       return { z: lerp(1.9, 1.35, k), fx: lerp(W * 0.2, W * 0.55, k), fy: lerp(H * 0.35, cy, k) }
     }
-    if (t < 3.3) return { z: 4.2 - (t - 1.9) * 0.12, fx: lx + 3, fy: hy + 6 }
-    if (t < 4.7) return { z: 4.2 - (t - 3.3) * 0.12, fx: rx - 3, fy: hy + 6 }
+    if (t < 3.3) return { z: 3.4 - (t - 1.9) * 0.1, fx: lx + 3, fy: hy - 4 }
+    if (t < 4.7) return { z: 3.4 - (t - 3.3) * 0.1, fx: rx - 3, fy: hy - 4 }
     const k = ease(clamp((t - 4.7) / (INTRO_LEN - 4.7), 0, 1))
-    return { z: lerp(4.03, 1, k), fx: lerp(rx - 3, W / 2, k), fy: lerp(hy + 6, H / 2, k) }
+    return { z: lerp(3.26, 1, k), fx: lerp(rx - 3, W / 2, k), fy: lerp(hy - 4, H / 2, k) }
   }
 
   private introOverlay(t: number) {
@@ -1252,6 +1278,7 @@ export class StagePixel implements GameRenderer {
   }
 
   render(match: Match, alpha: number, dt: number) {
+    this.lastWorld = match.world
     crouchMoods(this.faces, match.world.crouch)
     reachMoods(this.faces, match.world, match.logic.isBallValid)
     if (this.hitstop > 0) { this.hitstop -= dt; alpha = 0 }
@@ -1314,6 +1341,7 @@ export class StagePixel implements GameRenderer {
       if (w.hold[s] > 0 && eOn) this.holdAura(s, px, py, w.hold[s] / SPECIAL_HOLD)
       this.blob(s, px, py, L(p.st[s], q.st[s]), { x: this.X(bx), y: this.Y(by) }, w.stun[s] > 0, w.crouch[s],
         this.diveK[s], w.diveDir[s])
+      if (w.hitCharge[s] > 0 && this.intro < 0) this.arms(s, px, py, w)
     }
     for (const s of [0, 1] as Side[]) if (w.stun[s] > 0) this.stars(L(p.px[s], q.px[s]), L(p.py[s], q.py[s]))
 
@@ -1362,6 +1390,7 @@ export class StagePixel implements GameRenderer {
 
     this.screen.imageSmoothingEnabled = false
     this.screen.drawImage(this.world, 0, 0, this.W, this.H, 0, 0, this.cw, this.ch)
+    if (this.intro < 0) this.popBlit()
   }
 
   dispose() {
