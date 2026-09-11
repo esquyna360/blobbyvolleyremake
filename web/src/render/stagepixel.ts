@@ -1,6 +1,6 @@
 import {
   BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
-  BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
+  BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
   DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH,
@@ -27,7 +27,7 @@ const VH = 216
 export const INTRO_LEN = 5.6
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
-interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string }
+interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size?: number }
 interface Ring { x: number; y: number; r: number; max: number; life: number; color: string; w?: number; flat?: boolean }
 interface Pop { side: Side; id: number; life: number; max: number; seed: number }
 interface Big { text: string; kind: BigKind; color: string; life: number; max: number }
@@ -251,6 +251,22 @@ export class StagePixel implements GameRenderer {
     c.px[0] = w.blobX[0]; c.px[1] = w.blobX[1]
     c.py[0] = w.blobY[0]; c.py[1] = w.blobY[1]
     c.st[0] = w.blobState[0]; c.st[1] = w.blobState[1]
+    if (this.intro >= 0) return
+    for (const s of [0, 1] as Side[]) {
+      if (this.off(s)) continue
+      const wasG = p.py[s] >= GROUND_PLANE_HEIGHT - 0.5, isG = c.py[s] >= GROUND_PLANE_HEIGHT - 0.5
+      if (wasG && !isG && c.py[s] < p.py[s]) {
+        this.burst(c.px[s], GROUND + 4, 16, 140, shade(this.px.pal.sand1, 1.25), 0.9, 2)
+        this.blobKick[s] = Math.max(this.blobKick[s], 0.3)
+      } else if (!wasG && isG) {
+        const power = clamp((c.py[s] - p.py[s]) / 14, 0.15, 1)
+        this.burst(c.px[s], GROUND + 4, Math.floor(18 + 30 * power), 130 + 170 * power, shade(this.px.pal.sand1, 1.25), 0.6, 2)
+        this.burst(c.px[s], GROUND + 2, Math.floor(8 + 12 * power), 100 + 140 * power, this.px.pal.sandDk, 0.3, 1)
+        this.blobKick[s] = Math.max(this.blobKick[s], 0.35 + 0.45 * power)
+        this.rings.push({ x: c.px[s], y: GROUND + 2, r: 8, max: 40 + 50 * power, life: 0, color: this.px.pal.sand1, flat: true })
+        if (power > 0.6) this.trauma = Math.min(1, this.trauma + 0.08 * power)
+      }
+    }
   }
 
   private squashBall(w: Match['world'], k: number) {
@@ -259,7 +275,7 @@ export class StagePixel implements GameRenderer {
     this.squash.k = Math.max(this.squash.k, k)
   }
 
-  private burst(x: number, y: number, n: number, speed: number, color: string, up = 0.5) {
+  private burst(x: number, y: number, n: number, speed: number, color: string, up = 0.5, size = 1) {
     const room = 260 - this.dust.length
     const count = Math.min(Math.ceil(n * 0.6), Math.max(0, room))
     for (let i = 0; i < count; i++) {
@@ -267,7 +283,7 @@ export class StagePixel implements GameRenderer {
       const s = speed * (0.35 + Math.random() * 0.85)
       this.dust.push({
         x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - up * speed,
-        life: 0, max: 0.4 + Math.random() * 0.7, color,
+        life: 0, max: 0.4 + Math.random() * 0.7, color, size,
       })
     }
   }
@@ -549,6 +565,23 @@ export class StagePixel implements GameRenderer {
       const q = puffCenter(pf)
       ellipseP(g, cx + fac * q.x * ru, cy - q.y * ru, pf.r * ru, pf.r * ru, hc)
     }
+  }
+
+  private ballArrow(x: number, by: number) {
+    const g = this.g
+    const bob = Math.round(Math.sin(this.time * 9) * 1.5)
+    const ty = 6 + bob
+    const alt = Math.min(99, Math.round(-by / this.scale / 10))
+    g.fillStyle = '#1a1620'
+    for (let i = 0; i < 6; i++) g.fillRect(x - i - 1, ty + i - 1, i * 2 + 3, 1)
+    g.fillRect(x - 3, ty + 5, 7, 5)
+    g.fillStyle = '#ffd257'
+    for (let i = 0; i < 5; i++) g.fillRect(x - i, ty + i, i * 2 + 1, 1)
+    g.fillRect(x - 2, ty + 5, 5, 4)
+    g.fillStyle = '#fff2b0'
+    for (let i = 0; i < 4; i++) g.fillRect(x - i, ty + i, 1, 1)
+    g.fillRect(x - 2, ty + 5, 1, 4)
+    if (alt > 0) pxText(g, String(alt), x + 12, ty + 3, '#ffd257', 1, '#1a1620')
   }
 
   private shadow(x: number, y: number, r: number) {
@@ -925,8 +958,9 @@ export class StagePixel implements GameRenderer {
       if (k < 0.3 && ((Math.round(d.x) + Math.round(d.y) + Math.floor(this.time * 20)) & 1)) continue
       g.fillStyle = d.color
       const x = this.X(d.x), y = this.Y(d.y)
-      g.fillRect(x, y, 1, 1)
-      if (k > 0.6) g.fillRect(x - Math.sign(d.vx), y, 1, 1)
+      const sz = d.size ?? 1
+      g.fillRect(x, y, sz, sz)
+      if (k > 0.6) g.fillRect(x - Math.sign(d.vx) * sz, y, sz, sz)
     }
     for (const r of this.rings) {
       if (r.life < 0) continue
@@ -1079,11 +1113,6 @@ export class StagePixel implements GameRenderer {
       Math.abs(w.blobX[RIGHT] - NET_POSITION_X)) - half
     const want = Math.max(0, Math.min(OPEN_MARGIN, far + 24))
     this.frameExtra += (want - this.frameExtra) * (1 - Math.exp(-dt * (want > this.frameExtra ? 5.5 : 1.4)))
-    const base = Math.min(this.W / (RIGHT_PLANE + 90 + this.frameExtra * 2), this.H / 640)
-    const top = by - BALL_RADIUS * 2.2
-    const fit = (this.H * 0.86 - this.H * 0.06) / Math.max(1, GROUND + 44 - top)
-    const wantZoom = this.intro >= 0 ? 1 : Math.max(0.55, Math.min(1, fit / base))
-    this.zoom += (wantZoom - this.zoom) * (1 - Math.exp(-dt * (wantZoom < this.zoom ? 7 : 1.1)))
     this.applyFrame()
     const panWant = clamp(((bx - NET_POSITION_X) / half) * 0.06, -0.06, 0.06)
     this.pan += (panWant - this.pan) * (1 - Math.exp(-dt * 3.2))
@@ -1126,6 +1155,7 @@ export class StagePixel implements GameRenderer {
       this.trailFx()
       if (this.energy > 0.01) this.energyBall(this.X(bx), this.Y(by), w.superOwner as number)
       this.ball(this.X(bx), this.Y(by), rot)
+      if (this.Y(by) < -BALL_RADIUS * this.scale * 0.5) this.ballArrow(this.X(bx), this.Y(by))
       if (eOn && Math.sin(this.time * 30) > 0) {
         g.globalAlpha = 0.5
         discP(g, this.X(bx), this.Y(by), this.S(BALL_RADIUS), '#ffffff')
