@@ -1,5 +1,7 @@
 import type { PlayerInput } from '../core/input.ts'
 
+import { pads, readPad } from './pad.ts'
+
 export interface Binding { left: string[]; right: string[]; up: string[]; special: string[]; down: string[]; dive: string[] }
 
 export const P1: Binding = { left: ['KeyA'], right: ['KeyD'], up: ['KeyW', 'Space'], special: ['Space'], down: ['KeyS'], dive: ['KeyE', 'KeyQ', 'ShiftLeft'] }
@@ -39,22 +41,10 @@ export class InputManager {
   }
 
   private pad(index: number): PlayerInput | null {
-    const pads = navigator.getGamepads?.() ?? []
-    const gp = pads[index]
+    const gp = pads()[index]
     if (!gp) return null
-    const ax = gp.axes[0] ?? 0
-    const ay = gp.axes[1] ?? 0
-    // mapeamento padrão do navegador: DualSense e Xbox caem os dois nele, então
-    // ✕ e A são o mesmo botão 0, □ e X o mesmo botão 2
-    const b = (i: number) => gp.buttons[i]?.pressed ?? false
-    return {
-      left: b(14) || ax < -0.35,
-      right: b(15) || ax > 0.35,
-      up: b(0) || b(12) || ay < -0.45,
-      special: b(1) || b(3) || b(5) || b(7),
-      down: b(13) || ay > 0.4,
-      dive: b(2) || b(4) || b(6),
-    }
+    const s = readPad(gp)
+    return { left: s.left, right: s.right, up: s.jump || s.up, special: s.special, down: s.down, dive: s.dive }
   }
 
   read(binding: Binding, padIndex = -1, useTouch = false): PlayerInput {
