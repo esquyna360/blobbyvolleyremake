@@ -21,7 +21,7 @@ import {
   CROUCH_RATE, CROUCH_RATE_AIR, CROUCH_RELEASE, CROUCH_DUCK, CROUCH_SLIM,
   CROUCH_SPREAD, CROUCH_SPEED_MUL, CROUCH_FALL_MUL,
   DIG_REACH, DIG_CD, DIG_WINDOW, DIG_GAIN, DIG_UP, DIG_FORWARD,
-  HIT_REACH, HIT_CHARGE_MAX, HIT_TAP, HIT_V_MIN, HIT_V_MAX, HIT_LAG, HIT_GAIN, TRIP_FRAMES, TRIP_PUSH,
+  HIT_REACH, HIT_CHARGE_MAX, HIT_TAP, HIT_V_MIN, HIT_V_MAX, HIT_LAG, HIT_GAIN,
   SWING_WINDOW, FLOAT_KEEP, FLOAT_G, FLOAT_FRAMES, FLOAT_RAMP, FLOAT_DRAG, PARRY_RETURN,
   DROP_VELOCITY, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE, DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS,
   REVERSAL_ACTIVE, REVERSAL_CD, REVERSAL_BOOST,
@@ -555,16 +555,6 @@ export class PhysicWorld {
     return true
   }
 
-  /** Bola no corpo no meio da carga: o golpe some e o blob vai ao chão. */
-  private trip(p: Side, out: MatchEvent[]) {
-    const dir = p === LEFT ? 1 : -1
-    this.hitCharge[p] = 0
-    this.diveRecover[p] = TRIP_FRAMES
-    this.diveDir[p] = -dir
-    this.blobVX[p] = -dir * TRIP_PUSH * this.tempo
-    out.push({ event: Ev.TRIP, side: p, intensity: 1 })
-  }
-
   /** Tutorial: um especial vindo do lado `from`, sem ninguém lá pra bater. */
   launchSpecial(from: Side) {
     this.superFrames = SPECIAL_BALL_FRAMES
@@ -721,7 +711,6 @@ export class PhysicWorld {
 
     out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity })
     this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
-    if (this.hitCharge[p] > 0) this.trip(p, out)
 
     if (this.superFrames > 0) {
       if (this.superOwner !== p) {

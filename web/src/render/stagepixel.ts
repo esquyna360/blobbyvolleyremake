@@ -483,14 +483,6 @@ export class StagePixel implements GameRenderer {
           this.rings.push({ x: w.ballX, y: w.ballY, r: 4, max: 190, life: -0.08, color: '#ffffff' })
           break
         }
-        case Ev.TRIP: {
-          const p = e.side as Side
-          this.trauma = Math.min(1, this.trauma + 0.2)
-          this.blobKick[p] = 1
-          this.burst(w.blobX[p], GROUND + 4, 22, 220, this.px.pal.sand1, 0.8)
-          this.faces[p].set('sad', 1.2, 6)
-          break
-        }
         case Ev.BALL_OUT: {
           this.trauma = Math.min(1, this.trauma + 0.08)
           this.burst(w.ballX, w.ballY, 16, 180, '#ff8a7a', 0.5)

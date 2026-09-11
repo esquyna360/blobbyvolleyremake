@@ -852,7 +852,6 @@ export class GameAudio {
         case Ev.HIT: this.hitBlob(0.6 + e.intensity * 0.4, ballPan); this.apexHit(ballPan); break
         case Ev.REVERSAL: this.parry(panOf(world.blobX[e.side as Side])); this.special('fired', ballPan); break
         case Ev.REVERSAL_TRY: this.parryWhiff(panOf(world.blobX[e.side as Side])); break
-        case Ev.TRIP: this.diveHit(panOf(world.blobX[e.side as Side])); break
         case Ev.BALL_OUT: this.ballOut(ballPan); break
         case Ev.FATALITY: this.fatality(panOf(world.blobX[e.side as Side])); break
       }

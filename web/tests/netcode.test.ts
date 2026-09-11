@@ -210,7 +210,7 @@ test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', ()
   assert.ok(speed > BALL_COLLISION_VELOCITY * 1.2, `batida fraca: ${speed}`)
 })
 
-test('toque rápido é deixadinha; bola no corpo armando derruba', () => {
+test('toque rápido é deixadinha; bola no corpo armando é colisão normal', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world
   m.logic.isBallValid = true
@@ -230,14 +230,14 @@ test('toque rápido é deixadinha; bola no corpo armando derruba', () => {
   t.logic.isGameRunning = true
   tw.blobX[LEFT] = 200
   tw.ballX = 200; tw.ballY = tw.upperY(LEFT) - 90; tw.ballVX = 0; tw.ballVY = 6
-  let tripped = false
-  for (let f = 0; f < 30 && !tripped; f++) {
+  let bounced = false
+  for (let f = 0; f < 30 && !bounced; f++) {
     t.step({ ...NO_INPUT, hit: true }, NO_INPUT)
-    tripped = t.events.some(e => e.event === Ev.TRIP)
+    bounced = t.events.some(e => e.event === Ev.BALL_HIT_BLOB)
   }
-  assert.ok(tripped, 'não caiu')
-  assert.ok(!tw.charging(LEFT))
-  assert.ok(tw.diveRecover[LEFT] > 0, 'não ficou no chão')
+  assert.ok(bounced, 'bola não quicou no corpo')
+  assert.ok(tw.charging(LEFT), 'colisão cancelou a carga')
+  assert.equal(tw.diveRecover[LEFT], 0, 'caiu')
 })
 
 test('reversal devolve o especial na hora, mais forte', () => {

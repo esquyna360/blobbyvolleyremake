@@ -1348,7 +1348,6 @@ class App {
         case Ev.DIG: this.hud.callout(side, 'MANCHETE', '#cfe9ff'); break
         case Ev.DROP: this.hud.callout(side, 'DEIXADINHA', '#f2ddaa'); break
         case Ev.DIVE_HIT: this.hud.callout(side, 'MERGULHO', '#9dff8f'); break
-        case Ev.TRIP: this.hud.callout(side, 'TROPEÇOU', '#ff8a7a'); break
         case Ev.HIT:
           if (e.intensity >= 0.99) this.hud.callout(side, 'PANCADA', '#ffd257')
           else if (this.match && this.match.world.blobY[side] < 380 && this.match.world.ballVY > 0) this.hud.callout(side, 'CORTADA', '#ffffff')

@@ -121,8 +121,6 @@ export const FLOAT_FRAMES = 22
 export const FLOAT_RAMP = 26
 export const FLOAT_DRAG = 0.985
 export const PARRY_RETURN = 0.72
-export const TRIP_FRAMES = 30
-export const TRIP_PUSH = 2.6
 
 export const DROP_VELOCITY = BALL_COLLISION_VELOCITY * 0.66
 export const DROP_TARGET_DEPTH = 0.14
