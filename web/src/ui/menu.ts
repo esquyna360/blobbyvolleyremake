@@ -17,7 +17,7 @@ import type { PlayerLook } from '../core/looks.ts'
 import { drawPortrait } from '../render/portrait.ts'
 import type { PadAction } from './pad.ts'
 import { drillBest } from '../core/drill.ts'
-import { ONLY_3D } from '../core/platform.ts'
+import { ONLY_3D, PIXEL_ONLY } from '../core/platform.ts'
 
 /** Num aparelho de toque as dicas de teclado não dizem nada a ninguém. */
 const TOUCH = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches
@@ -63,7 +63,7 @@ const QUALITIES: [GameConfig['quality'], string, string][] = ([
   ['medium', 'Média', ''],
   ['high', 'Alta', ''],
   ['ultra', 'Ultra', ''],
-] as [GameConfig['quality'], string, string][]).filter(q => !(ONLY_3D && (q[0] === 'min' || q[0] === 'cpu' || q[0] === 'pixel')))
+] as [GameConfig['quality'], string, string][]).filter(q => PIXEL_ONLY ? q[0] === 'pixel' : !(ONLY_3D && (q[0] === 'min' || q[0] === 'cpu' || q[0] === 'pixel')))
 
 const FPS_OPTS: ['off' | 'on', string, string][] = [
   ['off', 'Ocultar', ''],
@@ -386,7 +386,7 @@ export class Menu {
             this.opt('Cenário', SCENE_LIST, cfg.scene,
               v => { cfg.scene = v; this.handlers.onScene(v) })),
           el('div', { class: 'minor' },
-            this.item('MEU BLOBBY', 'cor, cabelo e cor do cabelo', () => this.blobby()),
+            this.item('MEU PERFIL', 'cor, cabelo e cor do cabelo', () => this.blobby()),
             this.item('AJUSTES', 'nome, regra, cenário, gráficos e som', () => this.settings()),
             this.item('RANKING', 'só partida online pontua', () => this.ranking()),
             this.item('REPLAYS', 'a partida inteira, lance a lance', () => this.replays())),
@@ -469,7 +469,7 @@ export class Menu {
     const commit = () => { saveLook(look); this.handlers.onLook(look) }
 
     this.panel(
-      this.title('MEU BLOBBY'),
+      this.title('MEU PERFIL'),
       el('div', { class: 'dress' },
         cv,
         el('div', { class: 'opts' },
@@ -580,7 +580,7 @@ export class Menu {
           el('div', { class: 'opts' },
             this.opt('Cenário', SCENE_LIST, cfg.scene,
               v => { cfg.scene = v; this.handlers.onScene(v) }),
-            this.opt('Gráficos', QUALITIES, cfg.quality,
+            PIXEL_ONLY ? null : this.opt('Gráficos', QUALITIES, cfg.quality,
               v => { cfg.quality = v; this.handlers.onQuality(v) }),
             this.opt('FPS', FPS_OPTS, cfg.showFps ? 'on' : 'off',
               v => { cfg.showFps = v === 'on'; this.handlers.onFps(cfg.showFps) })),
@@ -804,7 +804,7 @@ export class Menu {
         this.item('VOLTAR PRO JOGO', '', () => this.handlers.onResume?.(), 'lead'),
         this.item('PARAR DE ASSISTIR', '', () => this.handlers.onStopWatch())),
       el('div', { class: 'opts' },
-        this.opt('Gráficos', QUALITIES, this.cfg.quality,
+        PIXEL_ONLY ? null : this.opt('Gráficos', QUALITIES, this.cfg.quality,
           v => { this.cfg.quality = v; this.handlers.onQuality(v) }),
         ...this.volumeRows()),
     )
@@ -860,7 +860,7 @@ export class Menu {
           v => { this.cfg.scene = v; this.handlers.onScene(v) }),
         this.opt('Paredes', WALL_OPTS, this.cfg.walls ? 'on' : 'off',
           v => this.handlers.onWalls(v === 'on')),
-        this.opt('Gráficos', QUALITIES, this.cfg.quality,
+        PIXEL_ONLY ? null : this.opt('Gráficos', QUALITIES, this.cfg.quality,
           v => { this.cfg.quality = v; this.handlers.onQuality(v) }),
         ...this.volumeRows()),
       this.tipLine(TOUCH ? 'MENU volta pro jogo' : 'ESC volta pro jogo'),

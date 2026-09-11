@@ -39,7 +39,7 @@ import { REPLAY_SPEEDS, Recorder, ReplayPlayer } from './core/replay.ts'
 import type { ReplayMeta, ReplayMode } from './core/replay.ts'
 import { loadReplay, saveLocalReplay, saveOnlineReplay } from './net/replays.ts'
 import type { ReplayCard } from './net/replays.ts'
-import { ONLY_3D, PLATFORM } from './core/platform.ts'
+import { ONLY_3D, PIXEL_ONLY, PLATFORM } from './core/platform.ts'
 
 type Phase = 'menu' | 'playing' | 'paused' | 'over'
 
@@ -133,7 +133,7 @@ class App {
     const savedName = localStorage.getItem('bv.name')
     this.cfg = { ...DEFAULT_CONFIG }
     const usableQ = savedQ && (ONLY_3D ? !IS_2D(savedQ) && !!QUALITY_PRESETS[savedQ] : IS_2D(savedQ) || !!QUALITY_PRESETS[savedQ])
-    if (new URLSearchParams(location.search).has('pixel') && !ONLY_3D) { this.cfg.quality = 'pixel'; this.userPickedQuality = true }
+    if (PIXEL_ONLY || (new URLSearchParams(location.search).has('pixel') && !ONLY_3D)) { this.cfg.quality = 'pixel'; this.userPickedQuality = true }
     else if (savedQ && usableQ) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
@@ -246,6 +246,7 @@ class App {
   }
 
   applyQuality(q: GameConfig['quality'], byUser: boolean) {
+    if (PIXEL_ONLY && q !== 'pixel') return
     if (ONLY_3D && IS_2D(q)) return
     if (!IS_2D(q) && !QUALITY_PRESETS[q]) return
     // no 2D o HUD não pode ter blur nem animação infinita por cima do canvas
