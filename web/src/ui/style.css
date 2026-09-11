@@ -1129,3 +1129,82 @@ body.noblur .overlay {
 body.noblur .score-card { box-shadow: 0 8px 20px rgba(0,0,0,0.45); }
 body.noblur .rep-bar { background: rgba(10,14,22,0.86); }
 body.noblur .livetag { background: rgba(10,14,22,0.86); }
+
+/* ---- menu "de capa": título e lista à esquerda, o jogo continua vivo à direita ---- */
+.overlay {
+  display: flex; align-items: center; justify-content: flex-start;
+  padding-left: clamp(36px, 6vw, 96px);
+  background: linear-gradient(90deg, rgba(3,5,8,0.97) 0%, rgba(3,5,8,0.90) 48%, rgba(3,5,8,0.30) 100%),
+    linear-gradient(0deg, rgba(0,0,0,0.6), transparent 26%);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.overlay::after {
+  content: 'Blobby Volley';
+  position: absolute; right: clamp(20px, 3vw, 56px); bottom: 18px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--dim); pointer-events: none;
+}
+.panel { align-items: flex-start; text-align: left; text-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+.brand { text-align: left; margin: 0 0 18px; }
+.brand h1 { font-size: clamp(44px, 6vw, 72px); letter-spacing: 0.01em; line-height: 0.9; }
+.brand h1::after { content: ''; display: block; width: 56px; height: 3px; margin-top: 14px; background: var(--accent); }
+.brand p { letter-spacing: 0.3em; margin-top: 12px; }
+.brand p.build { display: none; }
+.brand.head {
+  display: flex; flex-direction: column-reverse; align-items: flex-start;
+  margin: 0 0 18px; padding: 0; border: 0;
+}
+.brand.head h1 {
+  font-size: clamp(34px, 4.5vw, 52px); font-weight: 800; letter-spacing: 0.02em;
+  line-height: 0.95; color: var(--ink);
+}
+.brand.head h1::after { content: ''; display: block; width: 48px; height: 3px; margin-top: 12px; background: var(--accent); }
+.brand.head p {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 8px;
+}
+
+.home {
+  grid-template-columns: minmax(300px, 430px);
+  grid-template-areas: 'brand' 'act';
+  gap: 0 clamp(24px, 6vw, 110px); align-items: start;
+}
+.home-id { display: contents; }
+.home-id .brand { grid-area: brand; }
+.home-id .portrait { display: none; }
+.home-act { grid-area: act; text-align: left; gap: 2px; }
+.home-act .tipline { text-align: left; margin-top: 10px; }
+
+.act, .act.go {
+  background: none; border-radius: 4px; box-shadow: inset 3px 0 0 transparent;
+  text-align: left; padding: 10px 18px; font-size: 17px; letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.82); text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+}
+.act.go { font-size: 21px; color: var(--accent); }
+.act:hover, .act:focus-visible, .act.go:hover, .act.go:focus-visible {
+  background: rgba(255,255,255,0.09); box-shadow: inset 3px 0 0 var(--accent); color: #fff;
+}
+.act.go:hover, .act.go:focus-visible { color: #ffe08b; }
+.opts.pre { border: 0; margin-top: 6px; }
+.opts.pre .opt { padding: 4px 18px; }
+.minor { grid-template-columns: 1fr; border: 0; margin-top: 8px; padding-top: 6px; }
+.item { text-align: left; padding: 7px 18px; border-radius: 4px; box-shadow: inset 3px 0 0 transparent; }
+.item:hover, .item:focus-visible { box-shadow: inset 3px 0 0 var(--accent); }
+.item.lead { text-align: left; }
+.item.lead:hover, .item.lead:focus-visible { background: rgba(255,255,255,0.09); color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+.homefoot { border: 0; margin-top: 18px; padding-top: 0; }
+.card { border-radius: 4px; box-shadow: inset 3px 0 0 transparent; }
+.card:hover, .card:focus-visible { box-shadow: inset 3px 0 0 var(--accent); }
+.card.go { box-shadow: inset 3px 0 0 var(--accent); }
+.cols { text-align: left; }
+h2.sec { text-align: left; }
+.opt:hover { background: rgba(255,255,255,0.06); }
+.panel:has(> .cols) > .brand.head,
+.panel:has(> .dress) > .brand.head,
+.panel:has(> .rank-list) > .brand.head,
+.panel:has(> .rep-list) > .brand.head { max-width: 660px; }
+@media (max-width: 760px) {
+  .overlay { padding-left: 18px; }
+  .home { grid-template-columns: 1fr; grid-template-areas: 'brand' 'act'; }
+  .home-id .portrait { display: none; }
+}

@@ -283,36 +283,39 @@ func _build_result() -> void:
 	_result_ui.offset_right = 230
 	_result_ui.offset_top = -170
 	_result_ui.offset_bottom = 170
-	_result_ui.add_theme_stylebox_override("panel", UiTheme.wood())
+	_result_ui.add_theme_stylebox_override("panel", UiTheme.glass())
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
+	v.add_theme_constant_override("separation", 8)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	_result_ui.add_child(v)
-	_result_title = UiTheme.label("", 44, UiTheme.GOLD)
-	_result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(UiTheme.eyebrow("fim de partida", Menu.MUTED, 12))
+	_result_title = UiTheme.heading("", 44, UiTheme.GOLD)
 	v.add_child(_result_title)
-	_result_score = UiTheme.label("", 40)
-	_result_score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_result_score = UiTheme.heading("", 34)
 	v.add_child(_result_score)
-	_result_again = Button.new()
+	var rule := ColorRect.new()
+	rule.color = UiTheme.GOLD
+	rule.custom_minimum_size = Vector2(48, 3)
+	v.add_child(rule)
+	var g0 := Control.new()
+	g0.custom_minimum_size = Vector2(0, 6)
+	v.add_child(g0)
+	_result_again = UiTheme.item(Button.new(), UiTheme.LEAF, 20)
 	_result_again.text = "Jogar de novo"
-	UiTheme.style(_result_again, Color(0.45, 0.85, 0.40))
 	_result_again.pressed.connect(func():
 		_result_ui.visible = false
 		if _restart.is_valid():
 			_restart.call())
 	v.add_child(_result_again)
-	_result_next = Button.new()
+	_result_next = UiTheme.item(Button.new(), Color(1.0, 0.55, 0.25), 20)
 	_result_next.text = "Próximo"
-	UiTheme.style(_result_next, Color(1.0, 0.55, 0.25))
 	_result_next.pressed.connect(func():
 		_result_ui.visible = false
 		_arcade_step += 1
 		_arcade_match())
 	v.add_child(_result_next)
-	var q := Button.new()
+	var q := UiTheme.item(Button.new(), Color(0.6, 0.65, 0.62), 20)
 	q.text = "Menu"
-	UiTheme.style(q, Color(0.6, 0.65, 0.62))
 	q.pressed.connect(func():
 		_result_ui.visible = false
 		_to_menu())
@@ -401,38 +404,52 @@ func _build_pause() -> void:
 	_pause_ui.anchor_right = 0.5
 	_pause_ui.anchor_top = 0.5
 	_pause_ui.anchor_bottom = 0.5
-	_pause_ui.offset_left = -230
-	_pause_ui.offset_right = 230
-	_pause_ui.offset_top = -210
-	_pause_ui.offset_bottom = 210
-	_pause_ui.add_theme_stylebox_override("panel", UiTheme.wood())
+	_pause_ui.offset_left = -250
+	_pause_ui.offset_right = 250
+	_pause_ui.offset_top = -215
+	_pause_ui.offset_bottom = 215
+	_pause_ui.add_theme_stylebox_override("panel", UiTheme.glass())
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
+	v.add_theme_constant_override("separation", 8)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	_pause_ui.add_child(v)
-	var t := UiTheme.label("PAUSA", 30, UiTheme.GOLD)
-	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(t)
-	var c := Button.new()
+	v.add_child(UiTheme.eyebrow("partida", Menu.MUTED, 12))
+	v.add_child(UiTheme.heading("Pausa", 40))
+	var rule := ColorRect.new()
+	rule.color = UiTheme.GOLD
+	rule.custom_minimum_size = Vector2(48, 3)
+	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(rule)
+	var g0 := Control.new()
+	g0.custom_minimum_size = Vector2(0, 6)
+	v.add_child(g0)
+	var c := UiTheme.item(Button.new(), UiTheme.LEAF, 20)
 	c.text = "Continuar"
-	UiTheme.style(c, Color(0.45, 0.85, 0.40))
 	c.pressed.connect(func(): _set_pause(false))
 	v.add_child(c)
-	v.add_child(UiTheme.label("Gráficos", 16, Color(1, 1, 1, 0.6)))
-	var qrow := Menu.quality_row(settings, func(q):
+	var opts := MarginContainer.new()
+	opts.add_theme_constant_override("margin_left", 22)
+	opts.add_theme_constant_override("margin_top", 6)
+	opts.add_theme_constant_override("margin_bottom", 6)
+	var ov := VBoxContainer.new()
+	ov.add_theme_constant_override("separation", 8)
+	ov.add_child(UiTheme.eyebrow("qualidade", Menu.MUTED, 11))
+	ov.add_child(Menu.quality_row(settings, func(q):
 		_requality(q)
 		_pause_ui.visible = false
-		_build_pause_refresh())
-	v.add_child(qrow)
-	v.add_child(Menu.slider("Música", Aud.music_vol, func(x): Aud.set_volume("music", x)))
-	v.add_child(Menu.slider("Efeitos", Aud.sfx_vol, func(x): Aud.set_volume("sfx", x)))
-	var q := Button.new()
+		_build_pause_refresh()))
+	ov.add_child(UiTheme.eyebrow("som", Menu.MUTED, 11))
+	ov.add_child(Menu.slider("Música", Aud.music_vol, func(x): Aud.set_volume("music", x)))
+	ov.add_child(Menu.slider("Efeitos", Aud.sfx_vol, func(x): Aud.set_volume("sfx", x)))
+	opts.add_child(ov)
+	v.add_child(opts)
+	var q := UiTheme.item(Button.new(), Color(0.9, 0.45, 0.35), 20)
 	q.text = "Sair da partida"
-	UiTheme.style(q, Color(0.9, 0.45, 0.35))
 	q.pressed.connect(func():
 		_set_pause(false)
 		_to_menu())
 	v.add_child(q)
+	c.grab_focus.call_deferred()
 	_pause_ui.visible = false
 	_ui.add_child(_pause_ui)
 
@@ -486,6 +503,8 @@ func _dev_shot() -> void:
 		elif a == "--bots":
 			_restart = _dev_bots
 			_dev_bots()
+		elif a == "--paused":
+			_set_pause.call_deferred(true)
 	if path == "":
 		return
 	var n := 0
