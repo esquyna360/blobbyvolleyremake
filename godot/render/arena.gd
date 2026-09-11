@@ -543,6 +543,13 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 				Color(0.85, 0.66, 0.28), 2.0, 0.3)
 			blobs[p].kick(1.1, 1.4)
 
+		Ev.SPECIAL_HOLD:
+			var p := side
+			hitstop = maxf(hitstop, 0.07)
+			blobs[p].face.set_mood("angry", 0.6, 8)
+			fx.shock(Vector3(Map.gx(w.ball_x), Map.gy(w.ball_y), 0.2), 0.05, 1.6, 0.35,
+				blobs[p].body_color * 1.5, 0.9)
+
 		Ev.RESET_BALL:
 			_gib[0] = 0
 			_gib[1] = 0

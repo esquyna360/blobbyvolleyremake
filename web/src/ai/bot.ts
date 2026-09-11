@@ -203,6 +203,7 @@ export class Bot {
   private plan: Plan = { ...NO_PLAN }
   private upHeld = false
   private spHeld = false
+  private spHold = 0
   private diveHeld = false
   private digLock = 0
 
@@ -272,6 +273,7 @@ export class Bot {
     let up = false
     if (!down && onGround && this.plan.jumpAt <= 0 && this.plan.jumpAt > -5) up = true
     if (!onGround && w.blobVY[me] < 0 && (this.upHeld || w.charge[me] < SPECIAL_FULL)) up = true
+    if (w.hold[me] > 0) up = false
     this.upHeld = up
 
     const special = this.wantSpecial(w, me, onGround, p)
@@ -462,6 +464,11 @@ export class Bot {
 
   private wantSpecial(w: Match['world'], me: Side, onGround: boolean, p: Params) {
     if (w.superFrames > 0 && w.superOwner !== me) return this.wantParry(w, me, p)
+    if (w.hold[me] > 0) {
+      if (this.spHold <= 0) return false
+      this.spHold--
+      return true
+    }
     const mine = this.dir * (w.ballX - NET_POSITION_X) < 0
     if (!(w.charge[me] >= SPECIAL_FULL && !onGround && mine)) { this.spHeld = false; return false }
     const dx = w.ballX - w.blobX[me]
@@ -470,6 +477,7 @@ export class Bot {
     if (!(near && this.rng() < 0.3 + p.attack * 0.7)) { this.spHeld = false; return false }
     if (this.spHeld) return false
     this.spHeld = true
+    this.spHold = Math.floor(this.rng() * p.attack * 90)
     return true
   }
 

@@ -49,6 +49,7 @@ var _cool := 0
 var _aim := 0.0
 var _up_held := false
 var _sp_held := false
+var _sp_hold := 0
 var _dive_held := false
 var _dig_lock := 0
 var _out := PlayerInput.new()
@@ -246,6 +247,8 @@ func think(m: BVMatch) -> PlayerInput:
 		up = true
 	if not on_ground and w.blob_vy[me] < 0.0 and (_up_held or w.charge[me] < BV.SPECIAL_FULL):
 		up = true
+	if w.hold[me] > 0:
+		up = false
 	_up_held = up
 
 	var special := _want_special(w, me, on_ground, p)
@@ -456,6 +459,11 @@ func _want_down(w: PhysicWorld, me: int, on_ground: bool) -> bool:
 func _want_special(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> bool:
 	if w.super_frames > 0 and w.super_owner != me:
 		return _want_parry(w, me, p)
+	if w.hold[me] > 0:
+		if _sp_hold <= 0:
+			return false
+		_sp_hold -= 1
+		return true
 	var mine := _dir() * (w.ball_x - BV.NET_POSITION_X) < 0.0
 	if not (w.charge[me] >= BV.SPECIAL_FULL and not on_ground and mine):
 		_sp_held = false
@@ -469,6 +477,7 @@ func _want_special(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> b
 	if _sp_held:
 		return false
 	_sp_held = true
+	_sp_hold = int(floor(_rng() * float(p.attack) * 90.0))
 	return true
 
 func _want_parry(w: PhysicWorld, me: int, p: Dictionary) -> bool:

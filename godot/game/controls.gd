@@ -19,6 +19,7 @@ static func setup() -> void:
 		JOY_BUTTON_RIGHT_SHOULDER], 0)
 	_act("p1_down", [KEY_S], [JOY_BUTTON_DPAD_DOWN], 0, JOY_AXIS_LEFT_Y, 1)
 	_act("p1_dive", [KEY_E, KEY_Q], [JOY_BUTTON_X, JOY_BUTTON_LEFT_SHOULDER], 0)
+	_mouse("p1_dive")
 
 	_act("p2_left", [KEY_LEFT], [JOY_BUTTON_DPAD_LEFT], 1, JOY_AXIS_LEFT_X, -1)
 	_act("p2_right", [KEY_RIGHT], [JOY_BUTTON_DPAD_RIGHT], 1, JOY_AXIS_LEFT_X, 1)
@@ -38,10 +39,16 @@ static func setup() -> void:
 	_act("solo_down", [KEY_S, KEY_DOWN], [JOY_BUTTON_DPAD_DOWN], PAD_ANY, JOY_AXIS_LEFT_Y, 1)
 	_act("solo_dive", [KEY_E, KEY_Q, KEY_CTRL, KEY_KP_1, KEY_ENTER],
 		[JOY_BUTTON_X, JOY_BUTTON_LEFT_SHOULDER], PAD_ANY)
+	_mouse("solo_dive")
 
 	_act("pause", [KEY_ESCAPE], [JOY_BUTTON_START], PAD_ANY)
 	for i in 5:
 		_act("emote_%d" % i, [KEY_1 + i], [], PAD_ANY)
+
+static func _mouse(name: String) -> void:
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	InputMap.action_add_event(name, e)
 
 static func _act(name: String, keys: Array, buttons: Array, device := PAD_ANY,
 		axis := -1, axis_dir := 0) -> void:

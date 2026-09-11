@@ -521,8 +521,17 @@ func _dev_shot() -> void:
 		return
 	var n := 0
 	var force_super := "--super" in OS.get_cmdline_user_args()
+	var force_hold := "--hold" in OS.get_cmdline_user_args()
 	for i in wait:
 		await get_tree().process_frame
+		if force_hold and game.bv != null and i > wait - 300 and game.bv.world.hold[0] == 0 and game.bv.world.super_frames == 0:
+			game.bv.world.charge[0] = BV.SPECIAL_CAP
+			game.bv.world.ball_x = game.bv.world.blob_x[0] + 20.0
+			game.bv.world.ball_y = game.bv.world.blob_y[0] - 120.0
+			game.bv.world.ball_vx = 0.0
+			game.bv.world.ball_vy = 0.0
+		if force_hold and game.bv != null and game.bv.world.hold[0] > 0:
+			print("hold frame=%d hold=%d" % [i, game.bv.world.hold[0]])
 		if force_super and game.bv != null and i > wait - 240:
 			game.bv.world.super_frames = 30
 			game.bv.world.super_owner = 0

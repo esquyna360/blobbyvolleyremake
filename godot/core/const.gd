@@ -67,6 +67,7 @@ const PARRY_REACH := 112.0
 const PARRY_BOOST := 0.1
 const PARRY_CHAIN_MAX := 4
 const PARRY_HOLD := 60
+const SPECIAL_HOLD := 120
 
 const CROUCH_RATE := 0.16
 const CROUCH_RATE_AIR := 0.09

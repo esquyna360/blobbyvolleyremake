@@ -138,7 +138,11 @@ test('special state survives save/restore', () => {
   m.world.ballX = m.world.blobX[LEFT] + 30
   m.world.ballY = m.world.blobY[LEFT] - 110
   m.step(UP, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_HOLD), true)
+  assert.equal(m.world.hold[LEFT] > 0, true)
+  m.step(NONE, NONE)
   assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), true)
+  assert.equal(m.world.hold[LEFT], 0)
   assert.equal(m.world.superFrames > 0, true)
 
   const s = allocState()

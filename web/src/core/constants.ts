@@ -76,6 +76,7 @@ export const PARRY_REACH = 112
 export const PARRY_BOOST = 0.1
 export const PARRY_CHAIN_MAX = 4
 export const PARRY_HOLD = 60
+export const SPECIAL_HOLD = 120
 
 /**
  * Agachar. `crouch` é 0..1: sobe enquanto o botão está apertado, desce sozinho.

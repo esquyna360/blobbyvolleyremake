@@ -309,12 +309,14 @@ func _try_special(p: int, raw: PlayerInput, is_ball_valid: bool, was_ground: boo
 		return
 
 	charge[p] = 0.0
-	_bump_tempo()
-	_aim_special(p)
-	_scale_ball_v()
 	super_frames = BV.SPECIAL_BALL_FRAMES
 	super_owner = p
-	out.push(Ev.SPECIAL_FIRED, p, 1.0)
+	hold[p] = BV.SPECIAL_HOLD
+	ball_vx = 0.0
+	ball_vy = 0.0
+	ball_spin = 0.0
+	_anchor_held(p)
+	out.push(Ev.SPECIAL_HOLD, p, 1.0)
 
 func _try_parry(p: int, raw: PlayerInput, out: EventBuf) -> void:
 	if stun[p] > 0:
@@ -367,7 +369,7 @@ func _hold_step(p: int, raw: PlayerInput, out: EventBuf) -> void:
 	_bump_tempo()
 	_aim_special(p, 1.0 + parry_chain * BV.PARRY_BOOST)
 	_scale_ball_v()
-	out.push(Ev.SPECIAL_FIRED, p, 0.5)
+	out.push(Ev.SPECIAL_FIRED, p, 0.5 if parry_chain > 0 else 1.0)
 
 func _top_ball_collision(p: int) -> bool:
 	var dx := ball_x - blob_x[p]

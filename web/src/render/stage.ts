@@ -922,6 +922,13 @@ layout(location = 0) out highp vec4 fragColor; varying vec2 vUv; varying vec3 vP
           this.blobs[p].squashVel -= 1.4
           break
         }
+        case Ev.SPECIAL_HOLD: {
+          const p = e.side as Side
+          this.hitstop = Math.max(this.hitstop, 0.07)
+          const col = (this.blobs[p].visual.uniforms.uColor.value as THREE.Color).clone().multiplyScalar(1.5)
+          this.addShock(gx(w.ballX), gy(w.ballY), { from: 0.05, to: 1.6, life: 0.35, color: col })
+          break
+        }
         case Ev.RESET_BALL: {
           this.gib[0] = 0; this.gib[1] = 0
           break

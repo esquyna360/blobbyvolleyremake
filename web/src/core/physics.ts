@@ -5,7 +5,7 @@ import {
   GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, OPEN_MARGIN,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
-  SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
+  SPECIAL_GAIN_TOUCH, SPECIAL_HOLD, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
   SPECIAL_KNOCKBACK, SPECIAL_POP, KNOCK_DECAY, SPECIAL_NET_CLEARANCE,
   SPECIAL_GRAVITY_MUL, SPECIAL_TARGET_DEPTH, SPECIAL_TIME_MIN, SPECIAL_TIME_STEP, SPECIAL_TIME_STEPS,
   TEMPO_MAX, TEMPO_STEP,
@@ -360,12 +360,12 @@ export class PhysicWorld {
     }
 
     this.charge[p] = 0
-    this.bumpTempo()
-    this.aimSpecial(p)
-    this.scaleBallV()
     this.superFrames = SPECIAL_BALL_FRAMES
     this.superOwner = p
-    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
+    this.hold[p] = SPECIAL_HOLD
+    this.ballVX = 0; this.ballVY = 0; this.ballSpin = 0
+    this.anchorHeld(p)
+    out.push({ event: Ev.SPECIAL_HOLD, side: p, intensity: 1 })
   }
 
 
@@ -417,7 +417,7 @@ export class PhysicWorld {
     this.bumpTempo()
     this.aimSpecial(p, 1 + this.parryChain * PARRY_BOOST)
     this.scaleBallV()
-    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 0.5 })
+    out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: this.parryChain > 0 ? 0.5 : 1 })
   }
 
   private topBallCollision(p: Side) {

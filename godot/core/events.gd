@@ -23,3 +23,4 @@ const DIG := 18
 const SPECIAL_WASTED := 19
 const APEX_HIT := 20
 const BALL_OUT := 21
+const SPECIAL_HOLD := 22

@@ -21,8 +21,14 @@ export class InputManager {
   touch: { left: boolean; right: boolean; up: boolean; special: boolean; down: boolean; dive: boolean } =
     { left: false, right: false, up: false, special: false, down: false, dive: false }
   onPause?: () => void
+  private mouse = false
 
   constructor() {
+    addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' && e.button === 0 && (e.target as HTMLElement).tagName === 'CANVAS') this.mouse = true
+    })
+    addEventListener('pointerup', e => { if (e.pointerType === 'mouse') this.mouse = false })
+    addEventListener('blur', () => { this.mouse = false })
     addEventListener('keydown', e => {
       if (e.code === 'Escape') this.onPause?.()
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault()
@@ -65,6 +71,7 @@ export class InputManager {
         special = special || p.special; down = down || p.down; dive = dive || p.dive
       }
     }
+    if (useTouch || padIndex === 0) dive = dive || this.mouse
     if (useTouch) {
       left = left || this.touch.left
       right = right || this.touch.right
