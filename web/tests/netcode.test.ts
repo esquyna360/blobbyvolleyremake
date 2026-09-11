@@ -244,6 +244,25 @@ test('cortada por baixo da bola não bate no próprio blob', () => {
   }
 })
 
+test('mergulho encosta na bola uma vez só', () => {
+  const m = new Match('default', 3, LEFT)
+  const w = m.world
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  w.blobX[LEFT] = 200; w.blobX[RIGHT] = 845
+  w.ballX = 330; w.ballY = GROUND_PLANE_HEIGHT + 10; w.ballVX = 0; w.ballVY = 0
+  const c0 = w.charge[LEFT]
+  let hits = 0
+  for (let f = 0; f < 70; f++) {
+    m.step(f < 3 ? { ...NO_INPUT, right: true, dive: true } : NO_INPUT, NO_INPUT)
+    if (f < 12) { w.ballX = 330; w.ballY = GROUND_PLANE_HEIGHT + 10; w.ballVX = 0; w.ballVY = 0 }
+    hits += m.events.filter(e => e.event === Ev.DIVE_HIT).length
+  }
+  assert.ok(hits >= 1, 'mergulho não pegou a bola')
+  assert.ok(hits <= 2, `mergulho bateu ${hits} vezes`)
+  assert.ok(w.charge[LEFT] - c0 < 0.2, `barra encheu demais no mergulho: ${w.charge[LEFT] - c0}`)
+})
+
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {
   const m = new Match('default', 15, LEFT)
   const w = m.world

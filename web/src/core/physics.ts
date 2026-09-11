@@ -756,6 +756,7 @@ export class PhysicWorld {
       this.aimShotScaled(p, DIVE_VELOCITY, DIVE_VELOCITY * 0.7, DIVE_TARGET_DEPTH,
         DIVE_NET_CLEARANCE, DIVE_TIME_MIN, DIVE_TIME_STEP, DIVE_TIME_STEPS, 5)
       this.pushOut(p, cy, dx, dy, Math.sqrt(dx * dx + dy * dy), cr)
+      this.hitPass[p] = 30
       this.addCharge(p, DIVE_GAIN, out)
       out.push({ event: Ev.DIVE_HIT, side: p, intensity: 1 })
       return true
