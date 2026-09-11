@@ -215,10 +215,10 @@ export class PhysicWorld {
    */
   superGravity() { return this.superKind === 1 ? DOUBLE_GRAVITY_MUL : SPECIAL_GRAVITY_MUL }
 
-  private aimSpecial(p: Side, boost = 1) {
+  private aimSpecial(p: Side, boost = 1, mode = 0) {
     const dir = p === LEFT ? 1 : -1
     const ty = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
-    const depth = SPECIAL_TARGET_DEPTH + (this.noise(p, 0) - 0.5) * SPECIAL_DEPTH_JITTER
+    const depth = (mode < 0 ? 0.86 : mode > 0 ? 0.3 : SPECIAL_TARGET_DEPTH) + (this.noise(p, 0) - 0.5) * SPECIAL_DEPTH_JITTER
     const tx = p === LEFT
       ? NET_POSITION_X + (RIGHT_PLANE - NET_POSITION_X) * depth
       : NET_POSITION_X - (NET_POSITION_X - LEFT_PLANE) * depth
@@ -232,7 +232,8 @@ export class PhysicWorld {
 
     const max2 = vmax * vmax
     const g = BALL_GRAVITATION * this.superGravity()
-    const skip = Math.floor(this.noise(p, 1) * SPECIAL_ARC_JITTER)
+    // pra cima: o arco mais lento que ainda cabe no teto; pra baixo/frente: o mais rápido
+    const skip = mode < 0 ? 6 : Math.floor(this.noise(p, 1) * SPECIAL_ARC_JITTER)
     let seen = 0
     let fx = 0, fy = 0, got = false
     for (let i = 0; i < SPECIAL_TIME_STEPS; i++) {
@@ -388,14 +389,8 @@ export class PhysicWorld {
     this.ballSpin = 0
     this.anchorHeld(p)
     this.bumpTempo()
-    if (this.hitAimX[p] === 0 && this.hitAimY[p] === 0) {
-      this.aimSpecial(p, 1)
-    } else {
-      // direcional segurado: o especial vai pra onde a mira aponta
-      const [nx, ny] = this.aimVector(p)
-      this.ballVX = nx * SPECIAL_VELOCITY
-      this.ballVY = ny * SPECIAL_VELOCITY
-    }
+    // direcional só escolhe o tipo de arco (cima, frente, corta); o alvo é sempre o campo do outro
+    this.aimSpecial(p, 1, this.hitAimY[p])
     this.scaleBallV()
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
   }
@@ -550,8 +545,12 @@ export class PhysicWorld {
       if (isBallValid && !busy && this.swing(p, this.swingPow[p], out)) this.swingT[p] = 0
     }
     if (this.hitCharge[p] > 0) {
-      this.hitAimX[p] = raw.left !== raw.right ? (raw.right ? 1 : -1) : 0
-      this.hitAimY[p] = raw.up !== raw.down ? (raw.up ? -1 : 1) : 0
+      // soltar o direcional junto com o botão não apaga a mira: a última segurada vale
+      const held = this.armSpecial[p] ? raw.special : raw.hit
+      if (held || raw.left || raw.right || raw.up || raw.down) {
+        this.hitAimX[p] = raw.left !== raw.right ? (raw.right ? 1 : -1) : 0
+        this.hitAimY[p] = raw.up !== raw.down ? (raw.up ? -1 : 1) : 0
+      }
       if (this.hitCharge[p] < 100000) this.hitCharge[p]++
       if (busy || this.incoming(p)) { this.hitCharge[p] = 0; this.armSpecial[p] = 0; return }
       if (this.armSpecial[p] ? raw.special : raw.hit) return
@@ -592,7 +591,8 @@ export class PhysicWorld {
     this.hitLag[p] = HIT_LAG
     this.bumpTempo()
     this.ballSpin = 0
-    if (charge <= HIT_TAP) {
+    const cortada = !this.blobHitGround(p) && this.hitAimY[p] > 0
+    if (charge <= HIT_TAP && !cortada) {
       this.aimShotScaled(p, DROP_VELOCITY, 0, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE,
         DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS, 7)
       this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.upperR(p))
@@ -600,7 +600,7 @@ export class PhysicWorld {
       out.push({ event: Ev.DROP, side: p, intensity: 1 })
       return true
     }
-    if (charge <= LOB_MAX) {
+    if (charge <= LOB_MAX && !cortada) {
       this.aimShotScaled(p, LOB_VELOCITY, 0, LOB_TARGET_DEPTH, LOB_NET_CLEARANCE,
         LOB_TIME_MIN, LOB_TIME_STEP, LOB_TIME_STEPS, 8)
       this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.upperR(p))
@@ -608,7 +608,7 @@ export class PhysicWorld {
       out.push({ event: Ev.LOB, side: p, intensity: 1 })
       return true
     }
-    const k = Math.min(1, (charge - LOB_MAX) / (HIT_CHARGE_MAX - LOB_MAX))
+    const k = Math.max(0, Math.min(1, (charge - LOB_MAX) / (HIT_CHARGE_MAX - LOB_MAX)))
     const [nx, ny] = this.aimVector(p)
     const v = (HIT_V_MIN + (HIT_V_MAX - HIT_V_MIN) * k) * this.tempo
     this.ballVX = nx * v
