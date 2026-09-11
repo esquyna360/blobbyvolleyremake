@@ -5,7 +5,7 @@
  */
 import type { DepthId } from './depth.ts'
 
-export type SceneId = 'praia' | 'gruta' | 'luau' | 'ginasio'
+export type SceneId = 'selva' | 'praia' | 'gruta' | 'luau' | 'ginasio'
 
 /** Trilha do menu: fica fora da lista de cenários porque não é um. */
 export const MENU_SONG = 'menu'
@@ -77,6 +77,50 @@ export interface Scene {
 }
 
 export const SCENES: Record<SceneId, Scene> = {
+  selva: {
+    id: 'selva',
+    name: 'Selva',
+    hint: 'clareira, cachoeira e luz na mata',
+    music: 'praia',
+    depth: 'none',
+    fg: 'fireflies',
+    night: false,
+    d2: {
+      sky: ['#5f9fbf', '#a9d6dc', '#d7ecdf'],
+      mid: ['#2f8fb0', '#1d6a94'],
+      ground: ['#e8d8b8', '#b9976a'],
+      horizon: 380,
+      shore: 470,
+      cloud: 'rgba(255,255,255,0.4)',
+      clouds: 0,
+      star: null,
+      stars: 0,
+      orb: null,
+      hills: null,
+      foam: 'rgba(255,255,255,0.30)',
+      line: 'rgba(255,255,255,0.55)',
+      wash: null,
+      sand: '#e8d8b8',
+      sandDark: '#8a6a3e',
+    },
+    d3: {
+      sun: [-0.62, 0.58, 0.53],
+      exposure: 1.0,
+      fog: [0.62, 0.74, 0.86],
+      fogDensity: 0.0009,
+      key: 0xfff2dc,
+      keyIntensity: 2.5,
+      ambient: 0xbcd8ff,
+      ambientIntensity: 0.55,
+      sand: [1.0, 1.0, 1.0],
+      ocean: true,
+      oceanTint: [1.0, 1.0, 1.0],
+      palms: true,
+      fire: 0,
+      indoor: false,
+    },
+  },
+
   praia: {
     id: 'praia',
     name: 'Praia',

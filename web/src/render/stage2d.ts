@@ -13,6 +13,7 @@ import type { BigKind, GameRenderer } from './stage.ts'
 import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 import { getScene } from './scenes.ts'
+import { Selva2D } from './selva2d.ts'
 import { getDepth, depthScale, DEPTH_CAM_Z } from './depth.ts'
 import type { DepthLayer } from './depth.ts'
 import type { Scene, SceneId } from './scenes.ts'
@@ -128,6 +129,7 @@ export class Stage2D implements GameRenderer {
   /** Rastro de corpo arrastado na areia: some devagar, igual marca de verdade. */
   private skids: { x: number; dir: number; life: number }[] = []
   private time = 0
+  private lastDt = 1 / 60
   private tension = 0
   private faces: FaceRig[] = [new FaceRig(), new FaceRig()]
   private trauma = 0
@@ -140,6 +142,7 @@ export class Stage2D implements GameRenderer {
   private reachGlow: HTMLCanvasElement
   private scene: Scene = getScene('praia')
   private depth: DepthLayer[] = getDepth(getScene('praia').depth)
+  private selva: Selva2D | null = null
   private pan = 0
   private sway = 0
   audioBar = 0
@@ -150,6 +153,7 @@ export class Stage2D implements GameRenderer {
   private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
   private fills = [bodyHex(defaultLook(LEFT)), bodyHex(defaultLook(RIGHT))]
   private darks = [shade(bodyHex(defaultLook(LEFT)), 0.55), shade(bodyHex(defaultLook(RIGHT)), 0.55)]
+  private lights = [shade(bodyHex(defaultLook(LEFT)), 1.35), shade(bodyHex(defaultLook(RIGHT)), 1.35)]
   /** estrelas e bichinhos da frente: sorteados uma vez, animados por relógio */
   private specks: { x: number; y: number; r: number; seed: number }[] = []
   private fg: { x: number; y: number; vx: number; vy: number; s: number; seed: number }[] = []
@@ -218,6 +222,7 @@ export class Stage2D implements GameRenderer {
 
   setScene(id: SceneId) {
     this.scene = getScene(id)
+    if (id === 'selva' && !this.selva) this.selva = new Selva2D(this.lite)
     this.depth = getDepth(this.scene.depth)
     this.buildBands()
   }
@@ -664,6 +669,7 @@ export class Stage2D implements GameRenderer {
       this.bigs = live
     }
     this.time += dt
+    this.lastDt = dt
     for (const f of this.faces) f.update(dt, this.tension, false)
     if (this.pops.length) {
       const alive: Pop[] = []
@@ -728,6 +734,10 @@ export class Stage2D implements GameRenderer {
     const horizon = this.oy + d.horizon * this.scale
     const shore = this.oy + d.shore * this.scale
     for (const b of this.bands) { c.fillStyle = b.c; c.fillRect(0, b.y, this.cw, b.h) }
+    if (this.scene.id === 'selva') {
+      if (this.selva?.ready) this.selva.background(c, this.view(horizon, shore))
+      return
+    }
 
     if (d.star && d.stars) {
       for (const sp of this.specks) {
@@ -940,8 +950,20 @@ export class Stage2D implements GameRenderer {
    * Camada da frente: passa por cima de tudo, inclusive dos blobs. É o que dá
    * profundidade — sem nada na frente a quadra parece um adesivo.
    */
+  private view(horizon: number, shore: number) {
+    return {
+      cw: this.cw, ch: this.ch, scale: this.scale, ox: this.ox, oy: this.oy, horizon, shore,
+      pan: this.pan, sway: this.sway, time: this.time, dt: this.lastDt,
+    }
+  }
+
   private foreground(dt: number) {
     const c = this.ctx
+    if (this.scene.id === 'selva') {
+      const d = this.scene.d2
+      if (this.selva?.ready) this.selva.foreground(c, this.view(this.oy + d.horizon * this.scale, this.oy + d.shore * this.scale))
+      return
+    }
     const kind = this.scene.fg
     for (let i = 0; i < this.fg.length; i++) {
       const f = this.fg[i]
@@ -1037,9 +1059,19 @@ export class Stage2D implements GameRenderer {
     this.looks[side] = look
     this.fills[side] = bodyHex(look)
     this.darks[side] = shade(this.fills[side], 0.55)
+    this.lights[side] = shade(this.fills[side], 1.35)
   }
 
   private fill(p: Side) { return this.fills[p] }
+
+  /** Esfera com luz vindo de cima-esquerda: um gradiente radial por bola, nada de blur. */
+  private bodyGrad(p: Side, x: number, y: number, r: number) {
+    const g = this.ctx.createRadialGradient(x - r * 0.38, y - r * 0.42, r * 0.1, x, y, r * 1.05)
+    g.addColorStop(0, this.lights[p])
+    g.addColorStop(0.45, this.fills[p])
+    g.addColorStop(1, this.darks[p])
+    return g
+  }
   private dark(p: Side) { return this.darks[p] }
 
   private blob(p: Side, x: number, y: number, state: number, ball: { x: number; y: number },
@@ -1077,7 +1109,7 @@ export class Stage2D implements GameRenderer {
     // corpo
     c.beginPath()
     c.ellipse(bkx, bky, brx, bry, d * 0.22 * dk, 0, Math.PI * 2)
-    c.fillStyle = this.fill(p)
+    c.fillStyle = this.bodyGrad(p, bkx, bky, Math.max(brx, bry))
     c.fill()
 
     // tronco ligando corpo e cabeça: sem isso viram duas bolas soltas no ar
@@ -1121,12 +1153,16 @@ export class Stage2D implements GameRenderer {
 
     c.beginPath()
     c.arc(x, uy, ru, 0, Math.PI * 2)
-    c.fillStyle = this.fill(p)
+    c.fillStyle = this.bodyGrad(p, x, uy, ru)
     c.fill()
 
     c.beginPath()
-    c.arc(x - ru * 0.34, uy - ru * 0.3, ru * 0.42, 0, Math.PI * 2)
-    c.fillStyle = 'rgba(255,255,255,0.30)'
+    c.ellipse(x - ru * 0.36, uy - ru * 0.38, ru * 0.30, ru * 0.20, -0.6, 0, Math.PI * 2)
+    c.fillStyle = 'rgba(255,255,255,0.55)'
+    c.fill()
+    c.beginPath()
+    c.arc(x - ru * 0.52, uy - ru * 0.12, ru * 0.07, 0, Math.PI * 2)
+    c.fillStyle = 'rgba(255,255,255,0.7)'
     c.fill()
 
     const rig = this.faces[p]
@@ -1383,8 +1419,21 @@ export class Stage2D implements GameRenderer {
       c.closePath()
       c.fill()
     }
-    c.beginPath(); c.arc(-BALL_RADIUS * 0.3, -BALL_RADIUS * 0.34, BALL_RADIUS * 0.3, 0, Math.PI * 2)
-    c.fillStyle = 'rgba(255,255,255,0.45)'; c.fill()
+    c.strokeStyle = 'rgba(20,40,90,0.35)'
+    c.lineWidth = 1.5
+    for (let i = 0; i < 3; i++) {
+      c.beginPath(); c.moveTo(0, 0)
+      c.lineTo(Math.cos((i * 2 * Math.PI) / 3) * BALL_RADIUS, Math.sin((i * 2 * Math.PI) / 3) * BALL_RADIUS)
+      c.stroke()
+    }
+    c.rotate(-rot)
+    const sh = c.createRadialGradient(-BALL_RADIUS * 0.35, -BALL_RADIUS * 0.4, BALL_RADIUS * 0.15, 0, 0, BALL_RADIUS * 1.05)
+    sh.addColorStop(0, 'rgba(255,255,255,0.55)')
+    sh.addColorStop(0.5, 'rgba(255,255,255,0)')
+    sh.addColorStop(0.82, 'rgba(30,40,70,0)')
+    sh.addColorStop(1, 'rgba(30,40,70,0.45)')
+    c.beginPath(); c.arc(0, 0, BALL_RADIUS, 0, Math.PI * 2)
+    c.fillStyle = sh; c.fill()
     c.restore()
   }
 
@@ -1649,6 +1698,7 @@ export class Stage2D implements GameRenderer {
       c.fillRect(d.x - d.size / 2, d.y - d.size / 2, d.size, d.size)
     }
     c.globalAlpha = 1
+    if (this.scene.id === 'selva' && this.selva?.ready) this.selva.props(c, this.time)
 
     c.setTransform(1, 0, 0, 1, 0, 0)
     this.paintDepth(true)
