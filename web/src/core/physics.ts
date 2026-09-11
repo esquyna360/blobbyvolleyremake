@@ -32,6 +32,18 @@ import type { MatchEvent } from './events.ts'
 import { NO_INPUT } from './input.ts'
 import type { PlayerInput } from './input.ts'
 
+/** Direção da batida a partir do direcional: sem nada é frente-cima, puro lado é quase reto. */
+export function aimDir(p: Side, ax: number, ay: number): [number, number] {
+  const dir = p === LEFT ? 1 : -1
+  let x: number, y: number
+  if (ax === 0 && ay === 0) { x = dir; y = -0.55 }
+  else if (ay === 0) { x = ax; y = -0.18 }
+  else if (ax === 0) { x = dir * 0.16; y = ay < 0 ? -1 : 0.8 }
+  else { x = ax; y = ay < 0 ? -0.75 : 0.7 }
+  const l = Math.hypot(x, y)
+  return [x / l, y / l]
+}
+
 /** Blob travado na carga: só o botão de bater segue vivo. */
 const LOCKED: PlayerInput = { ...NO_INPUT, hit: true }
 
@@ -519,15 +531,7 @@ export class PhysicWorld {
 
   /** Direção da mira em unidades de quadra: sem direcional, pra frente e pra cima. */
   aimVector(p: Side): [number, number] {
-    const dir = p === LEFT ? 1 : -1
-    const ax = this.hitAimX[p], ay = this.hitAimY[p]
-    let x: number, y: number
-    if (ax === 0 && ay === 0) { x = dir; y = -0.55 }
-    else if (ay === 0) { x = ax; y = -0.18 }
-    else if (ax === 0) { x = dir * 0.16; y = ay < 0 ? -1 : 0.8 }
-    else { x = ax; y = ay < 0 ? -0.75 : 0.7 }
-    const l = Math.hypot(x, y)
-    return [x / l, y / l]
+    return aimDir(p, this.hitAimX[p], this.hitAimY[p])
   }
 
   /**

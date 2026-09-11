@@ -4,11 +4,12 @@ import {
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
   DIVE_SPEED, OPEN_MARGIN, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
-  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, HIT_REACH, HIT_TAP, other,
+  SPECIAL_GRAVITY_MUL, SPECIAL_REACH, HIT_REACH, HIT_V_MIN, HIT_V_MAX, HIT_TAP, HIT_CHARGE_MAX, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
 import type { Match } from '../core/match.ts'
+import { aimDir } from '../core/physics.ts'
 
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'insane'
 
@@ -209,6 +210,8 @@ export class Bot {
   private digLock = 0
   /** Carga da batida: frames segurando e a mira escolhida ao armar. */
   private hitHold = 0
+  private hitTap = false
+  private hitWant = 10
   private hitAim: [number, number] = [0, 0]
 
   private params: Params
@@ -291,7 +294,7 @@ export class Bot {
     // barra cheia e especial chegando: metade das vezes devolve com reversal em vez de parry
     const reversal = parry && w.charge[me] >= SPECIAL_FULL && w.revCd[me] === 0 && this.rng() < 0.5
     const special = incoming ? reversal : this.wantSpecial(w, me, onGround, p)
-    const hit = (parry && !reversal) || dig || (!incoming && this.wantHit(w, me, onGround, p))
+    const hit = (parry && !reversal) || dig || (!incoming && this.wantHit(w, me, onGround, p, g.touches[me]))
     if (hit && !parry && !dig) return { ...NONE, hit: true, left: this.hitAim[0] < 0, right: this.hitAim[0] > 0, up: this.hitAim[1] < 0, down: this.hitAim[1] > 0 }
     return { left, right, up, special, down, dive: false, hit }
   }
@@ -300,19 +303,69 @@ export class Bot {
    * Batida: com a bola chegando e o apoio já tomado, arma o golpe e solta quando
    * ela entra no raio. No ar mira pra baixo (cortada), no chão pra frente.
    */
-  private wantHit(w: Match['world'], me: Side, onGround: boolean, p: Params) {
+  private wantHit(w: Match['world'], me: Side, onGround: boolean, p: Params, touches: number) {
     if (w.hitCharge[me] > 0 || w.hitLag[me] > 0 || w.hold[me] > 0) return false
     const mine = this.dir * (w.ballX - NET_POSITION_X) < 0
     if (!mine || w.ballVY < -2) return false
+    const must = touches >= 1
     const t = this.plan.hitT
-    if (t > 16 || t < 3) return false
-    if (Math.abs(this.plan.standX + this.aim - w.blobX[me]) > 6) return false
+    if (t > 46 || t < 2) return false
+    // segundo toque em diante tem que cruzar: encostar de novo é erro na certa
+    if (Math.abs(this.plan.standX + this.aim - w.blobX[me]) > (must ? 40 : 6)) return false
     if (this.plan.jumpAt > 0) return false
-    if (this.rng() > p.attack * 0.9) return false
-    const back = this.rng() < 0.12
-    this.hitAim = [back ? -this.dir : this.dir, onGround ? (this.rng() < 0.5 ? -1 : 0) : 1]
+    if (!must && this.rng() > 0.25 + p.attack * 0.75) return false
+    const distNet = Math.abs(NET_POSITION_X - w.blobX[me])
+    const back = !must && this.rng() < 0.12
+    const ax = back ? -this.dir : this.dir
+    const bx = px[t], by = py[t]
+    const cands: (-1 | 0 | 1)[] = onGround ? [-1, 0] : [1, 0, -1]
+    const holds = onGround ? [12, 24, 40] : [10, 16]
+    let vy: -1 | 0 | 1 | null = null
+    let hold = 10
+    let bestGap = -1e9
+    for (const h of holds) {
+      const k = Math.min(1, (h - 2 - HIT_TAP) / (HIT_CHARGE_MAX - HIT_TAP))
+      const v = (HIT_V_MIN + (HIT_V_MAX - HIT_V_MIN) * k) * w.tempo
+      for (const c of cands) {
+        if (c === 1 && (by > NET_TOP_Y - 20 || distNet < 150)) continue
+        const [nx, ny] = aimDir(me, ax, c)
+        const land = this.shotLands(bx, by, nx * v, ny * v)
+        if (land === null) continue
+        const gap = Math.abs(land - w.blobX[other(me)]) - (this.rng() * 2 - 1) * p.shotErr * 200
+        if (gap > bestGap) { bestGap = gap; vy = c; hold = h }
+      }
+    }
+    // reto ou cruzado não passa: deixadinha por cima da rede, se estiver perto o bastante
+    this.hitTap = false
+    if (vy === null) {
+      if (distNet < 260 && by > NET_TOP_Y - 60) { this.hitTap = true; vy = -1 }
+      else if (must) { vy = -1; hold = 40 }
+      else return false
+    }
+    if (t > hold + 4 && !this.hitTap) return false
+    this.hitWant = hold
+    this.hitAim = [ax, vy]
     this.hitHold = 1
     return true
+  }
+
+  /** Onde a bola saindo de (x, y) com essa velocidade cai, se passar a rede pro campo do outro. */
+  private shotLands(x: number, y: number, vx: number, vy: number): number | null {
+    const band = BALL_RADIUS + NET_RADIUS + 4
+    const floor = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+    let crossed = false
+    for (let f = 0; f < 240; f++) {
+      const nx = x + vx
+      const ny = y + 0.5 * BALL_GRAVITATION + vy
+      vy += BALL_GRAVITATION
+      if (Math.abs(nx - NET_POSITION_X) < band && ny > NET_TOP_Y - 4) return null
+      if (this.dir * (nx - NET_POSITION_X) > band) crossed = true
+      if (ny >= floor) return crossed && this.dir * (nx - NET_POSITION_X) > 0 ? nx : null
+      if (!CTX.walls && (nx < LEFT_PLANE || nx > RIGHT_PLANE)) return null
+      if (nx < LEFT_PLANE + BALL_RADIUS || nx > RIGHT_PLANE - BALL_RADIUS) vx = -vx
+      x = nx; y = ny
+    }
+    return null
   }
 
   private swingStep(w: Match['world'], me: Side, _p: Params): PlayerInput | null {
@@ -321,8 +374,9 @@ export class Bot {
     const dx = w.ballX - w.blobX[me]
     const dy = w.ballY - (w.blobY[me] - BLOBBY_UPPER_SPHERE)
     const near = dx * dx + dy * dy < HIT_REACH * HIT_REACH * 0.62
-    const give = this.hitHold > 40
-    const release = (near && this.hitHold > HIT_TAP + 2) || give
+    const leaving = (w.ballX - w.blobX[me]) * w.ballVX + (w.ballY - w.blobY[me]) * w.ballVY > 0 && this.hitHold > 6
+    const give = this.hitHold > 60
+    const release = (near && (this.hitTap || this.hitHold >= this.hitWant || leaving)) || give
     if (release) this.hitHold = 0
     return { ...NONE, hit: !release, left: this.hitAim[0] < 0, right: this.hitAim[0] > 0, up: this.hitAim[1] < 0, down: this.hitAim[1] > 0 }
   }
