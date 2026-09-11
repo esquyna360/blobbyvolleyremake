@@ -23,7 +23,7 @@ export const TUT_STEPS: TutStep[] = [
   { title: 'ANDAR E PULAR', text: '{move} anda, {jump} pula. Anda pros dois lados e pula.', need: 1 },
   { title: 'TOQUE', text: 'Sem apertar nada, a bola quica no corpo. Fica embaixo dela e deixa quicar pro outro lado. Manda 2.', need: 2 },
   { title: 'BATER', text: 'Segura {hit} pra armar: você para e o direcional vira mira. Solta com a bola perto pra bater. Mais tempo segurando, mais força. Manda 3 pro outro lado.', need: 3 },
-  { title: 'DEIXADINHA', text: 'Toque rápido em {hit} com a bola perto: bola curta, mal passando a rede. Faz 2.', need: 2 },
+  { title: 'DEIXADINHA', text: 'Toque rápido em {hit} com a bola perto: bola curta, mal passando a rede. Segura um pouco mais e vira lob, por cima de quem pula na rede. Faz 2.', need: 2 },
   { title: 'CORTADA', text: 'No ar, segura {hit} e mira pra baixo na direção da rede. Cortada é no ar — bate de cima. Faz 2.', need: 2 },
   { title: 'MANCHETE', text: 'No chão, segura {down} e toca {hit} na hora que a bola chega: ela sobe reta pra você cortar. Manchete e depois cortada, 2 vezes.', need: 2 },
   { title: 'MERGULHO', text: 'Bola longe: {dive} joga o corpo pro lado. Defende 2 mergulhando.', need: 2 },
@@ -163,7 +163,7 @@ export class Tutorial {
             if (this.step === 4 && mine && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20 && w.ballVY > 0) this.pendingCross = 90
             if (this.step === 5 && mine && this.digAt >= 0 && m.frame - this.digAt < 150 && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20) { this.digAt = -1; this.pendingCross = 90 }
             break
-          case Ev.DROP: if (this.step === 3 && mine) this.pendingCross = 90; break
+          case Ev.DROP: case Ev.LOB: if (this.step === 3 && mine) this.pendingCross = 90; break
           case Ev.BALL_HIT_BLOB: if (this.step === 1 && mine) this.pendingCross = 90; break
           case Ev.DIG: if (this.step === 5 && mine) this.digAt = m.frame; break
           case Ev.DIVE_HIT: if (this.step === 6 && mine) this.score(true); break

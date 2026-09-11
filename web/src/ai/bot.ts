@@ -4,7 +4,7 @@ import {
   BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, DIG_REACH, GRAVITATION, GROUND_PLANE_HEIGHT,
   GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS, NET_SPHERE_POSITION,
   DIVE_SPEED, OPEN_MARGIN, PARRY_REACH, RIGHT_PLANE, SPECIAL_FULL,
-  SPECIAL_REACH, HIT_REACH, HIT_V_MIN, HIT_V_MAX, HIT_TAP, HIT_CHARGE_MAX, other,
+  SPECIAL_REACH, HIT_REACH, HIT_V_MIN, HIT_V_MAX, LOB_MAX, HIT_CHARGE_MAX, other,
 } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 import type { PlayerInput } from '../core/input.ts'
@@ -319,12 +319,12 @@ export class Bot {
     const ax = back ? -this.dir : this.dir
     const bx = px[t], by = py[t]
     const cands: (-1 | 0 | 1)[] = onGround ? [-1, 0] : [1, 0, -1]
-    const holds = onGround ? [12, 24, 40] : [10, 16]
+    const holds = onGround ? [22, 30, 42] : [22, 26]
     let vy: -1 | 0 | 1 | null = null
     let hold = 10
     let bestGap = -1e9
     for (const h of holds) {
-      const k = Math.min(1, (h - 2 - HIT_TAP) / (HIT_CHARGE_MAX - HIT_TAP))
+      const k = Math.min(1, (h - 2 - LOB_MAX) / (HIT_CHARGE_MAX - LOB_MAX))
       const v = (HIT_V_MIN + (HIT_V_MAX - HIT_V_MIN) * k) * w.tempo
       for (const c of cands) {
         if (c === 1 && (by > NET_TOP_Y - 20 || distNet < 150)) continue
@@ -338,7 +338,10 @@ export class Bot {
     // reto ou cruzado não passa: deixadinha por cima da rede, se estiver perto o bastante
     this.hitTap = false
     if (vy === null) {
-      if (distNet < 260 && by > NET_TOP_Y - 60) { this.hitTap = true; vy = -1 }
+      if (distNet < 260 && by > NET_TOP_Y - 60) {
+        this.hitTap = true; vy = -1
+        if (Math.abs(w.blobX[other(me)] - NET_POSITION_X) < 170) { this.hitTap = false; hold = 14 }
+      }
       else if (must) { vy = -1; hold = 40 }
       else return false
     }

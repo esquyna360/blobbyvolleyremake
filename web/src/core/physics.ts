@@ -22,6 +22,7 @@ import {
   CROUCH_SPREAD, CROUCH_SPEED_MUL, CROUCH_FALL_MUL,
   DIG_REACH, DIG_CD, DIG_WINDOW, DIG_GAIN, DIG_UP, DIG_FORWARD,
   HIT_REACH, HIT_CHARGE_MAX, HIT_TAP, HIT_V_MIN, HIT_V_MAX, HIT_LAG, HIT_GAIN,
+  LOB_MAX, LOB_VELOCITY, LOB_TARGET_DEPTH, LOB_NET_CLEARANCE, LOB_TIME_MIN, LOB_TIME_STEP, LOB_TIME_STEPS,
   SWING_WINDOW, FLOAT_KEEP, FLOAT_G, FLOAT_FRAMES, FLOAT_RAMP, FLOAT_DRAG, PARRY_RETURN,
   DROP_VELOCITY, DROP_TARGET_DEPTH, DROP_NET_CLEARANCE, DROP_TIME_MIN, DROP_TIME_STEP, DROP_TIME_STEPS,
   REVERSAL_ACTIVE, REVERSAL_CD, REVERSAL_BOOST, REVERSAL_SPIN, REVERSAL_ORBIT, REVERSAL_TURNS, REVERSAL_PARRY_ACTIVE,
@@ -599,7 +600,15 @@ export class PhysicWorld {
       out.push({ event: Ev.DROP, side: p, intensity: 1 })
       return true
     }
-    const k = Math.min(1, (charge - HIT_TAP) / (HIT_CHARGE_MAX - HIT_TAP))
+    if (charge <= LOB_MAX) {
+      this.aimShotScaled(p, LOB_VELOCITY, 0, LOB_TARGET_DEPTH, LOB_NET_CLEARANCE,
+        LOB_TIME_MIN, LOB_TIME_STEP, LOB_TIME_STEPS, 8)
+      this.pushOut(p, cy, dx, dy, Math.sqrt(d2), this.upperR(p))
+      this.addCharge(p, DIG_GAIN, out)
+      out.push({ event: Ev.LOB, side: p, intensity: 1 })
+      return true
+    }
+    const k = Math.min(1, (charge - LOB_MAX) / (HIT_CHARGE_MAX - LOB_MAX))
     const [nx, ny] = this.aimVector(p)
     const v = (HIT_V_MIN + (HIT_V_MAX - HIT_V_MIN) * k) * this.tempo
     this.ballVX = nx * v
