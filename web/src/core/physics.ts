@@ -355,12 +355,11 @@ export class PhysicWorld {
     out.push({ event: Ev.DIVE, side: p, intensity: 0 })
   }
 
-  /** Soltou o botão de especial: barra cheia, no ar e bola perto dispara na hora. */
+  /** Soltou o botão de especial: barra cheia e bola perto dispara na hora, no chão ou no ar. */
   private fireSpecial(p: Side, out: MatchEvent[]) {
     if (this.stun[p] > 0) return
     if (this.superFrames > 0 && this.superOwner !== p) return
     if (this.charge[p] < SPECIAL_FULL) return
-    if (this.blobHitGround(p)) return
     if (!this.nearHead(p, SPECIAL_REACH)) return
     this.charge[p] = 0
     this.superFrames = SPECIAL_BALL_FRAMES
@@ -369,7 +368,14 @@ export class PhysicWorld {
     this.ballSpin = 0
     this.anchorHeld(p)
     this.bumpTempo()
-    this.aimSpecial(p, 1)
+    if (this.hitAimX[p] === 0 && this.hitAimY[p] === 0) {
+      this.aimSpecial(p, 1)
+    } else {
+      // direcional segurado: o especial vai pra onde a mira aponta
+      const [nx, ny] = this.aimVector(p)
+      this.ballVX = nx * SPECIAL_VELOCITY
+      this.ballVY = ny * SPECIAL_VELOCITY
+    }
     this.scaleBallV()
     out.push({ event: Ev.SPECIAL_FIRED, side: p, intensity: 1 })
   }

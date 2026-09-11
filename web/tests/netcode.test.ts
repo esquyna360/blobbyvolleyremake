@@ -156,10 +156,9 @@ test('special state survives save/restore', () => {
   assert.equal(m.world.superOwner, LEFT)
 })
 
-test('especial só sai pelo botão de especial, e só no ar', () => {
+test('especial sai no chão e vai na direção da mira', () => {
   const m = new Match('default', 15, LEFT)
   const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false, hit: false }
-  const UP = { left: false, right: false, up: true, special: false, down: false, dive: false, hit: false }
   for (let f = 0; f < 40; f++) m.step(NONE, NONE)
 
   m.world.charge[LEFT] = SPECIAL_CAP
@@ -168,19 +167,18 @@ test('especial só sai pelo botão de especial, e só no ar', () => {
   m.logic.isBallValid = true
   m.logic.isGameRunning = true
 
-  const SP = { ...NONE, special: true }
-  m.step(SP, NONE)
+  m.step({ ...NONE, hit: true }, NONE)
   m.step(NONE, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false, 'especial no chão')
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false, 'bater não é especial')
   assert.ok(m.world.charge[LEFT] >= SPECIAL_FULL, 'barra queimada sem disparar')
-  m.step(UP, NONE)
-  m.step(UP, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), false, 'pular não é especial')
-  m.step(SP, NONE)
+  for (let f = 0; f < 14; f++) m.step(NONE, NONE)
+  m.step({ ...NONE, special: true, right: true, up: true }, NONE)
   m.world.ballX = m.world.blobX[LEFT] + 30
   m.world.ballY = m.world.blobY[LEFT] - 110
-  m.step(NONE, NONE)
-  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), true, 'especial no ar não saiu')
+  m.step({ ...NONE, right: true, up: true }, NONE)
+  assert.equal(m.events.some(e => e.event === Ev.SPECIAL_FIRED), true, 'especial no chão não saiu')
+  assert.ok(m.world.ballVX > 0 && m.world.ballVY < 0, `mira errada: ${m.world.ballVX} ${m.world.ballVY}`)
+  assert.ok(m.world.charge[LEFT] < 0.01, 'barra não gastou')
 })
 
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {

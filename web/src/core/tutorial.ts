@@ -21,12 +21,13 @@ export interface TutStep {
 
 export const TUT_STEPS: TutStep[] = [
   { title: 'ANDAR E PULAR', text: '{move} anda, {jump} pula. Anda pros dois lados e pula.', need: 1 },
+  { title: 'TOQUE', text: 'Sem apertar nada, a bola quica no corpo. Fica embaixo dela e deixa quicar pro outro lado. Manda 2.', need: 2 },
   { title: 'BATER', text: 'Segura {hit} pra armar: você para e o direcional vira mira. Solta com a bola perto pra bater. Mais tempo segurando, mais força. Manda 3 pro outro lado.', need: 3 },
   { title: 'DEIXADINHA', text: 'Toque rápido em {hit} com a bola perto: bola curta, mal passando a rede. Faz 2.', need: 2 },
   { title: 'CORTADA', text: 'No ar, segura {hit} e mira pra baixo na direção da rede. Cortada é no ar — bate de cima. Faz 2.', need: 2 },
   { title: 'MANCHETE', text: 'No chão, segura {down} e toca {hit} na hora que a bola chega: ela sobe reta pra você cortar. Manchete e depois cortada, 2 vezes.', need: 2 },
   { title: 'MERGULHO', text: 'Bola longe: {dive} joga o corpo pro lado. Defende 2 mergulhando.', need: 2 },
-  { title: 'ESPECIAL', text: 'Barra cheia: pula, segura {special} e solta com a bola perto. Só funciona no ar. Dispara 2.', need: 2 },
+  { title: 'ESPECIAL', text: 'Barra cheia: segura {special}, mira com o direcional e solta com a bola perto. No chão ou no ar. Dispara 2.', need: 2 },
   { title: 'PARRY', text: 'Especial vindo: aperta {hit} na hora exata em que a bola chega. Ela fica na sua mão e volta mais forte. Faz 2.', need: 2 },
   { title: 'REVERSAL', text: 'Especial vindo e sua barra cheia: aperta {special} na hora exata. Volta na hora, ainda mais violenta. Faz 2.', need: 2 },
 ]
@@ -86,19 +87,19 @@ export class Tutorial {
     const w = m.world, g = m.logic
     const bx = w.blobX[LEFT]
     switch (this.step) {
-      case 5: { // mergulho: cai longe de onde o blob está
+      case 6: { // mergulho: cai longe de onde o blob está
         const far = bx < NET_POSITION_X * 0.5 ? bx + 190 + this.rnd() * 60 : bx - 190 - this.rnd() * 60
         this.feed(m, Math.max(60, Math.min(NET_POSITION_X - 70, far)))
         return
       }
-      case 6: // especial: barra cheia e bola alta
+      case 7: // especial: barra cheia e bola alta
         w.charge[LEFT] = SPECIAL_CAP
         this.feed(m, bx + 10, true)
         return
-      case 7:
-      case 8: {
+      case 8:
+      case 9: {
         w.resetBall(NO_PLAYER)
-        if (this.step === 8) w.charge[LEFT] = SPECIAL_CAP
+        if (this.step === 9) w.charge[LEFT] = SPECIAL_CAP
         g.touches[LEFT] = 0; g.touches[RIGHT] = 0
         g.isBallValid = true
         g.isGameRunning = true
@@ -108,7 +109,7 @@ export class Tutorial {
         return
       }
       default:
-        this.feed(m, Math.max(70, Math.min(NET_POSITION_X - 80, bx + (this.rnd() - 0.5) * 60)), this.step === 3)
+        this.feed(m, Math.max(70, Math.min(NET_POSITION_X - 80, bx + (this.rnd() - 0.5) * 60)), this.step === 4)
     }
   }
 
@@ -158,16 +159,17 @@ export class Tutorial {
         const mine = (e.side as Side) === LEFT
         switch (e.event) {
           case Ev.HIT:
-            if (this.step === 1 && mine) this.pendingCross = 90
-            if (this.step === 3 && mine && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20 && w.ballVY > 0) this.pendingCross = 90
-            if (this.step === 4 && mine && this.digAt >= 0 && m.frame - this.digAt < 150 && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20) { this.digAt = -1; this.pendingCross = 90 }
+            if (this.step === 2 && mine) this.pendingCross = 90
+            if (this.step === 4 && mine && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20 && w.ballVY > 0) this.pendingCross = 90
+            if (this.step === 5 && mine && this.digAt >= 0 && m.frame - this.digAt < 150 && w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20) { this.digAt = -1; this.pendingCross = 90 }
             break
-          case Ev.DROP: if (this.step === 2 && mine) this.pendingCross = 90; break
-          case Ev.DIG: if (this.step === 4 && mine) this.digAt = m.frame; break
-          case Ev.DIVE_HIT: if (this.step === 5 && mine) this.score(true); break
-          case Ev.SPECIAL_FIRED: if (this.step === 6 && mine) this.score(true); break
-          case Ev.PARRY: if (this.step === 7 && mine) this.score(true); break
-          case Ev.REVERSAL: if (this.step === 8 && mine) this.score(true); break
+          case Ev.DROP: if (this.step === 3 && mine) this.pendingCross = 90; break
+          case Ev.BALL_HIT_BLOB: if (this.step === 1 && mine) this.pendingCross = 90; break
+          case Ev.DIG: if (this.step === 5 && mine) this.digAt = m.frame; break
+          case Ev.DIVE_HIT: if (this.step === 6 && mine) this.score(true); break
+          case Ev.SPECIAL_FIRED: if (this.step === 7 && mine) this.score(true); break
+          case Ev.PARRY: if (this.step === 8 && mine) this.score(true); break
+          case Ev.REVERSAL: if (this.step === 9 && mine) this.score(true); break
           case Ev.SPECIAL_HIT: if (mine) this.score(false); break
           case Ev.BALL_HIT_GROUND:
           case Ev.PLAYER_ERROR:
