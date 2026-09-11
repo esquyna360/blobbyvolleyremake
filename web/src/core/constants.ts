@@ -46,19 +46,19 @@ export const SQUISH_TOLERANCE = 11
 export const DEFAULT_SCORE_TO_WIN = 15
 
 export const SPECIAL_FULL = 1
-export const SPECIAL_GAIN_TOUCH = 0.04
-export const SPECIAL_GAIN_FRAME = 0.0003
+export const SPECIAL_GAIN_TOUCH = 0.03
+export const SPECIAL_GAIN_FRAME = 0.00022
 export const SPECIAL_REACH = 165
-export const SPECIAL_VELOCITY = BALL_COLLISION_VELOCITY * 2.45
+export const SPECIAL_VELOCITY = BALL_COLLISION_VELOCITY * 2.1
 export const SPECIAL_BALL_FRAMES = 150
 export const STUN_FRAMES = 165
 export const SPECIAL_KNOCKBACK = 11
 export const SPECIAL_POP = -9
 export const KNOCK_DECAY = 0.9
 export const SPECIAL_NET_CLEARANCE = 48
-export const SPECIAL_GRAVITY_MUL = 4.2
-export const SPECIAL_TARGET_DEPTH = 0.72
-export const SPECIAL_TIME_MIN = 18
+export const SPECIAL_GRAVITY_MUL = 3.2
+export const SPECIAL_TARGET_DEPTH = 0.62
+export const SPECIAL_TIME_MIN = 24
 export const SPECIAL_TIME_STEP = 1.25
 export const SPECIAL_TIME_STEPS = 30
 
@@ -67,8 +67,8 @@ export const SPECIAL_COMEBACK_STEP = 0.22
 export const SPECIAL_COMEBACK_MIN = 0.6
 export const SPECIAL_COMEBACK_MAX = 2.2
 
-export const SPECIAL_DEPTH_JITTER = 0.36
-export const SPECIAL_ARC_JITTER = 3
+export const SPECIAL_DEPTH_JITTER = 0.2
+export const SPECIAL_ARC_JITTER = 1
 
 export const PARRY_ACTIVE = 5
 export const PARRY_CD = 58
@@ -132,7 +132,7 @@ export const DROP_TIME_STEPS = 24
 /** Reversal: especial devolvido com o botão de especial na hora exata. */
 export const REVERSAL_ACTIVE = 4
 export const REVERSAL_CD = 70
-export const REVERSAL_BOOST = 1.35
+export const REVERSAL_BOOST = 1.5
 export const REVERSAL_SPIN = 22
 export const REVERSAL_ORBIT = 62
 export const REVERSAL_TURNS = 1.5
@@ -181,7 +181,7 @@ export const DIVE_TIME_STEPS = 26
 export const DIVE_GAIN = 0.05
 
 /** Barra: quem perde ponto carrega, rally longo carrega dobrado, cheia vaza. */
-export const SPECIAL_GAIN_LOST = 0.15
+export const SPECIAL_GAIN_LOST = 0.12
 export const SPECIAL_RALLY_HOT = 10
 export const SPECIAL_RALLY_MUL = 2
 export const SPECIAL_LEAK = 0.00035
