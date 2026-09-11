@@ -204,6 +204,14 @@ test('lob: segurar entre deixadinha e forte emite LOB; cortada no ar tem priorid
   assert.ok(run(15, false).includes(Ev.LOB), 'segurar médio não deu lob')
   assert.ok(run(40, false).includes(Ev.HIT), 'segurar longo não deu batida')
   assert.ok(run(10, true).includes(Ev.HIT), 'no ar mirando pra baixo tem que ser cortada')
+
+  const m = new Match('default', 3, LEFT)
+  for (let f = 0; f < 5; f++) m.step(NO_INPUT, NO_INPUT)
+  for (let f = 0; f < 15; f++) m.step({ ...NO_INPUT, hit: true }, NO_INPUT)
+  m.step(NO_INPUT, NO_INPUT)
+  assert.ok(m.events.some(e => e.event === Ev.LOB), 'lob no saque não saiu')
+  assert.equal(m.logic.isGameRunning, true, 'lob no saque não começou o rally')
+  assert.equal(m.logic.touches[LEFT], 1, 'lob não contou como toque')
 })
 
 test('batida: segurar trava o blob, soltar com a bola no raio manda na mira', () => {

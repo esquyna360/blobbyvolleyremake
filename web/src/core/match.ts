@@ -85,6 +85,7 @@ export class Match {
         case Ev.DIVE_HIT:
         case Ev.HIT:
         case Ev.DROP:
+        case Ev.LOB:
         case Ev.REVERSAL:
         case Ev.SPECIAL_FIRED: g.onBallHitsPlayer(e.side as Side); break
         case Ev.BALL_HIT_GROUND:
