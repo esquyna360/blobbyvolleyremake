@@ -62,6 +62,7 @@ export class GameAudio {
 
   private music!: GainNode
   private musicLp!: BiquadFilterNode
+  private musicWet!: GainNode
   private seq: Sequencer | null = null
   private surf: GainNode[] = []
   private crowd: GainNode | null = null
@@ -143,6 +144,7 @@ export class GameAudio {
     musicConv.buffer = this.impulse(2.1, 2.8)
     const musicWet = ctx.createGain()
     musicWet.gain.value = 0.3
+    this.musicWet = musicWet
     musicWet.connect(musicConv).connect(this.musicLp)
     const seqOut = ctx.createGain()
     seqOut.connect(this.musicLp)
@@ -150,8 +152,9 @@ export class GameAudio {
     this.seq = new Sequencer(rack)
 
     this.buildAmbience()
+    if (this.chip) this.applyChip()
     this.gullTimer = ctx.currentTime + 12
-    if (this.playing) this.amb.gain.setTargetAtTime(1, ctx.currentTime, 2.0)
+    if (this.playing && !this.chip) this.amb.gain.setTargetAtTime(1, ctx.currentTime, 2.0)
     if (this.songId) void this.startSong(this.songId)
   }
 
@@ -197,7 +200,7 @@ export class GameAudio {
     this.playing = on
     if (!this.ctx) return
     const t = this.ctx.currentTime
-    this.amb.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.6 : 0.35)
+    this.amb.gain.setTargetAtTime(on && !this.chip ? 1 : 0, t, on ? 0.6 : 0.35)
     if (!on) this.paused = false
   }
 
@@ -210,7 +213,7 @@ export class GameAudio {
     this.paused = on
     if (!this.ctx) return
     const t = this.ctx.currentTime
-    this.amb.gain.setTargetAtTime(on ? 0.12 : 1, t, 0.3)
+    this.amb.gain.setTargetAtTime(this.chip ? 0 : on ? 0.12 : 1, t, 0.3)
     const g = this.music.gain
     g.cancelScheduledValues(t)
     g.setTargetAtTime(on ? 0.05 : musicGain(this.intensity), t, 0.3)
@@ -231,6 +234,8 @@ export class GameAudio {
    * menu de pausa sem a música recomeçar do começo.
    */
   setSong(id: string) {
+    this.realSong = id
+    if (this.chip) id = 'gameboy'
     if (id === this.songId) return
     this.songId = id
     void this.startSong(id)
@@ -258,6 +263,102 @@ export class GameAudio {
 
   private tier = 0
   private tempo = 1
+
+  /** Modo 8 bits: pulse/triângulo/ruído 1-bit, envelope em degraus, sem reverb nem ambiente. */
+  private chip = false
+  private chipNoise: AudioBuffer | null = null
+  private pulse25: PeriodicWave | null = null
+  private pulse12: PeriodicWave | null = null
+  private realSong = ''
+
+  setChip(on: boolean) {
+    if (this.chip === on) return
+    this.chip = on
+    if (this.ctx) this.applyChip()
+    const want = this.realSong
+    if (want) { this.songId = ''; this.setSong(want) }
+  }
+
+  private applyChip() {
+    const ctx = this.ctx!
+    const t = ctx.currentTime
+    const on = this.chip
+    this.wet.gain.setTargetAtTime(on ? 0 : 0.22, t, 0.1)
+    this.musicWet.gain.setTargetAtTime(on ? 0 : 0.3, t, 0.1)
+    this.amb.gain.setTargetAtTime(on ? 0 : this.playing ? 1 : 0, t, 0.3)
+    if (on && !this.chipNoise) {
+      const n = Math.floor(ctx.sampleRate * 2)
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate)
+      const d = buf.getChannelData(0)
+      let lfsr = 0x7fff, v = 1
+      const hold = Math.max(1, Math.round(ctx.sampleRate / 22050))
+      for (let i = 0; i < n; i++) {
+        if (i % hold === 0) {
+          const bit = (lfsr ^ (lfsr >> 1)) & 1
+          lfsr = (lfsr >> 1) | (bit << 14)
+          v = (lfsr & 1) ? 0.5 : -0.5
+        }
+        d[i] = v
+      }
+      this.chipNoise = buf
+      const wave = (duty: number) => {
+        const N = 32
+        const re = new Float32Array(N), im = new Float32Array(N)
+        for (let k = 1; k < N; k++) {
+          re[k] = (2 / (k * Math.PI)) * Math.sin(k * Math.PI * duty)
+          im[k] = (2 / (k * Math.PI)) * (1 - Math.cos(k * Math.PI * duty))
+        }
+        return ctx.createPeriodicWave(re, im, { disableNormalization: false })
+      }
+      this.pulse25 = wave(0.25)
+      this.pulse12 = wave(0.125)
+    }
+  }
+
+  /** Volume em 16 degraus, como o registrador de um chip de som. */
+  private stepEnv(g: AudioParam, t: number, peak: number, dur: number) {
+    const steps = 16
+    g.setValueAtTime(peak, t)
+    for (let i = 1; i <= steps; i++) {
+      const k = 1 - i / steps
+      g.setValueAtTime(peak * Math.pow(k, 1.6), t + (dur * i) / steps)
+    }
+    g.setValueAtTime(0, t + dur + 0.001)
+  }
+
+  private chipTone(freq: number, end: number, dur: number, gain: number, kind: 'tri' | 'sq' | 'p25' | 'p12', when = 0) {
+    const ctx = this.ctx!
+    const t = ctx.currentTime + when
+    const o = ctx.createOscillator()
+    if (kind === 'tri') o.type = 'triangle'
+    else if (kind === 'sq') o.type = 'square'
+    else o.setPeriodicWave((kind === 'p25' ? this.pulse25 : this.pulse12)!)
+    const steps = Math.max(1, Math.round(dur * 60))
+    for (let i = 0; i <= steps; i++) {
+      const k = i / steps
+      o.frequency.setValueAtTime(Math.max(20, freq * Math.pow(end / freq, k)), t + dur * k)
+    }
+    const g = ctx.createGain()
+    this.stepEnv(g.gain, t, gain * (kind === 'tri' ? 1.4 : 0.6), dur)
+    o.connect(g).connect(this.sfx)
+    o.start(t)
+    o.stop(t + dur + 0.02)
+  }
+
+  private chipHiss(dur: number, gain: number, rate: number, pan = 0) {
+    const ctx = this.ctx!
+    const t = ctx.currentTime
+    const src = ctx.createBufferSource()
+    src.buffer = this.chipNoise
+    src.playbackRate.value = rate
+    const g = ctx.createGain()
+    this.stepEnv(g.gain, t, gain * 0.7, dur)
+    const p = ctx.createStereoPanner()
+    p.pan.value = pan
+    src.connect(g).connect(p).connect(this.sfx)
+    src.start(t, Math.random() * 1.5, dur + 0.05)
+    src.stop(t + dur + 0.05)
+  }
 
   /**
    * O rally manda no andamento e nas camadas. Não é a mesma faixa mais alta:
@@ -388,6 +489,7 @@ export class GameAudio {
   }
 
   private gull(t: number) {
+    if (this.chip) return
     const ctx = this.ctx!
     const n = 2 + Math.floor(Math.random() * 2)
     const pan = ctx.createStereoPanner()
@@ -414,6 +516,11 @@ export class GameAudio {
   // ---------- synth helpers ----------
 
   private thump(freq: number, drop: number, dur: number, gain: number, type: OscillatorType) {
+    if (this.chip) {
+      const kind = type === 'sine' ? 'tri' : type === 'sawtooth' ? 'p25' : type === 'square' ? 'p12' : 'sq'
+      this.chipTone(freq, Math.max(20, freq * drop), Math.max(0.03, dur), gain, kind)
+      return
+    }
     const ctx = this.ctx!
     const t = ctx.currentTime
     const o = ctx.createOscillator()
@@ -432,6 +539,11 @@ export class GameAudio {
   private burst(
     dur: number, gain: number, type: BiquadFilterType, freq: number, q: number, pan = 0,
   ) {
+    if (this.chip) {
+      const rate = type === 'lowpass' ? 0.25 : type === 'highpass' ? 1 : Math.max(0.12, Math.min(1, freq / 3000))
+      this.chipHiss(Math.max(0.03, dur), gain, rate, pan)
+      return
+    }
     const ctx = this.ctx!
     const t = ctx.currentTime
     const src = ctx.createBufferSource()
@@ -453,6 +565,10 @@ export class GameAudio {
   }
 
   private bell(freq: number, when: number, dur: number, gain: number) {
+    if (this.chip) {
+      this.chipTone(freq, freq, Math.min(0.35, dur * 0.45), gain * 1.3, 'p12', when)
+      return
+    }
     const ctx = this.ctx!
     const t = ctx.currentTime + when
     for (const [mul, amp] of [[1, 1], [2.01, 0.32], [3.02, 0.11]]) {
@@ -492,6 +608,7 @@ export class GameAudio {
   }
 
   private pulse(at: number, t: number) {
+    if (this.chip) return
     const ctx = this.ctx!
     const o = ctx.createOscillator()
     o.type = 'sine'

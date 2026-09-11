@@ -148,6 +148,7 @@ class App {
     syncArena()
     document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
     document.body.classList.toggle('pixel', this.cfg.quality === 'pixel')
+    this.audio.setChip(this.cfg.quality === 'pixel')
     document.body.dataset.platform = PLATFORM
     // blur por cima do canvas é caro no celular; aqui ele sai de cena
     document.body.classList.toggle('noblur', isTouch)
@@ -250,6 +251,7 @@ class App {
     // no 2D o HUD não pode ter blur nem animação infinita por cima do canvas
     document.body.classList.toggle('lite', IS_2D(q))
     document.body.classList.toggle('pixel', q === 'pixel')
+    this.audio.setChip(q === 'pixel')
     this.cfg.quality = q
     if (byUser) { this.userPickedQuality = true; localStorage.setItem('bv.quality', q) }
     const old = this.canvas
