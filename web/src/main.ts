@@ -12,6 +12,7 @@ import { BotMood } from './ai/mood.ts'
 import { Stage, QUALITY_PRESETS } from './render/stage.ts'
 import type { GameRenderer } from './render/stage.ts'
 import { Stage2D } from './render/stage2d.ts'
+import { StagePixel } from './render/stagepixel.ts'
 import { Hud } from './ui/hud.ts'
 import { Menu, DEFAULT_CONFIG } from './ui/menu.ts'
 import { PadNav } from './ui/pad.ts'
@@ -46,7 +47,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches
 const NO_EVENTS: readonly MatchEvent[] = []
 
 const QUALITY_ORDER: GameConfig['quality'][] = ['min', 'cpu', 'low', 'medium', 'high', 'ultra']
-const IS_2D = (q: GameConfig['quality']) => q === 'min' || q === 'cpu'
+const IS_2D = (q: GameConfig['quality']) => q === 'min' || q === 'cpu' || q === 'pixel'
 
 function gpuName(): string {
   try {
@@ -63,6 +64,7 @@ function makeRenderer(canvas: HTMLCanvasElement, q: GameConfig['quality']): Game
     // máquina sem WebGL utilizável não pode ficar na tela preta: cai pro 2D
     try { return new Stage(canvas, QUALITY_PRESETS[q]) } catch (e) { console.warn('sem WebGL, indo pro 2D', e) }
   }
+  if (q === 'pixel') return new StagePixel(canvas)
   return new Stage2D(canvas, q === 'min')
 }
 
@@ -131,7 +133,8 @@ class App {
     const savedName = localStorage.getItem('bv.name')
     this.cfg = { ...DEFAULT_CONFIG }
     const usableQ = savedQ && (ONLY_3D ? !IS_2D(savedQ) && !!QUALITY_PRESETS[savedQ] : IS_2D(savedQ) || !!QUALITY_PRESETS[savedQ])
-    if (savedQ && usableQ) { this.cfg.quality = savedQ; this.userPickedQuality = true }
+    if (new URLSearchParams(location.search).has('pixel') && !ONLY_3D) { this.cfg.quality = 'pixel'; this.userPickedQuality = true }
+    else if (savedQ && usableQ) { this.cfg.quality = savedQ; this.userPickedQuality = true }
     else this.cfg.quality = detectQuality()
     if (savedName) this.cfg.name = savedName
     this.cfg.showFps = localStorage.getItem('bv.fps') === '1'
@@ -144,6 +147,7 @@ class App {
     setArena(this.cfg.arena)
     syncArena()
     document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
+    document.body.classList.toggle('pixel', this.cfg.quality === 'pixel')
     document.body.dataset.platform = PLATFORM
     // blur por cima do canvas é caro no celular; aqui ele sai de cena
     document.body.classList.toggle('noblur', isTouch)
@@ -245,6 +249,7 @@ class App {
     if (!IS_2D(q) && !QUALITY_PRESETS[q]) return
     // no 2D o HUD não pode ter blur nem animação infinita por cima do canvas
     document.body.classList.toggle('lite', IS_2D(q))
+    document.body.classList.toggle('pixel', q === 'pixel')
     this.cfg.quality = q
     if (byUser) { this.userPickedQuality = true; localStorage.setItem('bv.quality', q) }
     const old = this.canvas
@@ -481,6 +486,10 @@ class App {
     this.hud.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
     this.hud.showNet(null)
     this.begin()
+    if (this.stage instanceof StagePixel) {
+      this.stage.setNames(cfg.mode === 'bot' ? 'VOCÊ' : 'P1', cfg.mode === 'bot' ? 'CPU' : 'P2')
+      this.stage.startIntro()
+    }
   }
 
   /**
@@ -1187,6 +1196,7 @@ class App {
       const on = this.audio.musicOn
       this.stage.setBeat(on ? this.audio.barPhase : -1, on ? this.audio.beatPhase : -1)
       this.stage.render(m, alpha, dt)
+      if (this.stage instanceof StagePixel) this.hud.root.style.opacity = this.stage.introActive() ? '0' : '1'
       if (this.drill) this.drillScore[0] = this.drill.hits
       this.hud.update(this.drill ? this.drillScore : m.logic.scores,
         m.logic.touches, m.logic.servingPlayer, m.world.charge, m.world.stun)

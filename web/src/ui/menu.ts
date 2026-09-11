@@ -27,7 +27,7 @@ export interface GameConfig {
   difficulty: Difficulty
   ruleId: string
   scoreToWin: number
-  quality: 'min' | 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
+  quality: 'pixel' | 'min' | 'cpu' | 'low' | 'medium' | 'high' | 'ultra'
   name: string
   arena: ArenaId
   showFps: boolean
@@ -56,13 +56,14 @@ const DIFFS: [Difficulty, string, string][] = [
 ]
 
 const QUALITIES: [GameConfig['quality'], string, string][] = ([
+  ['pixel', 'Pixel art', 'tudo em pixel, roda em qualquer coisa'],
   ['min', '2D mínimo', 'máquina antiga'],
   ['cpu', '2D (CPU)', 'sem GPU'],
   ['low', 'Baixa', ''],
   ['medium', 'Média', ''],
   ['high', 'Alta', ''],
   ['ultra', 'Ultra', ''],
-] as [GameConfig['quality'], string, string][]).filter(q => !(ONLY_3D && (q[0] === 'min' || q[0] === 'cpu')))
+] as [GameConfig['quality'], string, string][]).filter(q => !(ONLY_3D && (q[0] === 'min' || q[0] === 'cpu' || q[0] === 'pixel')))
 
 const FPS_OPTS: ['off' | 'on', string, string][] = [
   ['off', 'Ocultar', ''],
