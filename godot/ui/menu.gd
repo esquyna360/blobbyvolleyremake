@@ -167,7 +167,7 @@ func _look_name(kind: int, v: int) -> String:
 		_: return Looks.BODY_COLORS[Looks.widx(v, Looks.BODY_COLORS.size())].name
 
 func _options() -> void:
-	_title("Gráficos", "o preset baixo roda em celular fraco sem perder o cenário")
+	_title("Gráficos e som", "o preset baixo roda em celular fraco sem perder o cenário")
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	for q in 4:
@@ -184,7 +184,29 @@ func _options() -> void:
 	_root.add_child(UiTheme.label(
 		"Trocar de preset reconstrói o cenário — leva um segundo.", 13,
 		Color(1, 1, 1, 0.5)))
+	_root.add_child(HSeparator.new())
+	_root.add_child(UiTheme.label("Som", 22, UiTheme.GOLD))
+	_slider("Música", Aud.music_vol, func(v): Aud.set_volume("music", v))
+	_slider("Efeitos", Aud.sfx_vol, func(v): Aud.set_volume("sfx", v))
 	_back()
+
+
+func _slider(name: String, value: float, cb: Callable) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var l := UiTheme.label(name, 16, Color(0.82, 0.88, 0.84))
+	l.custom_minimum_size = Vector2(86, 0)
+	row.add_child(l)
+	var sl := HSlider.new()
+	sl.min_value = 0.0
+	sl.max_value = 1.0
+	sl.step = 0.05
+	sl.value = value
+	sl.custom_minimum_size = Vector2(220, 28)
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.value_changed.connect(cb)
+	row.add_child(sl)
+	_root.add_child(row)
 
 func _back() -> void:
 	_root.add_child(HSeparator.new())

@@ -48,6 +48,7 @@ func start(rules: String, score_to_win: int, walls: bool, q: int,
 		add_child(arena)
 		arena.build(q)
 	arena.set_walls(walls)
+	arena.local_side = net_side if net_side != BV.NO_PLAYER else BV.LEFT
 	var lk: Array = looks if looks.size() == 2 \
 		else [Looks.default_look(BV.LEFT), Looks.default_look(BV.RIGHT)]
 	arena.set_looks(lk[0], lk[1])
@@ -62,6 +63,7 @@ func start(rules: String, score_to_win: int, walls: bool, q: int,
 
 func set_paused(p: bool) -> void:
 	_paused = p
+	Aud.set_paused(p)
 
 func set_remote_bits(side: int, bits: int) -> void:
 	_remote_bits[side] = bits
@@ -109,6 +111,7 @@ func _step() -> void:
 	if bv.logic.winner != BV.NO_PLAYER and _last_winner == BV.NO_PLAYER:
 		_last_winner = bv.logic.winner
 		arena.celebrate(_last_winner)
+		Aud.finish(_last_winner == arena.local_side)
 		match_over.emit(_last_winner)
 
 ## A janela de entradas sai todo quadro, inclusive quando o lado local está

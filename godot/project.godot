@@ -10,13 +10,17 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://assets/icon/icon_512.png"
 boot_splash/show_image=false
 
+[autoload]
+
+Aud="*res://audio/audio.gd"
+
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=0
 window/vsync/vsync_mode=1
 
 [physics]

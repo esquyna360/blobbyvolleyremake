@@ -41,7 +41,7 @@ func save() -> void:
 static func detect_quality() -> int:
 	var os_name := OS.get_name()
 	if os_name in ["Android", "iOS"]:
-		return 0
+		return 2
 	if os_name == "Web":
 		return 1
 	var vram := RenderingServer.get_video_adapter_name().to_lower()

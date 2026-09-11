@@ -108,7 +108,7 @@ func _post(quality: int) -> void:
 func _lines() -> void:
 	var half := Map.court_half_w()
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.93, 0.90, 0.82)
+	mat.albedo_color = Color(0.62, 0.66, 0.52)
 	mat.roughness = 0.9
 	var w := 0.09
 	var segs := [

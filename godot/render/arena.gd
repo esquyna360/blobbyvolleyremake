@@ -22,13 +22,14 @@ const EMOJI_COLOR := [
 
 var quality := 2
 var camera := Camera3D.new()
-var jungle := Jungle.new()
+var stage := Stage.new()
 var court := Court.new()
 var ball: BallView
 var fx := Fx.new()
 var blobs: Array[BlobView] = []
 
 var solo := false
+var local_side := BV.LEFT
 var walls_on := true
 var time := 0.0
 var tension := 0.0
@@ -47,6 +48,7 @@ var _squash_k := 0.0
 var _squash_ang := 0.0
 var _gib := PackedInt32Array([0, 0])
 var _reach: Array[MeshInstance3D] = []
+var _shadow: Array[MeshInstance3D] = []
 var _reach_a := PackedFloat32Array([0.0, 0.0])
 var _post: ColorRect
 var _post_mat := ShaderMaterial.new()
@@ -80,19 +82,20 @@ func build(q: int) -> void:
 	camera.current = true
 	add_child(camera)
 
-	add_child(jungle)
-	jungle.build(q)
+	add_child(stage)
+	stage.set_camera(camera)
+	stage.build(q)
 	add_child(court)
 	court.build(q)
 
 	fx.quality = 1.0 if q >= 3 else (0.7 if q == 2 else 0.35)
 	add_child(fx)
 
-	ball = BallView.new(q >= 2)
+	ball = BallView.new(true)
 	add_child(ball)
 
 	for i in 2:
-		var b := BlobView.new(i, q >= 2)
+		var b := BlobView.new(i, true)
 		blobs.append(b)
 		add_child(b)
 		var m := MeshInstance3D.new()
@@ -111,6 +114,8 @@ func build(q: int) -> void:
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(m)
 		_reach.append(m)
+		_shadow.append(_make_shadow())
+	_shadow.append(_make_shadow())
 
 	if q >= 2:
 		_post_mat.shader = load("res://render/post.gdshader")
@@ -122,6 +127,36 @@ func build(q: int) -> void:
 		layer.layer = 1
 		layer.add_child(_post)
 		add_child(layer)
+
+## Sombra de contato pintada. A sombra da direcional some no ambiente forte da
+## clareira, e sem mancha embaixo o blob parece flutuar.
+func _make_shadow() -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(1, 1)
+	mi.mesh = qm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load("res://assets/stage/puff.png")
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.02, 0.05, 0.03, 0.5)
+	mat.disable_fog = true
+	mi.material_override = mat
+	mi.rotation_degrees = Vector3(-90, 0, 0)
+	mi.position = Vector3(0, 0.02, 0)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	return mi
+
+
+func _blob_shadow(mi: MeshInstance3D, x: float, y: float, base: float) -> void:
+	var k := clampf(1.0 - y / 11.0, 0.15, 1.0)
+	var s: float = base * (1.0 + (1.0 - k) * 1.5)
+	mi.scale = Vector3(s, s * 0.62, 1)
+	mi.position = Vector3(x, 0.02, 0.35)
+	var mat: StandardMaterial3D = mi.material_override
+	mat.albedo_color = Color(0.02, 0.05, 0.03, 0.62 * k * k)
+
 
 func set_looks(left: Array, right: Array) -> void:
 	blobs[0].set_look(left)
@@ -158,8 +193,11 @@ func on_events(m: BVMatch) -> void:
 		m.logic.scores, m.logic.score_to_win)
 	for k in ev.n:
 		_react(w, ev.kind[k], ev.side[k], ev.intensity[k])
+	Aud.step_world(w)
+	Aud.set_rally(m.logic.rally, w.match_point)
 
 func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
+	Aud.on_event(kind, side, intensity, w, local_side)
 	match kind:
 		Ev.BALL_HIT_BLOB:
 			var p := side
@@ -391,6 +429,7 @@ func _fit_arena(aspect: float) -> void:
 func render(m: BVMatch, alpha: float, dt: float) -> void:
 	time += dt
 	tension += (FaceRig.rally_tension(m.logic.rally) - tension) * minf(1.0, dt * 2.2)
+	Aud.set_tension(tension)
 
 	if hitstop > 0.0:
 		hitstop -= dt
@@ -433,6 +472,7 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036
 
 	ball.update(bx, by, brot, sin(time * 0.7) * 0.25, dt)
+	_blob_shadow(_shadow[2], bx, by, 1.5)
 	if w.super_frames > 0:
 		var col := blobs[w.super_owner].body_color if w.super_owner >= 0 \
 			else Color(1.0, 0.7, 0.2)
@@ -453,7 +493,7 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	_update_reach(w, alpha, dt)
 
 	court.step(dt)
-	jungle.step(dt)
+	stage.step(dt)
 	fx.step(dt)
 	_update_emotes(dt)
 	_update_scorches(dt)
@@ -470,7 +510,9 @@ func _update_blob(i: int, alpha: float, dt: float, w: PhysicWorld,
 	if _gib[i] > 0 or (solo and i == BV.RIGHT):
 		b.visible = false
 		_reach[i].visible = false
+		_shadow[i].visible = false
 		return
+	_shadow[i].visible = true
 	b.visible = true
 
 	var gxp := lerpf(_ppx[i], _cpx[i], alpha)
@@ -494,6 +536,7 @@ func _update_blob(i: int, alpha: float, dt: float, w: PhysicWorld,
 			Color(0.82, 0.71, 0.54), 2.4, 0.0, false)
 
 	b.update(w, gxp, gyp, st, bx, by, time, dt, tension)
+	_blob_shadow(_shadow[i], wx, Map.gy(gyp), 3.2)
 
 	# areia do mergulho: no ar é rastro, no chão é arrasto
 	if b.dive > 0.01 and randf() < dt * 60.0:

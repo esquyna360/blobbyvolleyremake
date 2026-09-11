@@ -11,6 +11,8 @@ var touch: TouchPad
 var link := NetLink.new()
 
 var _ui := CanvasLayer.new()
+const MATCH_SONGS := ["luau", "fundo", "praia"]
+
 var _in_match := false
 var _net_pending := false
 
@@ -69,6 +71,7 @@ func _demo() -> void:
 		[Looks.roll_look(-1), Looks.roll_look(-1)])
 	_in_match = false
 	hud.visible = false
+	Aud.set_song("menu")
 	if touch != null:
 		touch.visible = false
 
@@ -83,6 +86,7 @@ func _enter_match(left: int, right: int, diff: String, looks: Array) -> void:
 func _finish_enter() -> void:
 	hud.set_colors(game.arena.blobs[BV.LEFT].body_color, game.arena.blobs[BV.RIGHT].body_color)
 	_in_match = true
+	Aud.set_song(MATCH_SONGS[randi() % MATCH_SONGS.size()])
 	menu.visible = false
 	hud.visible = true
 	hud.shout("VALENDO", UiTheme.GOLD, 1.4)
