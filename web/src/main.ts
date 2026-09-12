@@ -40,6 +40,7 @@ import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
 import { REPLAY_SPEEDS, Recorder, ReplayPlayer } from './core/replay.ts'
 import type { ReplayMeta } from './core/replay.ts'
+import { MOD_MODE_ID } from './core/mods.ts'
 import { loadReplay, saveOnlineReplay } from './net/replays.ts'
 import type { ReplayCard } from './net/replays.ts'
 import { ONLY_3D, PIXEL_ONLY, PLATFORM } from './core/platform.ts'
@@ -146,6 +147,9 @@ class App {
     const savedScene = localStorage.getItem('bv.scene')
     if (savedScene && savedScene in SCENES) this.cfg.scene = savedScene as SceneId
     this.cfg.walls = true
+    const savedMode = localStorage.getItem('bv.modMode')
+    if (savedMode === 'off' || savedMode === 'custom' || savedMode === 'roulette' || savedMode === 'chaos') this.cfg.modMode = savedMode
+    this.cfg.mods = (parseInt(localStorage.getItem('bv.mods') ?? '0', 10) || 0) & 0x3ff
     this.cfg.look = loadLook()
     setArena(this.cfg.arena)
     syncArena()
@@ -534,7 +538,8 @@ class App {
   private get viewing() { return !!this.spectator || !!this.replay }
 
   private newMatch(cfg: GameConfig, serving: Side = LEFT) {
-    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls)
+    const mode = cfg.mode === 'drill' ? 0 : MOD_MODE_ID[cfg.modMode]
+    const m = new Match(cfg.ruleId, cfg.scoreToWin, serving, cfg.walls, mode, mode === 1 ? cfg.mods : 0, (Math.random() * 0xffffffff) >>> 0)
     this.rec.reset()
     this.recUpTo = -1
     this.recBroken = false
@@ -1045,6 +1050,8 @@ class App {
       ruleId: cfg.ruleId,
       arena: cfg.arena,
       walls: cfg.walls,
+      mods: MOD_MODE_ID[cfg.modMode] === 1 ? cfg.mods : 0,
+      modMode: MOD_MODE_ID[cfg.modMode],
       look: cfg.look,
       onArena: id => this.applyArena(id),
       scene: cfg.scene,
@@ -1212,6 +1219,9 @@ class App {
       stw: m.logic.scoreToWin,
       arena: setup?.arena ?? this.cfg.arena,
       walls: setup?.walls ?? this.cfg.walls,
+      modMode: setup?.modMode ?? 0,
+      mods: setup?.mods ?? 0,
+      modSeed: setup?.seed ?? 0,
       serve: setup?.serving ?? LEFT,
       nl: nameL.slice(0, 16),
       nr: nameR.slice(0, 16),

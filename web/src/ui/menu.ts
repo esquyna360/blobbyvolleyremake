@@ -1,4 +1,6 @@
 import { el, clear } from './dom.ts'
+import { MODS, MOD_MODES, type ModMode, hasMod, toggleMod, forbiddenWith, modList } from '../core/mods.ts'
+import { modIcon } from '../render/modicons.ts'
 import { RULES } from '../core/logic.ts'
 import type { VolumeBus } from '../audio/audio.ts'
 import type { Difficulty } from '../ai/bot.ts'
@@ -42,6 +44,9 @@ export interface GameConfig {
   showFps: boolean
   scene: SceneId
   walls: boolean
+  /** modificadores: modo e máscara escolhida (só vale no modo custom) */
+  modMode: ModMode
+  mods: number
   /** aparência do jogador local: vale no treino, no 2 jogadores e no online */
   look: PlayerLook
   /** personagem do elenco em cada lado; null = o seu perfil (P1) ou visual sorteado (P2) */
@@ -80,7 +85,7 @@ export interface ResultInfo {
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
   scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default', showFps: false,
-  scene: 'praia', walls: true, look: defaultLook(0), p1: null, p2: null,
+  scene: 'praia', walls: true, modMode: 'off', mods: 0, look: defaultLook(0), p1: null, p2: null,
 }
 
 const DIFFS: [Difficulty, string, string][] = [
@@ -470,8 +475,46 @@ export class Menu {
         this.card('2 jogadores', TOUCH ? 'dois controles no mesmo aparelho' : 'os dois no mesmo teclado',
           () => { cfg.mode = 'local'; this.charSelect('local') })),
       el('div', { class: 'opts pre' },
-        this.opt('Computador', DIFFS, cfg.difficulty, v => { cfg.difficulty = v })),
+        this.opt('Computador', DIFFS, cfg.difficulty, v => { cfg.difficulty = v }),
+        this.modsOpt()),
       this.back(() => this.main()),
+    )
+  }
+
+  /** Linha "Modificadores": o modo, e no custom um botão pra escolher quais. */
+  modsOpt() {
+    const cfg = this.cfg
+    const row = this.opt('Modificadores', MOD_MODES, cfg.modMode, v => { cfg.modMode = v; localStorage.setItem('bv.modMode', v) })
+    if (cfg.modMode !== 'custom') return row
+    const n = modList(cfg.mods).length
+    const pick = el('button', { class: 'item', onclick: () => this.modsScreen() },
+      el('span', { textContent: n ? `Escolher (${n} ativo${n > 1 ? 's' : ''})` : 'Escolher quais' }))
+    return el('div', { class: 'modrow' }, row, pick)
+  }
+
+  /** Lista dos dez: liga e desliga; par proibido desliga o outro sozinho. */
+  modsScreen() {
+    this.currentScreen = () => this.modsScreen()
+    const cfg = this.cfg
+    const grid = el('div', { class: 'modgrid' })
+    for (const m of MODS) {
+      const on = hasMod(cfg.mods, m.id)
+      const blocked = !on && forbiddenWith(cfg.mods, m.id)
+      const cv = el('canvas', { width: 32, height: 32, class: 'modlogo' }) as HTMLCanvasElement
+      const g = cv.getContext('2d')!
+      g.imageSmoothingEnabled = false
+      modIcon(g, m.id, 0, 0, 32)
+      const b = el('button', { class: `modcard${on ? ' on' : ''}${blocked ? ' blocked' : ''}`, onclick: () => {
+        cfg.mods = toggleMod(cfg.mods, m.id)
+        localStorage.setItem('bv.mods', String(cfg.mods))
+        this.refresh()
+      } }, cv, el('b', { textContent: m.name }), el('small', { textContent: blocked ? 'não combina com o que está ligado' : m.desc }))
+      grid.append(b)
+    }
+    this.panel(
+      this.title('MODIFICADORES', 'empilham; alguns pares não combinam'),
+      grid,
+      this.back(() => this.versus()),
     )
   }
 

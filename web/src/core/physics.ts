@@ -32,6 +32,21 @@ import { Ev } from './events.ts'
 import type { MatchEvent } from './events.ts'
 import { NO_INPUT } from './input.ts'
 import type { PlayerInput } from './input.ts'
+import { Mod, MOD_STACK, forbiddenWith, hasMod, modCount } from './mods.ts'
+
+/** Deformação: mola sub-amortecida; a gelatina afrouxa tudo. */
+const DEF_K = 0.26
+const DEF_D = 0.34
+const DEF_MIN = 0.35
+const DEF_MAX = 1.6
+const MELT_FRAMES = 80
+const CHEER_FRAMES = 45
+const WOBBLE_FRAMES = 32
+const ROULETTE_WAIT = 110
+const CHAOS_WAIT = 75
+const NET_RISE_STEP = 14
+const NET_RISE_MAX = 150
+const SWELL_MAX = 6
 
 /** Direção da batida a partir do direcional: sem nada é frente-cima, puro lado é quase reto. */
 export function aimDir(p: Side, ax: number, ay: number): [number, number] {
@@ -126,14 +141,136 @@ export class PhysicWorld {
 
   matchPoint = false
 
+  /** Modificadores: máscara ativa agora, modo, base escolhida/acumulada, semente, espera pro saque, sorteio pendente. */
+  mods = 0
+  modMode = 0
+  modBase = 0
+  modSeed = 0
+  modWait = 0
+  modPick = -1
+  netRise = 0
+  swell = [0, 0]
+  windX = 0
+  ball2On = 0
+  ball2X = 0
+  ball2Y = 0
+  ball2VX = 0
+  ball2VY = 0
+  wobble = [0, 0]
+
+  /**
+   * Forma do blob, na simulação. 1 = neutro; X e Y são escalas. `dent` é o
+   * afundamento local no ponto do toque. O render só pixeliza isto.
+   */
+  defX = [1, 1]
+  defY = [1, 1]
+  defVX = [0, 0]
+  defVY = [0, 0]
+  dentX = [0, 0]
+  dentY = [0, 0]
+  dentK = [0, 0]
+  melt = [0, 0]
+  cheer = [0, 0]
+  antic = [0, 0]
+
   get wallsOn() { return this.walls }
 
-  blobHitGround(p: Side) { return this.blobY[p] >= GROUND_PLANE_HEIGHT }
+  has(m: Mod) { return hasMod(this.mods, m) }
+  /** Força do efeito: sozinho vale cheio; empilhado, o valor próprio de pilha. */
+  k(m: Mod) { return this.has(m) ? (modCount(this.mods) > 1 ? MOD_STACK[m] : 1) : 0 }
+  private lerp1(k: number, to: number) { return 1 + (to - 1) * k }
+
+  gBlob() { return GRAVITATION * this.lerp1(this.k(Mod.LUNAR), 0.42) }
+  gBallBase() {
+    return BALL_GRAVITATION * this.lerp1(this.k(Mod.LUNAR), 0.42)
+      * this.lerp1(this.k(Mod.BOWLING), 1.9) * this.lerp1(this.k(Mod.BALLOON), 0.4)
+  }
+  ballR() { return BALL_RADIUS * this.lerp1(this.k(Mod.BALLOON), 1.3) }
+  netTop() { return NET_SPHERE_POSITION - this.netRise }
+  size(p: Side) { return 1 + this.swell[p] * 0.11 * this.lerp1(this.k(Mod.SWELL), 1) }
+  groundY(p: Side) { return GROUND_PLANE_HEIGHT - (this.size(p) - 1) * (BLOBBY_LOWER_SPHERE + BLOBBY_LOWER_RADIUS) }
+  speedMul(p: Side) {
+    const w = this.wobble[p] > 0 ? 0.45 + 0.55 * (1 - this.wobble[p] / WOBBLE_FRAMES) : 1
+    return (1 - this.swell[p] * 0.07) * w
+  }
+  jumpMul(p: Side) { return (1 - this.swell[p] * 0.05) * (this.wobble[p] > 0 ? 0.85 : 1) }
+
+  /** Configura os modificadores antes do primeiro saque. Só aqui e no resetBall a máscara muda. */
+  setMods(mode: number, base: number, seed: number) {
+    this.modMode = mode
+    this.modBase = mode === 1 ? base : 0
+    this.modSeed = seed | 0
+    this.mods = mode === 1 ? base : 0
+    this.modPick = -1
+    if (mode === 2) { this.modPick = this.rollMod(0); this.mods = 1 << this.modPick }
+    if (mode === 3) this.mods = 0
+    this.netRise = 0
+    this.swell[0] = 0; this.swell[1] = 0
+    this.windX = this.has(Mod.WIND) ? this.rollWind() : 0
+  }
+
+  private modHash(salt: number) {
+    let h = Math.imul(this.modSeed ^ 0x9e3779b9, 2246822519)
+    h = Math.imul(h ^ (this.scores[0] * 31 + this.scores[1] * 977 + salt * 7919), 3266489917)
+    h = Math.imul(h ^ (h >>> 13), 668265263)
+    return ((h ^ (h >>> 16)) >>> 0)
+  }
+
+  private rollMod(avoid: number) {
+    const h = this.modHash(1)
+    let m = h % 10
+    if ((1 << m) === avoid) m = (m + 1 + (h >>> 8) % 9) % 10
+    return m
+  }
+
+  private rollWind() {
+    const h = this.modHash(2)
+    const mag = 0.025 + ((h >>> 4) % 1000) / 1000 * 0.05
+    return (h & 1 ? 1 : -1) * mag * this.k(Mod.WIND)
+  }
+
+  /** Ponto acabou: o que acumula, acumula aqui. O que muda de máscara espera o saque. */
+  onPoint(loser: Side) {
+    if (this.has(Mod.SWELL) && this.swell[loser] < SWELL_MAX) this.swell[loser]++
+    if (this.has(Mod.NET)) this.netRise = Math.min(NET_RISE_MAX, this.netRise + NET_RISE_STEP)
+    this.melt[loser] = MELT_FRAMES
+    this.cheer[loser === LEFT ? RIGHT : LEFT] = CHEER_FRAMES
+    if (this.modMode === 2) {
+      this.modPick = this.rollMod(this.mods)
+      this.modWait = ROULETTE_WAIT
+    } else if (this.modMode === 3 && modCount(this.modBase) < 10) {
+      const h = this.modHash(3)
+      for (let i = 0; i < 10; i++) {
+        const m = ((h % 10) + i) % 10
+        if (hasMod(this.modBase, m) || forbiddenWith(this.modBase, m)) continue
+        this.modBase |= 1 << m
+        this.modPick = m
+        this.modWait = CHAOS_WAIT
+        break
+      }
+    }
+  }
+
+  private applyModsOnServe(out: MatchEvent[]) {
+    const was = this.mods
+    if (this.modMode === 2 && this.modPick >= 0) this.mods = 1 << this.modPick
+    else if (this.modMode === 3) this.mods = this.modBase
+    else if (this.modMode === 1) this.mods = this.modBase
+    if (this.has(Mod.WIND)) this.windX = this.rollWind()
+    else this.windX = 0
+    if (!this.has(Mod.SWELL)) { this.swell[0] = 0; this.swell[1] = 0 }
+    if (!this.has(Mod.NET)) this.netRise = 0
+    if (this.mods !== was || this.has(Mod.WIND) || this.modMode >= 2)
+      out.push({ event: Ev.MOD_CHANGE, side: -1, intensity: this.mods })
+  }
+
+  blobHitGround(p: Side) { return this.blobY[p] >= this.groundY(p) - 0.001 }
 
   /** Agachado a esfera de cima afunda e encolhe, a de baixo espalha. */
-  upperY(p: Side) { return this.blobY[p] - BLOBBY_UPPER_SPHERE + this.crouch[p] * CROUCH_DUCK }
-  upperR(p: Side) { return BLOBBY_UPPER_RADIUS - this.crouch[p] * CROUCH_SLIM }
-  lowerR(p: Side) { return BLOBBY_LOWER_RADIUS + this.crouch[p] * CROUCH_SPREAD }
+  upperY(p: Side) { return this.blobY[p] - (BLOBBY_UPPER_SPHERE - this.crouch[p] * CROUCH_DUCK) * this.size(p) }
+  upperR(p: Side) { return (BLOBBY_UPPER_RADIUS - this.crouch[p] * CROUCH_SLIM) * this.size(p) }
+  lowerR(p: Side) { return (BLOBBY_LOWER_RADIUS + this.crouch[p] * CROUCH_SPREAD) * this.size(p) }
+  lowerY(p: Side) { return this.blobY[p] + BLOBBY_LOWER_SPHERE * this.size(p) }
   /** Esticada horizontal da caixa de baixo: agachado alarga um pouco, mergulhando alarga muito. */
   wideX(p: Side) {
     const dive = this.diveFrames[p] > 0 ? 1 : this.diveRecover[p] > 0 ? 0.5 : 0
@@ -171,7 +308,7 @@ export class PhysicWorld {
 
   /** A bola do especial pesa mais: é o que a faz cair no campo do outro em vez de planar. */
   private ballG() {
-    const base = this.superFrames > 0 ? BALL_GRAVITATION * this.superGravity() : BALL_GRAVITATION
+    const base = this.superFrames > 0 ? this.gBallBase() * this.superGravity() : this.gBallBase()
     return base * this.tempo * this.tempo
   }
 
@@ -201,8 +338,8 @@ export class PhysicWorld {
 
   /** A parábola passa por cima da rede em toda a faixa de colisão dela? */
   private clearsNet(vx: number, vy: number, g: number, clearance: number) {
-    const band = BALL_RADIUS + NET_RADIUS + 4
-    const ceiling = NET_SPHERE_POSITION - clearance
+    const band = this.ballR() + NET_RADIUS + 4
+    const ceiling = this.netTop() - clearance
     for (let k = -1; k <= 1; k++) {
       const t = (NET_POSITION_X + k * band - this.ballX) / vx
       if (t <= 0) continue
@@ -219,7 +356,7 @@ export class PhysicWorld {
 
   private aimSpecial(p: Side, boost = 1, mode = 0) {
     const dir = p === LEFT ? 1 : -1
-    const ty = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+    const ty = GROUND_PLANE_HEIGHT_MAX - this.ballR()
     const depth = (mode < 0 ? 0.86 : mode > 0 ? 0.3 : SPECIAL_TARGET_DEPTH) + (this.noise(p, 0) - 0.5) * SPECIAL_DEPTH_JITTER
     const tx = p === LEFT
       ? NET_POSITION_X + (RIGHT_PLANE - NET_POSITION_X) * depth
@@ -233,7 +370,7 @@ export class PhysicWorld {
     }
 
     const max2 = vmax * vmax
-    const g = BALL_GRAVITATION * this.superGravity()
+    const g = this.gBallBase() * this.superGravity()
     // pra cima: o arco mais lento que ainda cabe no teto; pra baixo/frente: o mais rápido
     const skip = mode < 0 ? 6 : Math.floor(this.noise(p, 1) * SPECIAL_ARC_JITTER)
     let seen = 0
@@ -271,8 +408,8 @@ export class PhysicWorld {
   private aimShot(p: Side, vmax: number, vmin: number, depth: number, clearance: number,
                   tMin: number, tStep: number, tSteps: number, salt: number) {
     const dir = p === LEFT ? 1 : -1
-    const g = BALL_GRAVITATION
-    const ty = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+    const g = this.gBallBase()
+    const ty = GROUND_PLANE_HEIGHT_MAX - this.ballR()
     const jit = (this.noise(p, salt) - 0.5) * 0.2
     const max2 = vmax * vmax
     let bx = 0, by = 0, best = -1
@@ -323,7 +460,7 @@ export class PhysicWorld {
     if (this.digActive[p] <= 0 || this.stun[p] > 0) return false
     // especial na área é problema do parry, não da manchete
     if (this.superFrames > 0) return false
-    const cy = this.blobY[p] + BLOBBY_LOWER_SPHERE
+    const cy = this.lowerY(p)
     const dx = this.ballX - this.blobX[p]
     const dy = this.ballY - cy
     const d2 = dx * dx + dy * dy
@@ -332,6 +469,7 @@ export class PhysicWorld {
     this.digActive[p] = 0
     this.digCd[p] = DIG_CD
     this.bumpTempo()
+    this.punch(p, 0.4)
     const dir = p === LEFT ? 1 : -1
     this.ballVX = dir * DIG_FORWARD * this.tempo
     this.ballVY = -DIG_UP * this.tempo
@@ -344,7 +482,7 @@ export class PhysicWorld {
 
   /** Golpe que não é reflexão precisa tirar a bola de dentro do corpo na mão. */
   private pushOut(p: Side, cy: number, dx: number, dy: number, l: number, r: number) {
-    const need = BALL_RADIUS + r + 2
+    const need = this.ballR() + r + 2
     if (l >= need) return
     const k = l || 1
     this.ballX = this.blobX[p] + (dx / k) * need
@@ -391,6 +529,7 @@ export class PhysicWorld {
     this.ballSpin = 0
     this.anchorHeld(p)
     this.bumpTempo()
+    this.punch(p, 1)
     // direcional só escolhe o tipo de arco (cima, frente, corta); o alvo é sempre o campo do outro
     this.aimSpecial(p, 1, this.hitAimY[p])
     this.scaleBallV()
@@ -595,6 +734,7 @@ export class PhysicWorld {
     this.hitPass[p] = 30
     this.bumpTempo()
     this.ballSpin = 0
+    this.punch(p, charge <= HIT_TAP ? 0.2 : 1)
     const cortada = !this.blobHitGround(p) && this.hitAimY[p] > 0
     if (charge <= HIT_TAP && !cortada) {
       const dir = p === LEFT ? 1 : -1
@@ -641,14 +781,14 @@ export class PhysicWorld {
   private topBallCollision(p: Side) {
     const dx = this.ballX - this.blobX[p]
     const dy = this.ballY - this.upperY(p)
-    const r = BALL_RADIUS + this.upperR(p)
+    const r = this.ballR() + this.upperR(p)
     return dx * dx + dy * dy < r * r
   }
 
   private bottomBallCollision(p: Side) {
     const dx = (this.ballX - this.blobX[p]) / this.wideX(p)
-    const dy = this.ballY - (this.blobY[p] + BLOBBY_LOWER_SPHERE)
-    const r = BALL_RADIUS + this.lowerR(p)
+    const dy = this.ballY - this.lowerY(p)
+    const r = this.ballR() + this.lowerR(p)
     return dx * dx + dy * dy < r * r
   }
 
@@ -665,11 +805,19 @@ export class PhysicWorld {
     const ground = this.blobHitGround(p)
     const T = this.tempo
     const T2 = T * T
-    let g = GRAVITATION
+    const gy = this.groundY(p)
+    let g = this.gBlob()
+    const jumpV = BLOBBY_JUMP_ACCELERATION * T * this.jumpMul(p)
     if (input.up && !input.down) {
       // pulo é aperto, não tecla segurada: soltar a mira pra cima não pode virar pulo
-      if (ground && this.prevUp[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
-      g -= BLOBBY_JUMP_BUFFER
+      if (ground && this.prevUp[p] === 0) { this.blobVY[p] = jumpV; this.startAnim(p); this.antic[p] = 1 }
+      g -= BLOBBY_JUMP_BUFFER * this.lerp1(this.k(Mod.LUNAR), 0.42)
+    }
+    // pula-pula: no chão o corpo já está subindo de novo
+    if (ground && this.has(Mod.BOUNCE) && this.hitCharge[p] === 0 && this.diveRecover[p] === 0) {
+      this.blobVY[p] = jumpV * 0.92
+      this.startAnim(p)
+      this.antic[p] = 1
     }
     // no ar, pra baixo é queda rápida
     if (!ground && input.down) g += GRAVITATION * CROUCH_FALL_MUL
@@ -690,27 +838,37 @@ export class PhysicWorld {
       }
       this.blobY[p] += 0.5 * g + this.blobVY[p]
       this.blobVY[p] += g
-      if (this.blobY[p] >= GROUND_PLANE_HEIGHT) {
-        this.blobY[p] = GROUND_PLANE_HEIGHT
+      if (this.blobY[p] >= gy) {
+        this.land(p, this.blobVY[p])
+        this.blobY[p] = gy
         this.blobVY[p] = 0
         this.diveFrames[p] = 0
         this.diveRecover[p] = DIVE_RECOVER
-        this.blobVX[p] *= DIVE_SLIDE_KEEP
+        this.blobVX[p] *= this.has(Mod.ICE) ? 0.95 : DIVE_SLIDE_KEEP
       }
       return
     }
 
     // levantando da areia: o preço do mergulho é ficar parado um instante
     const stuck = this.diveRecover[p] > 0
-    const slow = (1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)) * T
+    const slow = (1 - this.crouch[p] * (1 - CROUCH_SPEED_MUL)) * T * this.speedMul(p)
+    const ice = this.k(Mod.ICE)
     if (stuck) {
       // escorrega até parar: quem se joga não freia no ar seco
-      this.blobVX[p] *= DIVE_SLIDE_DRAG
+      this.blobVX[p] *= ice > 0 ? 0.985 : DIVE_SLIDE_DRAG
       if (Math.abs(this.blobVX[p]) < DIVE_SLIDE_STOP) this.blobVX[p] = 0
     } else if (floating) {
       this.blobVX[p] *= FLOAT_DRAG
     } else {
-      this.blobVX[p] = ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
+      const want = ((input.right ? BLOBBY_SPEED : 0) - (input.left ? BLOBBY_SPEED : 0)) * slow
+      if (ice > 0) {
+        // gelo: acelera devagar e freia mais devagar ainda; no ar segue o embalo
+        const accel = want !== 0 ? 0.10 - 0.06 * ice : 0.045 - 0.03 * ice
+        this.blobVX[p] += (want - this.blobVX[p]) * (ground ? accel : accel * 0.6)
+        if (want === 0 && Math.abs(this.blobVX[p]) < 0.04) this.blobVX[p] = 0
+      } else {
+        this.blobVX[p] = want
+      }
     }
 
     this.blobX[p] += this.blobVX[p] + this.knock[p]
@@ -721,16 +879,93 @@ export class PhysicWorld {
     this.blobY[p] += 0.5 * g + this.blobVY[p]
     this.blobVY[p] += g
 
-    if (this.blobY[p] > GROUND_PLANE_HEIGHT) {
+    if (this.blobY[p] > gy) {
       if (this.blobVY[p] > 3.5) this.startAnim(p)
-      this.blobY[p] = GROUND_PLANE_HEIGHT
+      this.land(p, this.blobVY[p])
+      this.blobY[p] = gy
       this.blobVY[p] = 0
     }
     this.animStep(p)
   }
 
+  /** Aterrissou com velocidade `vy`: achata na proporção do impacto; gelatina cambaleia depois. */
+  private land(p: Side, vy: number) {
+    if (vy <= 0.5) return
+    const amp = 1 + 1.4 * this.k(Mod.JELLY)
+    const hit = Math.min(1, vy / 16)
+    this.defVY[p] -= (0.05 + 0.13 * hit) * amp
+    this.defVX[p] += (0.03 + 0.09 * hit) * amp
+    if (this.has(Mod.JELLY) && hit > 0.25) this.wobble[p] = WOBBLE_FRAMES
+  }
+
+  /** A bola encostou: afunda ali. `nx,ny` apontam do centro do blob pra bola. */
+  private dent(p: Side, nx: number, ny: number, k: number) {
+    this.dentX[p] = nx
+    this.dentY[p] = ny
+    this.dentK[p] = Math.max(this.dentK[p], 0.5 + 0.5 * k) * (1 + 0.6 * this.k(Mod.JELLY))
+  }
+
+  /**
+   * Forma do blob: alvo pelo estado (respira, estica subindo, achata caindo,
+   * espalha mergulhando, derrete perdendo, quica ganhando) e uma mola que
+   * corre atrás dele. Volume aparente: achatar alarga, esticar afina.
+   */
+  private deformStep(p: Side, frame: number) {
+    const jelly = this.k(Mod.JELLY)
+    const K = DEF_K * (1 - 0.5 * jelly)
+    const D = DEF_D * (1 - 0.55 * jelly)
+    const ground = this.blobHitGround(p)
+    const vy = this.blobVY[p]
+    let ty: number, tx: number | null = null
+    if (this.melt[p] > 0) {
+      this.melt[p]--
+      const k = this.melt[p] / MELT_FRAMES
+      const soft = 1 + 0.35 * jelly
+      ty = 1 - 0.4 * Math.min(1, k * 1.6) * soft
+      tx = 1 + 0.5 * Math.min(1, k * 1.6) * soft
+    } else if (this.cheer[p] > 0) {
+      this.cheer[p]--
+      const k = this.cheer[p] / CHEER_FRAMES
+      ty = 1 + Math.sin(k * Math.PI * 3) * 0.28 * (1 + 0.5 * jelly)
+    } else if (this.diveFrames[p] > 0) {
+      ty = 1 - 0.28 * (1 + 0.4 * jelly)
+      tx = 1 + 0.5 * (1 + 0.4 * jelly)
+    } else if (this.diveRecover[p] > 0) {
+      ty = 1 - 0.18
+      tx = 1 + 0.32
+    } else if (!ground) {
+      if (vy < -APEX_WINDOW) ty = 1 + Math.min(0.32, -vy * 0.024) * (1 + 0.5 * jelly)
+      else if (vy > APEX_WINDOW) ty = 1 + Math.min(0.45, vy * 0.036) * (1 + 0.5 * jelly)
+      else ty = 1.03
+    } else {
+      ty = 1 + Math.sin((frame + p * 37) * 0.065) * 0.022
+    }
+    if (this.antic[p] > 0) { this.antic[p] = 0; this.defY[p] = Math.min(this.defY[p], 0.74 - 0.1 * jelly); this.defX[p] = Math.max(this.defX[p], 1.22) }
+    if (tx === null) tx = 1 / Math.pow(ty, 0.8)
+    this.defVY[p] += (ty - this.defY[p]) * K - this.defVY[p] * D
+    this.defVX[p] += (tx - this.defX[p]) * K - this.defVX[p] * D
+    this.defY[p] += this.defVY[p]
+    this.defX[p] += this.defVX[p]
+    if (this.defY[p] < DEF_MIN) { this.defY[p] = DEF_MIN; this.defVY[p] = 0 }
+    if (this.defY[p] > DEF_MAX) { this.defY[p] = DEF_MAX; this.defVY[p] = 0 }
+    if (this.defX[p] < 0.5) { this.defX[p] = 0.5; this.defVX[p] = 0 }
+    if (this.defX[p] > 2) { this.defX[p] = 2; this.defVX[p] = 0 }
+    this.dentK[p] *= 0.86 + 0.06 * jelly
+    if (this.dentK[p] < 0.02) this.dentK[p] = 0
+    if (this.wobble[p] > 0) this.wobble[p]--
+  }
+
+  /** Golpe: comprime e explode pra fora no instante da batida. */
+  private punch(p: Side, k: number) {
+    const amp = 1 + 1.2 * this.k(Mod.JELLY)
+    this.defX[p] = Math.min(this.defX[p], 0.86)
+    this.defY[p] = Math.min(this.defY[p], 0.86)
+    this.defVX[p] += (0.12 + 0.12 * k) * amp
+    this.defVY[p] += (0.12 + 0.12 * k) * amp
+  }
+
   private handleBlobBallCollision(p: Side, out: MatchEvent[]) {
-    let cy = this.blobY[p] + BLOBBY_LOWER_SPHERE
+    let cy = this.lowerY(p)
     let cr = this.lowerR(p)
     if (!this.bottomBallCollision(p)) {
       if (!this.topBallCollision(p)) return false
@@ -785,6 +1020,12 @@ export class PhysicWorld {
     if (apex === APEX_MUL) out.push({ event: Ev.APEX_HIT, side: p, intensity: 1 })
     this.ballX += this.ballVX
     this.ballY += this.ballVY
+    this.dent(p, nx, ny, intensity)
+    // boliche: a bola pesada empurra o corpo pro lado contrário do toque
+    if (this.has(Mod.BOWLING)) {
+      this.knock[p] += -nx * 7 * this.k(Mod.BOWLING) * this.tempo
+      if (ny < -0.3 && !this.blobHitGround(p)) this.blobVY[p] += 3 * this.k(Mod.BOWLING)
+    }
 
     out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity })
     this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
@@ -805,7 +1046,17 @@ export class PhysicWorld {
 
   private handleBallWorldCollisions(out: MatchEvent[]) {
     const walls = this.wallsOn
-    if (this.ballY + BALL_RADIUS > GROUND_PLANE_HEIGHT_MAX) {
+    const R = this.ballR()
+    if (this.ballY + R > GROUND_PLANE_HEIGHT_MAX && this.ball2On) {
+      // bola dividida: a primeira que cai some; o ponto é da última
+      this.ballX = this.ball2X; this.ballY = this.ball2Y
+      this.ballVX = this.ball2VX; this.ballVY = this.ball2VY
+      this.ball2On = 0
+      this.ballSpin = 0
+      out.push({ event: Ev.BALL_MERGE, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 0 })
+      return
+    }
+    if (this.ballY + R > GROUND_PLANE_HEIGHT_MAX) {
       // quadra aberta: fora é cair no chão fora da linha. No ar não é nada —
       // passar da lateral e voltar pro rally é jogada, não erro.
       if (!walls && !this.ballOut && (this.ballX < LEFT_PLANE || this.ballX > RIGHT_PLANE)) {
@@ -818,15 +1069,16 @@ export class PhysicWorld {
         this.parryChain = 0
         out.push({ event: Ev.SPECIAL_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 1 })
       }
-      this.ballVY = -this.ballVY * 0.95
-      this.ballVX *= 0.95
-      this.ballY = GROUND_PLANE_HEIGHT_MAX - BALL_RADIUS
+      const rest = this.lerp1(this.k(Mod.BOWLING), 0.45) * this.lerp1(this.k(Mod.BALLOON), 0.85)
+      this.ballVY = -this.ballVY * 0.95 * rest
+      this.ballVX *= 0.95 * rest
+      this.ballY = GROUND_PLANE_HEIGHT_MAX - R
       this.ballSpin = 0
-      out.push({ event: Ev.BALL_HIT_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: 0 })
+      out.push({ event: Ev.BALL_HIT_GROUND, side: this.ballX > NET_POSITION_X ? RIGHT : LEFT, intensity: this.has(Mod.BOWLING) ? 1 : 0 })
     }
 
-    const onLeft = this.ballX - BALL_RADIUS <= LEFT_PLANE && this.ballVX < 0
-    const onRight = this.ballX + BALL_RADIUS >= RIGHT_PLANE && this.ballVX > 0
+    const onLeft = this.ballX - R <= LEFT_PLANE && this.ballVX < 0
+    const onRight = this.ballX + R >= RIGHT_PLANE && this.ballVX > 0
 
     // longe demais não existe: sem isso a bola sai do enquadramento e o rally
     // fica esperando ela cair num chão que ninguém vê.
@@ -838,24 +1090,26 @@ export class PhysicWorld {
     if (walls && onLeft) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
-      this.ballX = LEFT_PLANE + BALL_RADIUS
+      this.ballX = LEFT_PLANE + R
       out.push({ event: Ev.BALL_HIT_WALL, side: LEFT, intensity: 0 })
     } else if (walls && onRight) {
       this.ballSpin = 0
       this.ballVX = -this.ballVX
-      this.ballX = RIGHT_PLANE - BALL_RADIUS
+      this.ballX = RIGHT_PLANE - R
       out.push({ event: Ev.BALL_HIT_WALL, side: RIGHT, intensity: 0 })
-    } else if (this.ballY > NET_SPHERE_POSITION && Math.abs(this.ballX - NET_POSITION_X) < BALL_RADIUS + NET_RADIUS) {
+    } else if (this.ballY > this.netTop() && Math.abs(this.ballX - NET_POSITION_X) < R + NET_RADIUS) {
       const right = this.ballX - NET_POSITION_X > 0
+      const vx = this.ballVX
       this.ballVX = -this.ballVX
-      this.ballX = NET_POSITION_X + (right ? BALL_RADIUS + NET_RADIUS : -BALL_RADIUS - NET_RADIUS)
+      this.ballX = NET_POSITION_X + (right ? R + NET_RADIUS : -R - NET_RADIUS)
       this.ballSpin = 0
       out.push({ event: Ev.BALL_HIT_NET, side: right ? RIGHT : LEFT, intensity: 0 })
+      this.split(vx, out)
     } else {
       const dx = this.ballX - NET_POSITION_X
-      const dy = this.ballY - NET_SPHERE_POSITION
+      const dy = this.ballY - this.netTop()
       const d = Math.sqrt(dx * dx + dy * dy)
-      if (d < NET_RADIUS + BALL_RADIUS) {
+      if (d < NET_RADIUS + R) {
         const nx = dx / (d || 1), ny = dy / (d || 1)
         let perp = nx * this.ballVX + ny * this.ballVY
         perp *= perp
@@ -869,14 +1123,79 @@ export class PhysicWorld {
         const rl = Math.sqrt(rx * rx + ry * ry) || 1
         this.ballVX = (rx / rl) * speed
         this.ballVY = (ry / rl) * speed
-        this.ballX = NET_POSITION_X - nx * (NET_RADIUS + BALL_RADIUS)
-        this.ballY = NET_SPHERE_POSITION - ny * (NET_RADIUS + BALL_RADIUS)
+        const vx0 = this.ballVX
+        this.ballX = NET_POSITION_X - nx * (NET_RADIUS + R)
+        this.ballY = this.netTop() - ny * (NET_RADIUS + R)
         out.push({ event: Ev.BALL_HIT_NET_TOP, side: -1, intensity: 0 })
+        this.split(-vx0, out)
       }
     }
   }
 
+  /** Bola na rede vira duas: a nova segue pro outro lado, as duas sobem. */
+  private split(throughVX: number, out: MatchEvent[]) {
+    if (!this.has(Mod.SPLIT) || this.ball2On || this.superFrames > 0) return
+    this.ball2On = 1
+    this.ball2X = this.ballX
+    this.ball2Y = this.ballY - 6
+    const v = Math.max(3, Math.abs(throughVX))
+    this.ball2VX = (throughVX >= 0 ? 1 : -1) * v
+    this.ball2VY = Math.min(this.ballVY, -7) - 2
+    this.ballVY = Math.min(this.ballVY, -7) - 2
+    out.push({ event: Ev.BALL_SPLIT, side: -1, intensity: 1 })
+  }
+
+  /** A segunda bola: gravidade, vento, paredes, rede e os blobs. Sem golpe, sem especial. */
+  private ball2Step(out: MatchEvent[]) {
+    if (!this.ball2On) return
+    const g = this.ballG()
+    const R = this.ballR()
+    this.ball2VX += this.windX * this.tempo
+    this.ball2X += this.ball2VX
+    this.ball2Y += 0.5 * g + this.ball2VY
+    this.ball2VY += g
+    if (this.ball2Y + R > GROUND_PLANE_HEIGHT_MAX) {
+      this.ball2On = 0
+      out.push({ event: Ev.BALL_MERGE, side: this.ball2X > NET_POSITION_X ? RIGHT : LEFT, intensity: 1 })
+      return
+    }
+    if (!this.wallsOn && (this.ball2X < LEFT_PLANE - OPEN_MARGIN || this.ball2X > RIGHT_PLANE + OPEN_MARGIN)) { this.ball2On = 0; return }
+    if (this.wallsOn && this.ball2X - R <= LEFT_PLANE && this.ball2VX < 0) { this.ball2VX = -this.ball2VX; this.ball2X = LEFT_PLANE + R }
+    else if (this.wallsOn && this.ball2X + R >= RIGHT_PLANE && this.ball2VX > 0) { this.ball2VX = -this.ball2VX; this.ball2X = RIGHT_PLANE - R }
+    else if (this.ball2Y > this.netTop() && Math.abs(this.ball2X - NET_POSITION_X) < R + NET_RADIUS) {
+      const right = this.ball2X - NET_POSITION_X > 0
+      this.ball2VX = -this.ball2VX
+      this.ball2X = NET_POSITION_X + (right ? R + NET_RADIUS : -R - NET_RADIUS)
+    }
+    for (const p of [LEFT, RIGHT] as Side[]) {
+      if (this.solo && p === RIGHT) continue
+      let cy = this.lowerY(p), cr = this.lowerR(p)
+      let dx = (this.ball2X - this.blobX[p]) / this.wideX(p)
+      let dy = this.ball2Y - cy
+      let r = R + cr
+      if (dx * dx + dy * dy >= r * r) {
+        cy = this.upperY(p); cr = this.upperR(p)
+        dx = this.ball2X - this.blobX[p]; dy = this.ball2Y - cy
+        r = R + cr
+        if (dx * dx + dy * dy >= r * r) continue
+      }
+      const l = Math.sqrt(dx * dx + dy * dy) || 1
+      const nx = dx / l, ny = dy / l
+      const v = BALL_COLLISION_VELOCITY * this.tempo
+      this.ball2VX = nx * v
+      this.ball2VY = ny * v
+      this.ball2X = this.blobX[p] + nx * (r + 1)
+      this.ball2Y = cy + ny * (r + 1)
+      this.dent(p, nx, ny, 0.6)
+      out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity: 0.6 })
+    }
+  }
+
+  /** Contador só pra respiração da deformação: não precisa sobreviver ao rollback exato. */
+  frameNo = 0
+
   step(li: PlayerInput, ri: PlayerInput, isBallValid: boolean, isGameRunning: boolean, out: MatchEvent[]) {
+    if (this.modWait > 0 && !isBallValid) this.modWait--
     if (this.stun[LEFT] > 0) this.stun[LEFT]--
     if (this.stun[RIGHT] > 0) this.stun[RIGHT]--
     if (this.superFrames > 0 && !this.holding() && --this.superFrames === 0) { this.superOwner = -1; this.parryChain = 0 }
@@ -909,6 +1228,9 @@ export class PhysicWorld {
     this.handleBlob(LEFT, el)
     this.handleBlob(RIGHT, er)
 
+    this.deformStep(LEFT, this.frameNo)
+    this.deformStep(RIGHT, this.frameNo)
+    this.frameNo++
     this.holdStep(LEFT, li, out)
     this.holdStep(RIGHT, ri, out)
     this.spinStep(LEFT, out)
@@ -926,6 +1248,14 @@ export class PhysicWorld {
         this.ballVY = vy + vx * k
         this.ballSpin *= SPIN_DECAY
         if (this.ballSpin < 0.006 && this.ballSpin > -0.006) this.ballSpin = 0
+      }
+      if (this.windX !== 0 && this.superFrames === 0) this.ballVX += this.windX * this.tempo
+      const bal = this.k(Mod.BALLOON)
+      if (bal > 0 && this.superFrames === 0) {
+        // balão: arrasto no ar e um tremor errático de lado
+        const drag = 1 - 0.012 * bal
+        this.ballVX *= drag; this.ballVY *= drag
+        this.ballVX += (this.noise(LEFT, 11) - 0.5) * 0.22 * bal
       }
       this.ballX += this.ballVX
       this.ballY += 0.5 * g + this.ballVY
@@ -961,6 +1291,7 @@ export class PhysicWorld {
     this.prevHit[RIGHT] = ri.hit ? 1 : 0
 
     if (!holding) this.handleBallWorldCollisions(out)
+    if (isGameRunning && !holding) this.ball2Step(out)
 
     if (this.blobX[LEFT] + BLOBBY_LOWER_RADIUS > NET_POSITION_X - NET_RADIUS)
       this.blobX[LEFT] = NET_POSITION_X - NET_RADIUS - BLOBBY_LOWER_RADIUS
@@ -982,7 +1313,9 @@ export class PhysicWorld {
     else if (this.ballRot >= 6.25) this.ballRot = this.ballRot - 6.25
   }
 
-  resetBall(side: number) {
+  resetBall(side: number, out?: MatchEvent[]) {
+    if (out) this.applyModsOnServe(out)
+    this.ball2On = 0
     if (side === LEFT) { this.ballX = NET_POSITION_X * 0.5; this.ballY = STANDARD_BALL_HEIGHT }
     else if (side === RIGHT) { this.ballX = NET_POSITION_X * 1.5; this.ballY = STANDARD_BALL_HEIGHT }
     else { this.ballX = NET_POSITION_X; this.ballY = 450 }

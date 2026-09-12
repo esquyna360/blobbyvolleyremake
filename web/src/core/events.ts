@@ -29,6 +29,10 @@ export const enum Ev {
   REVERSAL = 25,
   REVERSAL_TRY = 26,
   REVERSAL_SPIN = 27,
+  /** intensity = máscara dos modificadores ativos a partir deste saque */
+  MOD_CHANGE = 28,
+  BALL_SPLIT = 29,
+  BALL_MERGE = 30,
 }
 
 /** O rollback marca eventos vistos com `1 << ev` num Int32Array: nada acima de 30. */

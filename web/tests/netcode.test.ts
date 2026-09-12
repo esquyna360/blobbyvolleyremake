@@ -532,3 +532,65 @@ test('quadra aberta deixa o blob sair da linha; com parede ele para nela', () =>
   assert.equal(go(false), LEFT_PLANE - OPEN_MARGIN, 'sem parede o blob não usou a margem inteira')
 })
 
+
+test('modificadores: determinismo, save/restore e efeitos básicos', () => {
+  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false, hit: false }
+  const a = new Match('default', 15, LEFT, true, 3, 0, 4242)
+  const b = new Match('default', 15, LEFT, true, 3, 0, 4242)
+  const r1 = rng(5), r2 = rng(5)
+  for (let f = 0; f < 6000; f++) {
+    a.step(unpackInput(randomBits(r1)), unpackInput(randomBits(r1)))
+    b.step(unpackInput(randomBits(r2)), unpackInput(randomBits(r2)))
+  }
+  assert.equal(a.checksum(), b.checksum())
+  assert.ok(a.logic.scores[LEFT] + a.logic.scores[RIGHT] > 0)
+  assert.ok(a.world.mods !== 0, 'caos não acumulou nada')
+
+  const s = allocState()
+  a.save(s)
+  const before = a.checksum()
+  for (let f = 0; f < 30; f++) a.step(NONE, NONE)
+  a.restore(s)
+  assert.equal(a.checksum(), before)
+
+  const lunar = new Match('default', 15, LEFT, true, 1, 1 << 0, 1)
+  const plain = new Match('default', 15, LEFT, true, 0, 0, 1)
+  assert.ok(lunar.world.gBallBase() < plain.world.gBallBase() * 0.5)
+  assert.ok(lunar.world.gBlob() < plain.world.gBlob())
+
+  const net = new Match('default', 15, LEFT, true, 1, 1 << 5, 1)
+  assert.equal(net.world.netRise, 0)
+  net.world.onPoint(RIGHT)
+  assert.ok(net.world.netRise > 0)
+  assert.ok(net.world.netTop() < plain.world.netTop())
+
+  const rou = new Match('default', 15, LEFT, true, 2, 0, 99)
+  assert.equal(rou.world.mods !== 0, true, 'roleta sem sorteio inicial')
+  rou.world.onPoint(LEFT)
+  assert.ok(rou.world.modWait > 0)
+  rou.logic.isBallValid = false
+  for (let f = 0; f < 400; f++) rou.step(NONE, NONE)
+  assert.equal(rou.world.modWait, 0)
+  assert.ok(rou.world.mods !== 0 && (rou.world.mods & (rou.world.mods - 1)) === 0, 'roleta não deixou um só')
+})
+
+test('bola dividida: rede cria a segunda, o ponto é da última que cai', () => {
+  const NONE = { left: false, right: false, up: false, special: false, down: false, dive: false, hit: false }
+  const m = new Match('default', 15, LEFT, true, 1, 1 << 6, 7)
+  for (let f = 0; f < 40; f++) m.step(NONE, NONE)
+  m.world.blobX[RIGHT] = 845
+  m.world.ballX = 380
+  m.world.ballY = 300
+  m.world.ballVX = 8
+  m.world.ballVY = 0
+  m.logic.isBallValid = true
+  m.logic.isGameRunning = true
+  let split = false
+  for (let f = 0; f < 30 && !split; f++) { m.step(NONE, NONE); split = m.events.some(e => e.event === Ev.BALL_SPLIT) }
+  assert.ok(split, 'não dividiu na rede')
+  assert.equal(m.world.ball2On, 1)
+  let grounds = 0
+  for (let f = 0; f < 400; f++) { m.step(NONE, NONE); grounds += m.events.filter(e => e.event === Ev.BALL_HIT_GROUND).length }
+  assert.ok(grounds >= 1)
+  assert.equal(m.world.ball2On, 0)
+})

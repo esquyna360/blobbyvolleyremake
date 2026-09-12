@@ -1,6 +1,6 @@
 import {
   BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
-  BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
+  BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
   NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
   DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH, HIT_CHARGE_MAX, REVERSAL_ORBIT,
@@ -19,6 +19,8 @@ import type { PlayerLook } from '../core/looks.ts'
 import type { TargetMark } from '../core/drill.ts'
 import { PixelScene } from './pixelscene.ts'
 import { FONT_H, pxText, textWidth } from './pixelfont.ts'
+import { Mod, MODS, modIds } from '../core/mods.ts'
+import { modIcon } from './modicons.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const CRATER_LIFE = 7
@@ -26,7 +28,7 @@ const CRATER_LIFE = 7
 const VH = 216
 export const INTRO_LEN = 5.6
 
-interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
+interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[]; b2x: number; b2y: number }
 interface Dust { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size?: number }
 interface Ring { x: number; y: number; r: number; max: number; life: number; color: string; w?: number; flat?: boolean }
 interface Pop { side: Side; id: number; life: number; max: number; seed: number }
@@ -34,7 +36,7 @@ interface Big { text: string; kind: BigKind; color: string; life: number; max: n
 interface Callout { side: Side; text: string; color: string; life: number }
 interface Cols { base: string; hi: string; dk: string; dk2: string }
 
-const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
+const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0], b2x: 0, b2y: 0 })
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 const ease = (k: number) => k * k * (3 - 2 * k)
@@ -135,6 +137,13 @@ export class StagePixel implements GameRenderer {
   private hairVY = [0, 0]
   private wasAir = [false, false]
   private lastWorld: Match['world'] | null = null
+  /** anúncio de modificador: ícones grandes no centro por um instante */
+  private announce: { ids: number[]; life: number; max: number } | null = null
+  private netY = -1
+  private windFx: { x: number; y: number; v: number; len: number }[] = []
+  private moonDust: { x: number; y: number; vy: number; ph: number }[] = []
+  private skid: { x: number; y: number; life: number }[] = []
+  private b2Rot = 0
   /** parry à la SF3: o blob inteiro vira azul-gelo por um instante */
   private parryTint = [0, 0]
   private doubleTint = [0, 0]
@@ -273,10 +282,17 @@ export class StagePixel implements GameRenderer {
     c.px[0] = w.blobX[0]; c.px[1] = w.blobX[1]
     c.py[0] = w.blobY[0]; c.py[1] = w.blobY[1]
     c.st[0] = w.blobState[0]; c.st[1] = w.blobState[1]
+    p.b2x = c.b2x; p.b2y = c.b2y
+    c.b2x = w.ball2X; c.b2y = w.ball2Y
     if (this.intro >= 0) return
     for (const s of [0, 1] as Side[]) {
       if (this.off(s)) continue
-      const wasG = p.py[s] >= GROUND_PLANE_HEIGHT - 0.5, isG = c.py[s] >= GROUND_PLANE_HEIGHT - 0.5
+      const gY = w.groundY(s) - 0.5
+      const wasG = p.py[s] >= gY, isG = c.py[s] >= gY
+      if (isG && w.has(Mod.ICE) && Math.abs(w.blobVX[s]) > 2.5 && (Math.random() < 0.5)) {
+        this.skid.push({ x: c.px[s] - Math.sign(w.blobVX[s]) * 6, y: GROUND + 1, life: 0 })
+        if (this.skid.length > 60) this.skid.shift()
+      }
       if (wasG && !isG && c.py[s] < p.py[s]) {
         this.burst(c.px[s], GROUND + 4, 16, 140, shade(this.px.pal.sand1, 1.25), 0.9, 2)
         this.blobKick[s] = Math.max(this.blobKick[s], 0.3)
@@ -325,9 +341,34 @@ export class StagePixel implements GameRenderer {
           this.squashBall(w, 0.10 + 0.07 * inten)
           break
         }
+        case Ev.MOD_CHANGE: {
+          const ids = w.modMode === 2 || w.modMode === 3 ? (w.modPick >= 0 ? [w.modPick] : []) : modIds(e.intensity)
+          if (ids.length) {
+            this.announce = { ids, life: 0, max: 2.2 }
+            this.flash = Math.max(this.flash, 0.25)
+            this.trauma = Math.min(1, this.trauma + 0.2)
+            const name = ids.length === 1 ? MODS[ids[0]].name.toUpperCase() : `${ids.length} MODIFICADORES`
+            this.bigText(name, 'banner', 1800, MODS[ids[0]].color)
+            for (const id of ids) this.burst(NET_POSITION_X, NET_SPHERE_POSITION - 80, 18, 200, MODS[id].color, 1.2, 2)
+          }
+          this.moonDust.length = 0
+          this.windFx.length = 0
+          break
+        }
+        case Ev.BALL_SPLIT: {
+          this.flash = Math.max(this.flash, 0.3)
+          this.trauma = Math.min(1, this.trauma + 0.3)
+          this.burst(w.ballX, w.ballY, 30, 260, MODS[Mod.SPLIT].color, 0.8, 2)
+          this.rings.push({ x: w.ballX, y: w.ballY, r: 6, max: 90, life: 0, color: MODS[Mod.SPLIT].color })
+          break
+        }
+        case Ev.BALL_MERGE: {
+          this.burst(w.ballX, GROUND + 4, 14, 150, this.px.pal.sand2, 0.9)
+          break
+        }
         case Ev.BALL_HIT_GROUND: {
           const power = Math.min(1, Math.abs(w.ballVY) / 16)
-          this.trauma = Math.min(1, this.trauma + 0.26 * power + 0.06)
+          this.trauma = Math.min(1, this.trauma + 0.26 * power + 0.06 + (e.intensity > 0 ? 0.35 : 0))
           this.burst(w.ballX, GROUND + 6, Math.floor(26 + 40 * power), 150 + 190 * power, this.px.pal.sand2, 1.1)
           this.squashBall(w, 0.10 + 0.08 * power)
           this.craters.push({ x: w.ballX, r: 22 + power * 26, life: 0 })
@@ -653,7 +694,7 @@ export class StagePixel implements GameRenderer {
     this.cut = Math.max(0, this.cut - dt * 5)
     for (const i of [0, 1]) {
       const wv = this.lastWorld
-      const air = wv ? wv.blobY[i] < GROUND_PLANE_HEIGHT - 0.5 : false
+      const air = wv ? wv.blobY[i] < wv.groundY(i as Side) - 0.5 : false
       const tx = wv ? clamp(-wv.blobVX[i] * 0.55, -5, 5) : 0
       const ty = wv ? clamp(-wv.blobVY[i] * 0.32, -4, 4) : 0
       if (this.wasAir[i] && !air) this.hairVY[i] -= 22
@@ -742,13 +783,13 @@ export class StagePixel implements GameRenderer {
     if (alt > 0) pxText(g, String(alt), x + 12, ty + 3, '#ffd257', 1, '#1a1620')
   }
 
-  private shadow(x: number, y: number, r: number) {
+  private shadow(x: number, y: number, r: number, vy = 0) {
     const g = this.g
     const k = clamp(1 - (GROUND - y) / 420, 0.3, 1)
     const rx = Math.round(this.S(r) * k), ry = Math.max(1, Math.round(this.S(r) * 0.3 * k))
     const gy = this.Y(GROUND) + 1
     g.fillStyle = this.px.pal.shadow
-    g.globalAlpha = 0.45
+    g.globalAlpha = 0.45 + clamp(vy / 12, 0, 0.3)
     for (let yy = -ry; yy <= ry; yy++) {
       const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (yy / (ry + 0.5)) ** 2)))
       g.fillRect(this.X(x) - w, gy + yy, w * 2, 1)
@@ -763,20 +804,31 @@ export class StagePixel implements GameRenderer {
     const tint = this.parryTint[p] > 0 || this.doubleTint[p] > 0
     const c = this.doubleTint[p] > 0 ? DOUBLE_COLS : tint ? PARRY_COLS : this.cols[p]
     const kick = this.blobKick[p]
-    const squash = (1 + Math.sin(state * 1.6) * 0.045 + Math.sin(kick * 9) * kick * 0.12) * (1 - cr * 0.12)
-    const ru = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
-    const rl = this.S(BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) / squash
+    const wv = this.lastWorld
+    const sz = wv ? wv.size(p) : 1
+    // a forma vem da simulação: X e Y são escalas, ancoradas nos pés
+    const sy = (wv ? wv.defY[p] : 1) * (1 + Math.sin(kick * 9) * kick * 0.04)
+    const sx = wv ? wv.defX[p] : 1
+    void state
+    const ru0 = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * sz
+    const rl0 = this.S(BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) * sz
     const x = this.ox + wx * this.scale
     const y = this.oy + wy * this.scale
-    const uy = y - this.S(BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
-    const ly = y + this.S(BLOBBY_LOWER_SPHERE)
+    const ly0 = y + this.S(BLOBBY_LOWER_SPHERE) * sz
+    const anchor = ly0 + rl0
+    const uy0 = y - this.S(BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * sz
+    const V = (yy: number) => anchor - (anchor - yy) * sy
+    const ru = ru0
+    const rl = rl0
+    const ly = V(ly0), uy = V(uy0)
     const d = dvDir, dk = dive
     const bkx = x - d * this.S(20) * dk
-    const bky = ly + this.S(13) * dk
-    const brx = rl * (1 + 0.42 * dk)
-    const bry = rl * (1 - 0.3 * dk)
+    const bky = ly + this.S(13) * dk * sy
+    const brx = rl * (1 + 0.42 * dk) * sx
+    const bry = rl * (1 - 0.3 * dk) * sy
     const hx = x + d * this.S(30) * dk
-    const hy = uy + this.S(22) * dk
+    const hy = uy + this.S(22) * dk * sy
+    const hrx = ru * sx, hry = ru * sy
     const fac = p === LEFT ? 1 : -1
 
     g.save()
@@ -796,7 +848,7 @@ export class StagePixel implements GameRenderer {
     }
     ellipseP(g, bkx, bky, brx, bry, c)
     // tronco: corpo e cabeça são uma massa só
-    const nw = Math.round(ru * 1.3)
+    const nw = Math.round(ru * 1.3 * sx)
     const ny0 = Math.round(hy), ny1 = Math.round(bky - bry * 0.4)
     if (ny1 > ny0) {
       g.fillStyle = c.base
@@ -811,18 +863,28 @@ export class StagePixel implements GameRenderer {
       ellipseP(g, ax + d * len * 0.5, ay + len * 0.2, len * 0.62, Math.max(1.5, ru * 0.34), c)
       discP(g, ax + d * len, ay + len * 0.35, ru * 0.3, c.dk)
     }
-    this.hair(p, hx, hy, ru, fac, true)
-    ellipseP(g, hx, hy, ru, ru, c)
+    this.hair(p, hx, hy - (hry - ru), ru * (0.6 + 0.4 * sx), fac, true)
+    ellipseP(g, hx, hy, hrx, hry, c)
     g.fillStyle = c.hi
-    g.fillRect(Math.round(hx - ru * 0.45), Math.round(hy - ru * 0.55), 2, 1)
-    g.fillRect(Math.round(hx - ru * 0.55), Math.round(hy - ru * 0.35), 1, 2)
-    this.face(p, hx, hy, ru, fac, ball, stunned)
-    this.hair(p, hx, hy, ru, fac, false)
+    g.fillRect(Math.round(hx - hrx * 0.45), Math.round(hy - hry * 0.55), 2, 1)
+    g.fillRect(Math.round(hx - hrx * 0.55), Math.round(hy - hry * 0.35), 1, 2)
+    // afundamento onde a bola tocou: uma sombra funda na superfície
+    const dent = wv ? wv.dentK[p] : 0
+    if (dent > 0.05) {
+      const nx = wv!.dentX[p], ny = wv!.dentY[p]
+      const onHead = ny < -0.15
+      const cx = onHead ? hx : bkx, cy = onHead ? hy : bky
+      const rx = onHead ? hrx : brx, ry = onHead ? hry : bry
+      const dr = Math.max(1.5, Math.min(rx, ry) * 0.36 * Math.min(1, dent))
+      ellipseP(g, cx + nx * (rx - dr * 0.8), cy + ny * (ry - dr * 0.8), dr * 1.3, dr, { base: c.dk, hi: c.dk, dk: c.dk2, dk2: c.dk2 })
+    }
+    this.face(p, hx, hy + (hry - ru) * 0.15, ru * Math.min(sx, sy) ** 0.5, fac, ball, stunned)
+    this.hair(p, hx, hy - (hry - ru), ru * (0.6 + 0.4 * sx), fac, false)
     if (this.blobFlash[p] > 0.05) {
       g.globalAlpha = this.blobFlash[p] * 0.7
       const fl = { base: '#fff2c8', hi: '#fff2c8', dk: '#fff2c8', dk2: '#fff2c8' }
       ellipseP(g, bkx, bky, brx, bry, fl)
-      ellipseP(g, hx, hy, ru, ru, fl)
+      ellipseP(g, hx, hy, hrx, hry, fl)
       g.globalAlpha = 1
     }
     g.restore()
@@ -912,8 +974,12 @@ export class StagePixel implements GameRenderer {
 
   private ball(x: number, y: number, rot: number) {
     const g = this.g
-    const r = Math.max(2, Math.round(this.S(BALL_RADIUS)))
+    const wv = this.lastWorld
+    const r = Math.max(2, Math.round(this.S(wv ? wv.ballR() : BALL_RADIUS)))
+    const bowl = wv ? wv.has(Mod.BOWLING) : false
+    const bal = wv ? wv.has(Mod.BALLOON) : false
     const cx = Math.round(x), cy = Math.round(y)
+    if (bal) g.globalAlpha = 0.72
     const sq = this.squash.k
     const sxk = 1 + sq * Math.abs(Math.cos(this.squash.ang)) * 0.5, syk = 1 + sq * Math.abs(Math.sin(this.squash.ang)) * 0.5
     const rx = Math.round(r * sxk), ry = Math.round(r * syk)
@@ -925,12 +991,18 @@ export class StagePixel implements GameRenderer {
       const gomo = (a % (Math.PI * 2 / 3)) < 0.66
       let col = gomo ? '#e33a3a' : '#f4f6fa'
       const edge = d > (1 - 1.6 / r) ** 2
-      if (edge) col = gomo ? '#8a1f2a' : '#b8c0cc'
+      if (bowl) {
+        col = edge ? '#16121f' : (nx < -0.25 && ny < -0.3 && d < 0.5) ? '#6c6488' : (nx > 0.35 && ny > 0) ? '#251f38' : '#3b3550'
+        if (!edge && d < 0.18 && ((xx + yy) & 1)) col = '#1d1829'
+      } else if (bal) {
+        col = edge ? '#b8506f' : (nx < -0.25 && ny < -0.3 && d < 0.5) ? '#ffe1ec' : (nx > 0.35 && ny > 0) ? '#e06a91' : '#ff8fb8'
+      } else if (edge) col = gomo ? '#8a1f2a' : '#b8c0cc'
       else if (nx < -0.25 && ny < -0.3 && d < 0.5) col = gomo ? '#ff8a7a' : '#ffffff'
       else if (nx > 0.35 && ny > 0) col = gomo ? '#a52a2f' : '#c8d0dc'
       g.fillStyle = col
       g.fillRect(cx + xx, cy + yy, 1, 1)
     }
+    g.globalAlpha = 1
   }
 
   /** Double special: rastro da bola dando a volta no corpo, mais o anel de energia. */
@@ -1117,7 +1189,11 @@ export class StagePixel implements GameRenderer {
   private net() {
     const g = this.g
     const nx = this.X(NET_POSITION_X)
-    const top = this.Y(NET_SPHERE_POSITION), bot = this.Y(GROUND + 30)
+    const wv = this.lastWorld
+    const wantY = wv ? wv.netTop() : NET_SPHERE_POSITION
+    if (this.netY < 0 || Math.abs(this.netY - wantY) > 200) this.netY = wantY
+    this.netY += (wantY - this.netY) * 0.08
+    const top = this.Y(this.netY), bot = this.Y(GROUND + 30)
     const w = Math.max(2, Math.round(this.S(NET_RADIUS * 2)))
     const x0 = nx - Math.floor(w / 2)
     g.fillStyle = this.px.pal.pole
@@ -1282,6 +1358,134 @@ export class StagePixel implements GameRenderer {
     if (t >= 3.3 && t < 4.7) pxText(g, 'VS', W / 2, 22, '#ffd257', 3)
   }
 
+  /** Chão: brilho do gelo e o rastro de quem escorregou. */
+  private modsGround(w: Match['world'], dt: number) {
+    const g = this.g
+    const gy = this.Y(GROUND)
+    if (w.has(Mod.ICE)) {
+      g.fillStyle = '#dff6ff'
+      g.globalAlpha = 0.35
+      g.fillRect(0, gy + 1, this.W, 1)
+      g.globalAlpha = 0.18
+      g.fillRect(0, gy + 3, this.W, 1)
+      const sh = Math.floor((this.time * 60) % (this.W + 40)) - 40
+      g.globalAlpha = 0.5
+      g.fillStyle = '#ffffff'
+      g.fillRect(sh, gy + 2, 24, 1)
+      g.globalAlpha = 1
+      for (const s of this.skid) {
+        s.life += dt
+        g.globalAlpha = Math.max(0, 0.45 - s.life * 0.3)
+        g.fillStyle = '#ffffff'
+        g.fillRect(this.X(s.x) - 2, gy + 2, 5, 1)
+      }
+      g.globalAlpha = 1
+      this.skid = this.skid.filter(s => s.life < 1.5)
+    } else this.skid.length = 0
+  }
+
+  /** Ar: poeira flutuando na lua, riscos de vento cruzando a tela. */
+  private modsAir(w: Match['world'], dt: number) {
+    const g = this.g
+    if (w.has(Mod.LUNAR)) {
+      while (this.moonDust.length < 28) {
+        this.moonDust.push({ x: Math.random() * this.W, y: this.Y(GROUND) - Math.random() * this.H * 0.9, vy: 2 + Math.random() * 5, ph: Math.random() * 7 })
+      }
+      g.fillStyle = MODS[Mod.LUNAR].color
+      for (const d of this.moonDust) {
+        d.y -= d.vy * dt
+        d.x += Math.sin(this.time * 0.8 + d.ph) * 4 * dt
+        if (d.y < -2) { d.y = this.Y(GROUND) - 2; d.x = Math.random() * this.W }
+        g.globalAlpha = 0.35 + 0.3 * Math.sin(this.time * 2 + d.ph)
+        g.fillRect(Math.round(d.x), Math.round(d.y), 1, 1)
+      }
+      g.globalAlpha = 1
+    } else this.moonDust.length = 0
+    if (w.windX !== 0) {
+      const dir = Math.sign(w.windX)
+      const speed = 90 + Math.abs(w.windX) * 2200
+      while (this.windFx.length < 16) {
+        this.windFx.push({ x: Math.random() * this.W, y: 6 + Math.random() * (this.Y(GROUND) - 12), v: speed * (0.6 + Math.random() * 0.7), len: 4 + Math.round(Math.random() * 8) })
+      }
+      g.fillStyle = '#ffffff'
+      g.globalAlpha = 0.55
+      for (const f of this.windFx) {
+        f.x += dir * f.v * dt
+        if (dir > 0 && f.x > this.W + 12) { f.x = -12; f.y = 6 + Math.random() * (this.Y(GROUND) - 12) }
+        if (dir < 0 && f.x < -12) { f.x = this.W + 12; f.y = 6 + Math.random() * (this.Y(GROUND) - 12) }
+        g.fillRect(Math.round(f.x), Math.round(f.y), f.len, 1)
+      }
+      g.globalAlpha = 1
+    } else this.windFx.length = 0
+  }
+
+  /** Faixa dos ativos, seta do vento antes do saque, roleta e anúncio. */
+  private modsHud(w: Match['world'], ballValid: boolean, dt: number) {
+    const g = this.g
+    const ids = modIds(w.mods)
+    if (ids.length) {
+      const sz = 12, gap = 3
+      const tw = ids.length * (sz + gap) - gap
+      let x = this.W - tw - 6
+      const y = 24
+      g.fillStyle = 'rgba(10,8,14,0.55)'
+      g.fillRect(x - 3, y - 2, tw + 6, sz + 4)
+      for (const id of ids) { modIcon(g, id, x, y, sz); x += sz + gap }
+    }
+    if (w.windX !== 0 && !ballValid) {
+      const dir = Math.sign(w.windX)
+      const mag = Math.min(3, Math.round(Math.abs(w.windX) / 0.025))
+      const cx = Math.round(this.W / 2), cy = Math.round(this.H * 0.3)
+      g.fillStyle = MODS[Mod.WIND].color
+      const len = 14 + mag * 6
+      const x0 = cx - dir * len / 2
+      g.fillRect(Math.round(Math.min(x0, x0 + dir * len)), cy, len, 2)
+      const tip = x0 + dir * len
+      for (let i = 1; i <= 4; i++) g.fillRect(Math.round(tip - dir * i), cy - i, 1, 2 * i + 2)
+      pxText(g, 'VENTO', cx, cy + 6, MODS[Mod.WIND].color, 1, '#1a1620')
+    }
+    if (w.modWait > 0 && (w.modMode === 2 || w.modMode === 3)) {
+      const total = w.modMode === 2 ? 110 : 75
+      const t = 1 - w.modWait / total
+      const sz = 40
+      const cx = Math.round(this.W / 2 - sz / 2), cy = Math.round(this.H * 0.5 - sz / 2)
+      g.fillStyle = 'rgba(10,8,14,0.75)'
+      g.fillRect(cx - 8, cy - 8, sz + 16, sz + 16 + FONT_H + 6)
+      let id = w.modPick
+      let settled = true
+      if (w.modMode === 2 && w.modWait > 32) {
+        const rate = 26 - 22 * t
+        id = Math.floor(this.time * rate) % 10
+        settled = false
+      }
+      if (settled && ((this.time * 12) | 0) % 4 === 0) { g.fillStyle = MODS[id].color; g.globalAlpha = 0.3; g.fillRect(cx - 8, cy - 8, sz + 16, sz + 16 + FONT_H + 6); g.globalAlpha = 1 }
+      g.fillStyle = MODS[id]?.color ?? '#fff'
+      g.fillRect(cx - 8, cy - 8, sz + 16, 1); g.fillRect(cx - 8, cy + sz + 8 + FONT_H + 5, sz + 16, 1)
+      if (id >= 0) modIcon(g, id, cx, cy, sz)
+      pxText(g, settled ? MODS[id].name.toUpperCase() : w.modMode === 2 ? 'ROLETA' : 'CAOS', Math.round(this.W / 2), cy + sz + 6, settled ? MODS[id].color : '#f4f7fc', 1, '#1a1620')
+    }
+    const a = this.announce
+    if (a) {
+      a.life += dt
+      if (a.life >= a.max) { this.announce = null; return }
+      const inK = Math.min(1, a.life / 0.25)
+      const sz = Math.round(16 + 32 * inK)
+      const n = a.ids.length
+      const gap = 6
+      const tw = n * sz + (n - 1) * gap
+      let x = Math.round(this.W / 2 - tw / 2)
+      const y = Math.round(this.H * 0.44 + FONT_H * 2 + 14)
+      g.globalAlpha = a.life > a.max - 0.4 ? (a.max - a.life) / 0.4 : 1
+      for (const id of a.ids) {
+        g.fillStyle = 'rgba(10,8,14,0.7)'
+        g.fillRect(x - 3, y - 3, sz + 6, sz + 6)
+        modIcon(g, id, x, y, sz)
+        x += sz + gap
+      }
+      g.globalAlpha = 1
+    }
+  }
+
   render(match: Match, alpha: number, dt: number) {
     this.lastWorld = match.world
     crouchMoods(this.faces, match.world.crouch)
@@ -1327,10 +1531,12 @@ export class StagePixel implements GameRenderer {
     this.ground()
     this.walls()
 
-    if (this.intro < 0) this.shadow(bx, by, BALL_RADIUS)
+    this.modsGround(w, dt)
+    if (this.intro < 0) this.shadow(bx, by, w.ballR())
+    if (this.intro < 0 && w.ball2On) this.shadow(L(p.b2x, q.b2x), L(p.b2y, q.b2y), w.ballR())
     for (const s of [0, 1] as Side[]) {
       if (this.off(s)) continue
-      this.shadow(L(p.px[s], q.px[s]), L(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
+      this.shadow(L(p.px[s], q.px[s]), L(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS * w.size(s) * w.defX[s], w.blobVY[s])
     }
     for (const s of [0, 1] as Side[]) {
       const px = L(p.px[s], q.px[s]), py = L(p.py[s], q.py[s])
@@ -1355,6 +1561,10 @@ export class StagePixel implements GameRenderer {
       this.trailFx()
       if (this.energy > 0.01) this.energyBall(this.X(bx), this.Y(by), w.superOwner as number)
       this.ball(this.X(bx), this.Y(by), rot)
+      if (w.ball2On) {
+        this.b2Rot += w.ball2VX * 0.02
+        this.ball(this.X(L(p.b2x, q.b2x)), this.Y(L(p.b2y, q.b2y)), this.b2Rot)
+      }
       if (this.Y(by) < -BALL_RADIUS * this.scale * 0.5) this.ballArrow(this.X(bx), this.Y(by))
       if (eOn && Math.sin(this.time * 30) > 0) {
         g.globalAlpha = 0.5
@@ -1364,6 +1574,7 @@ export class StagePixel implements GameRenderer {
     }
     this.net()
     this.fx()
+    this.modsAir(w, dt)
     this.pop([L(p.px[0], q.px[0]), L(p.px[1], q.px[1])], [L(p.py[0], q.py[0]), L(p.py[1], q.py[1])])
     this.px.foreground(g, this.time, this.Y(GROUND), dt)
     g.setTransform(1, 0, 0, 1, 0, 0)
@@ -1392,6 +1603,7 @@ export class StagePixel implements GameRenderer {
     if (fl > 0.01) { g.globalAlpha = Math.min(1, fl); g.fillStyle = '#ffffff'; g.fillRect(0, 0, this.W, this.H); g.globalAlpha = 1 }
     this.calloutsDraw()
     this.bigsDraw()
+    if (this.intro < 0) this.modsHud(w, match.logic.isBallValid, dt)
 
     this.screen.imageSmoothingEnabled = false
     this.screen.drawImage(this.world, 0, 0, this.W, this.H, 0, 0, this.cw, this.ch)

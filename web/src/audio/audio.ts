@@ -674,6 +674,38 @@ export class GameAudio {
     this.bell(659.25, 0, 0.5, 0.05)
   }
 
+  /** Cada modificador tem um timbre próprio; a máscara toca o do primeiro ligado. */
+  modChange(mask: number) {
+    if (!this.ctx) return
+    let m = -1
+    for (let i = 0; i < 10; i++) if ((mask >> i) & 1) { m = i; break }
+    if (m < 0) { this.bell(392, 0, 0.5, 0.06); return }
+    switch (m) {
+      case 0: this.chipTone(220, 880, 0.6, 0.09, 'tri'); this.bell(1318.5, 0.3, 0.9, 0.05); break
+      case 1: this.thump(90, 0.85, 0.35, 0.16, 'sine'); this.chipHiss(0.2, 0.08, 0.4); break
+      case 2: this.chipTone(660, 990, 0.25, 0.08, 'p25'); this.chipTone(990, 1320, 0.25, 0.06, 'p25', 0.25); break
+      case 3: this.bell(1567.98, 0, 0.7, 0.06); this.bell(2093, 0.08, 0.7, 0.05); this.chipHiss(0.3, 0.05, 2.5); break
+      case 4: this.chipTone(330, 110, 0.45, 0.1, 'sq'); this.thump(70, 0.5, 0.25, 0.12, 'sine'); break
+      case 5: this.chipTone(440, 700, 0.18, 0.07, 'p12'); this.chipTone(700, 1100, 0.18, 0.07, 'p12', 0.18); break
+      case 6: this.chipTone(880, 880, 0.06, 0.08, 'sq'); this.chipTone(1108, 1108, 0.06, 0.08, 'sq', 0.07); this.chipTone(1318, 1318, 0.12, 0.08, 'sq', 0.14); break
+      case 7: this.chipTone(300, 900, 0.12, 0.09, 'tri'); this.chipTone(300, 900, 0.12, 0.09, 'tri', 0.14); this.chipTone(300, 900, 0.12, 0.09, 'tri', 0.28); break
+      case 8: this.chipHiss(0.7, 0.09, 1.2); this.chipTone(500, 350, 0.6, 0.03, 'tri'); break
+      case 9: this.chipTone(500, 420, 0.1, 0.08, 'tri'); this.chipTone(420, 500, 0.1, 0.08, 'tri', 0.1); this.chipTone(500, 460, 0.15, 0.06, 'tri', 0.2); break
+    }
+  }
+
+  ballSplit(pan: number) {
+    if (!this.ctx) return
+    this.chipTone(1200, 400, 0.12, 0.1, 'sq')
+    this.burst(0.08, 0.07, 'highpass', 2400, 1.2, pan)
+    this.bell(1760, 0.05, 0.4, 0.05)
+  }
+
+  ballMerge(pan: number) {
+    if (!this.ctx) return
+    this.burst(0.06, 0.05, 'lowpass', 900, 0.8, pan)
+  }
+
   emote(id: number) {
     if (!this.ctx) return
     if (id === 0) { this.bell(392.0, 0, 0.6, 0.075); this.bell(293.66, 0.14, 0.9, 0.06) }
@@ -859,6 +891,9 @@ export class GameAudio {
           this.point(localSide !== e.side)
           break
         case Ev.RESET_BALL: this.serve(); break
+        case Ev.MOD_CHANGE: this.modChange(e.intensity); break
+        case Ev.BALL_SPLIT: this.ballSplit(ballPan); break
+        case Ev.BALL_MERGE: this.ballMerge(ballPan); break
         case Ev.SPECIAL_READY: if (localSide === e.side) this.special('ready'); break
         case Ev.SPECIAL_FIRED: this.special('fired', ballPan); break
         case Ev.SPECIAL_HIT: this.special('hit', panOf(world.blobX[e.side as Side])); break

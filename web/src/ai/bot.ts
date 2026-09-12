@@ -92,7 +92,7 @@ function simulate(match: Match, horizon: number): number {
   let vx = running ? w.ballVX : 0
   let vy = running ? w.ballVY : 0
   const g = !running ? 0
-    : w.superFrames > 0 ? BALL_GRAVITATION * w.superGravity() : BALL_GRAVITATION
+    : w.superFrames > 0 ? w.gBallBase() * w.superGravity() : w.gBallBase()
 
   for (let t = 1; t <= n; t++) {
     x += vx
@@ -101,7 +101,7 @@ function simulate(match: Match, horizon: number): number {
 
     if (CTX.walls && x - BALL_RADIUS <= LEFT_PLANE && vx < 0) { vx = -vx; x = LEFT_PLANE + BALL_RADIUS }
     else if (CTX.walls && x + BALL_RADIUS >= RIGHT_PLANE && vx > 0) { vx = -vx; x = RIGHT_PLANE - BALL_RADIUS }
-    else if (y > NET_SPHERE_POSITION && Math.abs(x - NET_POSITION_X) < BALL_RADIUS + NET_RADIUS) {
+    else if (y > w.netTop() && Math.abs(x - NET_POSITION_X) < BALL_RADIUS + NET_RADIUS) {
       const right = x - NET_POSITION_X > 0
       vx = -vx
       x = NET_POSITION_X + (right ? BALL_RADIUS + NET_RADIUS : -(BALL_RADIUS + NET_RADIUS))
@@ -241,7 +241,7 @@ export class Bot {
     CTX.walls = w.wallsOn
     const me = this.side
     const bx = w.blobX[me]
-    const onGround = w.blobY[me] >= GROUND_PLANE_HEIGHT - 0.001
+    const onGround = w.blobY[me] >= w.groundY(me) - 0.001
 
     if (this.digLock > 0) this.digLock--
 
@@ -419,15 +419,17 @@ export class Bot {
     const n = simulate(match, p.horizon)
 
     // minha altura frame a frame se eu não fizer nada, e quando volto pro chão
-    let landIn = w.blobY[me] >= GROUND_PLANE_HEIGHT - 0.001 ? 0 : -1
+    const gY = w.groundY(me)
+    let landIn = w.blobY[me] >= gY - 0.001 ? 0 : -1
     {
       let y = w.blobY[me]
       let vy = w.blobVY[me]
+      const gb = w.gBlob()
       for (let t = 1; t <= n; t++) {
-        const gg = vy < 0 ? GRAVITATION - BLOBBY_JUMP_BUFFER : GRAVITATION
+        const gg = vy < 0 ? gb - BLOBBY_JUMP_BUFFER * (gb / GRAVITATION) : gb
         y += 0.5 * gg + vy
         vy += gg
-        if (y >= GROUND_PLANE_HEIGHT) { y = GROUND_PLANE_HEIGHT; vy = 0; if (landIn < 0) landIn = t }
+        if (y >= gY) { y = gY; vy = 0; if (landIn < 0) landIn = t }
         ay[t] = y
       }
     }

@@ -8,7 +8,7 @@ import type { PlayerLook } from '../core/looks.ts'
 import type { ArenaId } from '../core/constants.ts'
 import type { Side } from '../core/constants.ts'
 
-const PROTO = 20
+const PROTO = 21
 const enum P {
   HELLO = 0, INPUT = 1, PING = 2, PONG = 3, SYNC = 4, EMOTE = 5, BYE = 6,
   WELCOME = 7, DENY = 8, REMATCH = 9,
@@ -53,6 +53,9 @@ export interface SessionOpts {
   look: PlayerLook
   onArena?: (id: ArenaId) => void
   onWalls?: (on: boolean) => void
+  mods?: number
+  modMode?: number
+  onMods?: (mode: number, mask: number) => void
   /** cenário do host: quem entra vê a mesma quadra */
   scene: string
   onScene?: (id: string) => void
@@ -86,7 +89,7 @@ export class NetSession {
   rtt = 0
   private checksums = new Map<number, number>()
   desynced = false
-  private began: { ruleId: string; stw: number; arena: ArenaId; walls: boolean; serving: Side } | null = null
+  private began: { ruleId: string; stw: number; arena: ArenaId; walls: boolean; serving: Side; modMode: number; mods: number; seed: number } | null = null
 
   /** Regra, placar-alvo, arena, paredes e quem saca: o replay precisa disso pra reproduzir. */
   get setup() { return this.began }
@@ -168,7 +171,7 @@ export class NetSession {
       this.peer = from
       this.sendWelcome(from)
       this.begin(this.opts.ruleId, this.scoreToWin(), (this.seed & 1) as Side,
-        this.opts.arena, this.opts.walls)
+        this.opts.arena, this.opts.walls, this.opts.modMode ?? 0, this.opts.mods ?? 0)
     }
     if (this.opts.onJoinRequest) this.opts.onJoinRequest(this.peerName, () => settle(true), () => settle(false))
     else settle(true)
@@ -181,7 +184,7 @@ export class NetSession {
     const ruleBytes = new TextEncoder().encode(this.opts.ruleId)
     const look = packLook(this.opts.look)
     const sceneBytes = new TextEncoder().encode(this.opts.scene.slice(0, 16))
-    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length + 1 + sceneBytes.length)
+    const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + 3 + 1 + nameBytes.length + 1 + ruleBytes.length + 1 + sceneBytes.length + 7)
     const dv = new DataView(buf.buffer)
     let o = 0
     dv.setUint8(o++, P.WELCOME)
@@ -192,7 +195,10 @@ export class NetSession {
     for (const b of look) dv.setUint8(o++, b)
     dv.setUint8(o++, nameBytes.length); buf.set(nameBytes, o); o += nameBytes.length
     dv.setUint8(o++, ruleBytes.length); buf.set(ruleBytes, o); o += ruleBytes.length
-    dv.setUint8(o++, sceneBytes.length); buf.set(sceneBytes, o)
+    dv.setUint8(o++, sceneBytes.length); buf.set(sceneBytes, o); o += sceneBytes.length
+    dv.setUint32(o, this.seed); o += 4
+    dv.setUint16(o, this.opts.mods ?? 0); o += 2
+    dv.setUint8(o++, this.opts.modMode ?? 0)
     this.transport.send(buf, to)
   }
 
@@ -210,25 +216,27 @@ export class NetSession {
     this.peerName = new TextDecoder().decode(buf.subarray(o, o + nl)) || 'Player'; o += nl
     const rl = dv.getUint8(o++)
     const ruleId = new TextDecoder().decode(buf.subarray(o, o + rl)); o += rl
-    if (o < buf.length) {
-      const sl = dv.getUint8(o++)
-      const scene = new TextDecoder().decode(buf.subarray(o, o + sl))
-      if (scene) this.opts.onScene?.(scene)
-    }
+    const sl = dv.getUint8(o++)
+    const scene = new TextDecoder().decode(buf.subarray(o, o + sl)); o += sl
+    if (scene) this.opts.onScene?.(scene)
+    this.seed = dv.getUint32(o); o += 4
+    const mods = dv.getUint16(o); o += 2
+    const modMode = dv.getUint8(o++)
     this.peer = from
     clearInterval(this.helloTimer)
-    this.begin(ruleId, stw, serving, arena, walls)
+    this.begin(ruleId, stw, serving, arena, walls, modMode, mods)
   }
 
-  private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId, walls: boolean) {
+  private begin(ruleId: string, stw: number, serving: Side, arena: ArenaId, walls: boolean, modMode: number, mods: number) {
     if (arenaId() !== arena) { setArena(arena); this.opts.onArena?.(arena) }
     if (this.opts.walls !== walls) { this.opts.walls = walls; this.opts.onWalls?.(walls) }
-    this.began = { ruleId, stw, arena, walls, serving }
+    this.began = { ruleId, stw, arena, walls, serving, modMode, mods, seed: this.seed }
+    this.opts.onMods?.(modMode, mods)
     this.wantMine = false
     this.wantTheirs = false
     this.checksums.clear()
     this.desynced = false
-    this.match = new Match(ruleId, stw || undefined, serving, walls)
+    this.match = new Match(ruleId, stw || undefined, serving, walls, modMode, mods, this.seed)
     this.rollback = new Rollback(this.match, this.localSide)
     clearInterval(this.helloTimer)
     this.setPhase('playing')
@@ -249,8 +257,11 @@ export class NetSession {
     if (!this.opts.host || !this.began || !this.wantMine || !this.wantTheirs) return
     this.seed = (Math.random() * 0xffffffff) >>> 0
     const serving = (this.seed & 1) as Side
-    this.transport.send(new Uint8Array([P.REMATCH, 1, serving]))
-    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls)
+    const b = new Uint8Array(7)
+    const dv = new DataView(b.buffer)
+    dv.setUint8(0, P.REMATCH); dv.setUint8(1, 1); dv.setUint8(2, serving); dv.setUint32(3, this.seed)
+    this.transport.send(b)
+    this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls, this.began.modMode, this.began.mods)
   }
 
   private onRematch(dv: DataView) {
@@ -258,7 +269,8 @@ export class NetSession {
     if (dv.getUint8(1) === 1) {
       if (this.opts.host) return
       const serving = (dv.byteLength > 2 ? dv.getUint8(2) : 0) as Side
-      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls)
+      if (dv.byteLength >= 7) this.seed = dv.getUint32(3)
+      this.begin(this.began.ruleId, this.began.stw, serving, this.began.arena, this.began.walls, this.began.modMode, this.began.mods)
       return
     }
     this.wantTheirs = true

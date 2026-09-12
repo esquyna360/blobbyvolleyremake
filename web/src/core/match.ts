@@ -7,8 +7,8 @@ import type { RuleSet } from './logic.ts'
 import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
-export const STATE_FLOATS = 26
-export const STATE_INTS = 71
+export const STATE_FLOATS = 50
+export const STATE_INTS = 92
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -37,12 +37,16 @@ export class Match {
     scoreToWin?: number,
     servingPlayer: SideOrNone = LEFT,
     walls = true,
+    modMode = 0,
+    mods = 0,
+    modSeed = 0,
   ) {
     const r = typeof rules === 'string' ? getRules(rules) : rules
     this.logic = new GameLogic(r, scoreToWin)
     this.logic.servingPlayer = servingPlayer
     this.world.walls = walls
-    this.world.resetBall(servingPlayer)
+    this.world.setMods(modMode, mods, modSeed)
+    this.world.resetBall(servingPlayer, this.events)
   }
 
   /** Match point de qualquer lado. */
@@ -54,6 +58,7 @@ export class Match {
   private canStartRound(serving: SideOrNone) {
     const w = this.world
     if (serving === NO_PLAYER) return false
+    if (w.modWait > 0) return false
     return w.blobHitGround(serving as Side) && w.ballVY < 1.5 && w.ballVY > -1.5 && w.ballY > 430
   }
 
@@ -104,10 +109,11 @@ export class Match {
       this.events.push({ event: Ev.PLAYER_ERROR, side: err, intensity: 0 })
       w.addCharge(err, SPECIAL_GAIN_LOST, this.events)
       w.ballVX *= 0.6; w.ballVY *= 0.6
+      w.onPoint(err as Side)
     }
 
     if (!g.isBallValid && this.canStartRound(g.servingPlayer)) {
-      w.resetBall(g.servingPlayer)
+      w.resetBall(g.servingPlayer, this.events)
       g.onServe()
       this.events.push({ event: Ev.RESET_BALL, side: NO_PLAYER, intensity: 0 })
     }
@@ -160,6 +166,15 @@ export class Match {
     i[66] = w.revSpin[0]; i[67] = w.revSpin[1]; i[68] = w.superKind
     i[69] = w.hitPass[0]; i[70] = w.hitPass[1]
     f[24] = w.tempo; f[25] = w.ballSpin
+    f[26] = w.windX; f[27] = w.ball2X; f[28] = w.ball2Y; f[29] = w.ball2VX; f[30] = w.ball2VY
+    f[31] = w.defX[0]; f[32] = w.defX[1]; f[33] = w.defY[0]; f[34] = w.defY[1]
+    f[35] = w.defVX[0]; f[36] = w.defVX[1]; f[37] = w.defVY[0]; f[38] = w.defVY[1]
+    f[39] = w.dentX[0]; f[40] = w.dentX[1]; f[41] = w.dentY[0]; f[42] = w.dentY[1]
+    f[43] = w.dentK[0]; f[44] = w.dentK[1]
+    i[71] = w.mods; i[72] = w.modMode; i[73] = w.modBase; i[74] = w.modSeed; i[75] = w.modWait; i[76] = w.modPick
+    i[77] = w.netRise; i[78] = w.swell[0]; i[79] = w.swell[1]; i[80] = w.ball2On
+    i[81] = w.wobble[0]; i[82] = w.wobble[1]; i[83] = w.melt[0]; i[84] = w.melt[1]
+    i[85] = w.cheer[0]; i[86] = w.cheer[1]; i[87] = w.antic[0]; i[88] = w.antic[1]; i[89] = w.frameNo
   }
 
   restore(s: MatchState) {
@@ -210,6 +225,15 @@ export class Match {
     w.revSpin[0] = i[66]; w.revSpin[1] = i[67]; w.superKind = i[68]
     w.hitPass[0] = i[69]; w.hitPass[1] = i[70]
     w.tempo = f[24]; w.ballSpin = f[25]
+    w.windX = f[26]; w.ball2X = f[27]; w.ball2Y = f[28]; w.ball2VX = f[29]; w.ball2VY = f[30]
+    w.defX[0] = f[31]; w.defX[1] = f[32]; w.defY[0] = f[33]; w.defY[1] = f[34]
+    w.defVX[0] = f[35]; w.defVX[1] = f[36]; w.defVY[0] = f[37]; w.defVY[1] = f[38]
+    w.dentX[0] = f[39]; w.dentX[1] = f[40]; w.dentY[0] = f[41]; w.dentY[1] = f[42]
+    w.dentK[0] = f[43]; w.dentK[1] = f[44]
+    w.mods = i[71]; w.modMode = i[72]; w.modBase = i[73]; w.modSeed = i[74]; w.modWait = i[75]; w.modPick = i[76]
+    w.netRise = i[77]; w.swell[0] = i[78]; w.swell[1] = i[79]; w.ball2On = i[80]
+    w.wobble[0] = i[81]; w.wobble[1] = i[82]; w.melt[0] = i[83]; w.melt[1] = i[84]
+    w.cheer[0] = i[85]; w.cheer[1] = i[86]; w.antic[0] = i[87]; w.antic[1] = i[88]; w.frameNo = i[89]
     w.rally = g.rally
     w.matchPoint = this.atMatchPoint()
   }
