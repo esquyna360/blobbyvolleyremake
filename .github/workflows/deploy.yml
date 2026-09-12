@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, mods]
   workflow_dispatch:
 
 permissions:
@@ -17,27 +17,44 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - uses: actions/checkout@v4
+        with:
+          ref: mods
+          path: mods
       - uses: pnpm/action-setup@v4
         with:
           version: 11
-          package_json_file: web/package.json
+          package_json_file: main/web/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm build
+      - name: build main
+        working-directory: main/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+      - name: build mods
+        working-directory: mods/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+      - name: assemble
+        run: |
+          mkdir -p site
+          cp -r main/web/dist/. site/
+          mkdir -p site/mods
+          cp -r mods/web/dist/. site/mods/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: site
 
   deploy:
     needs: build
