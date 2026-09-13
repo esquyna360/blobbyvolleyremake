@@ -145,6 +145,8 @@ export const BODY_COLORS: ColorOpt[] = [
   { id: 'areia', name: 'Areia', hex: '#d9ac72' },
   { id: 'grafite', name: 'Grafite', hex: '#4a5364' },
   { id: 'neve', name: 'Neve', hex: '#e6ecf5' },
+  { id: 'carvao', name: 'Carvão', hex: '#2a2c36' },
+  { id: 'tigrado', name: 'Tigrado', hex: '#c27a2e' },
 ]
 
 export const HAIR_COLORS: ColorOpt[] = [
@@ -164,7 +166,12 @@ export interface PlayerLook {
   body: number
   hair: number
   hairColor: number
+  /** 0 blob; 1 Blue Mary; 2 Godi; 3 Link */
+  pet?: number
 }
+
+export const PET_NONE = 0, PET_MARY = 1, PET_GODI = 2, PET_LINK = 3
+export const petOf = (l: PlayerLook | null | undefined) => l?.pet ?? 0
 
 const wrap = (v: number, n: number) => ((v % n) + n) % n
 

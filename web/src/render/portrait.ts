@@ -1,7 +1,7 @@
 import {
   BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE,
 } from '../core/constants.ts'
-import { bodyHex, shade } from '../core/looks.ts'
+import { bodyHex, shade, petOf } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
 import { drawHair2D } from './hair2d.ts'
 
@@ -28,11 +28,32 @@ export function drawPortrait(
   const ly = cy + OL * k
   const fill = bodyHex(look)
 
+  const pet = petOf(look)
   c.save()
+  if (pet) {
+    c.strokeStyle = pet === 1 ? '#e07a28' : pet === 2 ? shade(fill, 1.35) : '#5a2a0a'
+    c.lineWidth = Math.max(2, rl * 0.28)
+    c.lineCap = 'round'
+    const sw = Math.sin(t * 2.4) * rl * 0.25
+    c.beginPath()
+    c.moveTo(cx - rl * 0.7, ly + rl * 0.2)
+    c.quadraticCurveTo(cx - rl * 1.7, ly + rl * 0.1, cx - rl * 1.5 + sw, ly - rl * 0.9)
+    c.stroke()
+  }
   c.fillStyle = fill
   c.beginPath()
   c.ellipse(cx, ly, rl, rl * (1 + bob), 0, 0, Math.PI * 2)
   c.fill()
+  if (pet === 1) {
+    c.fillStyle = '#e07a28'; c.beginPath(); c.ellipse(cx - rl * 0.4, ly - rl * 0.3, rl * 0.36, rl * 0.28, 0, 0, Math.PI * 2); c.fill()
+    c.fillStyle = '#1e1e24'; c.beginPath(); c.ellipse(cx + rl * 0.45, ly + rl * 0.15, rl * 0.28, rl * 0.22, 0, 0, Math.PI * 2); c.fill()
+  } else if (pet === 2) {
+    c.fillStyle = '#f4f6fa'; c.beginPath(); c.ellipse(cx, ly + rl * 0.1, rl * 0.5, rl * 0.55, 0, 0, Math.PI * 2); c.fill()
+  } else if (pet === 3) {
+    c.fillStyle = '#5a2a0a'
+    for (let i = -1; i <= 1; i++) { c.beginPath(); c.roundRect(cx + i * rl * 0.42 - rl * 0.07, ly - rl * 0.95, rl * 0.14, rl * 0.55, rl * 0.05); c.fill() }
+    c.fillStyle = '#f5e2b8'; c.beginPath(); c.ellipse(cx, ly + rl * 0.45, rl * 0.55, rl * 0.3, 0, 0, Math.PI * 2); c.fill()
+  }
 
   drawHair2D(c, cx, uy, ru, look, 1, true)
 
@@ -106,5 +127,24 @@ export function drawPortrait(
   }
 
   drawHair2D(c, cx, uy, ru, look, 1, false)
+  if (pet) {
+    const earCol = pet === 3 ? '#5a2a0a' : pet === 2 ? fill : shade(fill, 0.8)
+    for (const s of [-1, 1]) {
+      const bx = cx + s * ru * 0.58, by = uy - ru * 0.72
+      c.fillStyle = earCol
+      c.beginPath(); c.moveTo(bx - ru * 0.28, by); c.lineTo(bx + ru * 0.28, by); c.lineTo(bx + s * ru * 0.18, by - ru * 0.62); c.closePath(); c.fill()
+      c.fillStyle = '#ffb4c8'
+      c.beginPath(); c.moveTo(bx - ru * 0.14, by - ru * 0.04); c.lineTo(bx + ru * 0.14, by - ru * 0.04); c.lineTo(bx + s * ru * 0.12, by - ru * 0.4); c.closePath(); c.fill()
+    }
+    if (pet === 1) { c.fillStyle = '#1e1e24'; c.beginPath(); c.ellipse(cx - ru * 0.45, uy - ru * 0.5, ru * 0.36, ru * 0.28, 0, 0, Math.PI * 2); c.fill() }
+    if (pet === 2) { c.fillStyle = '#f4f6fa'; c.beginPath(); c.ellipse(cx, uy + ru * 0.45, ru * 0.45, ru * 0.3, 0, 0, Math.PI * 2); c.fill() }
+    if (pet === 3) { c.fillStyle = '#5a2a0a'; for (let i = -1; i <= 1; i++) { c.beginPath(); c.roundRect(cx + i * ru * 0.3 - ru * 0.05, uy - ru * 0.95, ru * 0.1, ru * 0.3 - Math.abs(i) * ru * 0.1, ru * 0.03); c.fill() } }
+    c.strokeStyle = pet === 2 ? '#e8ecf2' : '#f4f4f6'
+    c.lineWidth = Math.max(1, ru * 0.05)
+    for (const s of [-1, 1]) for (let k = 0; k < 2; k++) {
+      c.beginPath(); c.moveTo(cx + s * ru * 0.5, uy + ru * (0.3 + k * 0.14)); c.lineTo(cx + s * ru * 1.05, uy + ru * (0.18 + k * 0.22)); c.stroke()
+    }
+    c.fillStyle = '#ff7d8f'; c.beginPath(); c.ellipse(cx, uy + ru * 0.2, ru * 0.09, ru * 0.07, 0, 0, Math.PI * 2); c.fill()
+  }
   c.restore()
 }

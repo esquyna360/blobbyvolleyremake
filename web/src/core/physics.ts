@@ -54,6 +54,13 @@ export class PhysicWorld {
   blobY = [GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT]
   blobVX = [0, 0]
   blobVY = [0, 0]
+  /** 0 nada; 1 pulo duplo; 2 barrigada; 3 bote */
+  ability = [0, 0]
+  airJump = [0, 0]
+  belly = [0, 0]
+  /** 0 nada; 1 vento; 2 turbulência */
+  weather = 0
+  weatherT = 0
   blobState = [0, 0]
   animSpeed = [0, 0]
 
@@ -178,7 +185,8 @@ export class PhysicWorld {
   /** A bola do especial pesa mais: é o que a faz cair no campo do outro em vez de planar. */
   private ballG() {
     const base = this.superFrames > 0 ? BALL_GRAVITATION * this.superGravity() : BALL_GRAVITATION
-    return base * this.tempo * this.tempo
+    const turb = this.weather === 2 ? 1 + 0.55 * Math.sin(this.weatherT * 0.045) : 1
+    return base * turb * this.tempo * this.tempo
   }
 
   /**
@@ -377,7 +385,7 @@ export class PhysicWorld {
     this.diveFrames[p] = DIVE_FRAMES
     this.diveDir[p] = dir
     this.diveCd[p] = DIVE_CD
-    this.blobVX[p] = dir * DIVE_SPEED * this.tempo
+    this.blobVX[p] = dir * DIVE_SPEED * this.tempo * (this.ability[p] === 3 ? 1.35 : 1)
     // no ar não ganha impulso: só corta a subida e se joga de lado até cair
     this.blobVY[p] = ground ? DIVE_HOP * this.tempo : Math.max(this.blobVY[p], DIVE_HOP * this.tempo)
     out.push({ event: Ev.DIVE, side: p, intensity: 0 })
@@ -673,9 +681,17 @@ export class PhysicWorld {
     const T2 = T * T
     let g = GRAVITATION
     if (this.wallCling[p] > 0) this.wallCling[p]--
+    if (ground) this.airJump[p] = 1
+    this.belly[p] = this.ability[p] === 2 && ground && input.down && this.diveFrames[p] === 0 ? Math.min(90, this.belly[p] + 1) : 0
     if (input.up && !input.down) {
       // pulo é aperto, não tecla segurada: soltar a mira pra cima não pode virar pulo
       if (ground && this.prevUp[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
+      else if (!ground && this.wallCling[p] === 0 && this.ability[p] === 1 && this.airJump[p] > 0 && this.prevUp[p] === 0 && this.diveFrames[p] === 0) {
+        this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * 0.86 * T
+        this.airJump[p] = 0
+        this.startAnim(p)
+        out.push({ event: Ev.AIR_JUMP, side: p, intensity: 0 })
+      }
       else if (this.wallCling[p] > 0 && this.prevUp[p] === 0) {
         this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * WALL_JUMP_MUL * T
         this.knock[p] = -this.wallSide[p] * WALL_JUMP_PUSH
@@ -802,8 +818,9 @@ export class PhysicWorld {
       ? (bvy > -APEX_WINDOW && bvy < APEX_WINDOW ? APEX_MUL : bvy > 0 ? FALL_MUL : 1)
       : 1
     const v = BALL_COLLISION_VELOCITY * this.tempo * apex
-    this.ballVX = nx * v
-    this.ballVY = ny * v
+    const bellyUp = this.ability[p] === 2 && this.belly[p] >= 6
+    this.ballVX = bellyUp ? nx * v * 0.3 : nx * v
+    this.ballVY = bellyUp ? -Math.abs(v) * 1.28 : ny * v
     // e o quanto você estava correndo vira rotação, que é o que curva a bola
     const raw = this.blobVX[p] * SPIN_FROM_VX
     this.ballSpin = raw > SPIN_MAX ? SPIN_MAX : raw < -SPIN_MAX ? -SPIN_MAX : raw
@@ -811,7 +828,7 @@ export class PhysicWorld {
     this.ballX += this.ballVX
     this.ballY += this.ballVY
 
-    out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity })
+    out.push({ event: Ev.BALL_HIT_BLOB, side: p, intensity: bellyUp ? 2 : intensity })
     this.addCharge(p, SPECIAL_GAIN_TOUCH, out)
 
     if (this.superFrames > 0) {
@@ -933,6 +950,8 @@ export class PhysicWorld {
     this.tryCrouch(RIGHT, er)
     this.handleBlob(LEFT, el, out)
     this.handleBlob(RIGHT, er, out)
+    if (this.weather === 1) { this.ballVX += Math.sin(this.weatherT * 0.021) * 0.05 * this.tempo }
+    if (this.weather !== 0) this.weatherT++
 
     this.holdStep(LEFT, li, out)
     this.holdStep(RIGHT, ri, out)

@@ -33,8 +33,10 @@ import type { MatchEvent } from './core/events.ts'
 import { GameAudio } from './audio/audio.ts'
 import { MENU_SONG, SCENES, getScene } from './render/scenes.ts'
 import type { SceneId } from './render/scenes.ts'
-import { defaultLook, loadLook, rollLook, BODY_COLORS } from './core/looks.ts'
+import { defaultLook, loadLook, rollLook, BODY_COLORS, petOf } from './core/looks.ts'
+import { CHAPTERS, storyDone } from './core/story.ts'
 import type { PlayerLook } from './core/looks.ts'
+import type { Difficulty } from './ai/bot.ts'
 import { Lobby, openAd } from './net/lobby.ts'
 import type { RoomAd } from './net/lobby.ts'
 import { LiveHost, Spectator } from './net/spectate.ts'
@@ -176,6 +178,9 @@ class App {
       onArcade: c => this.startArcade(c),
       onArcadeNext: () => this.arcadeNext(),
       onArcadeRetry: () => this.arcadeFight(),
+      onStory: i => this.startStory(i),
+      onStoryNext: () => this.storyNext(),
+      onStoryRetry: () => this.storyFight(),
       onSaveReplay: () => this.uploadReplay(),
       onScene: id => this.applyScene(id),
       onLook: look => { this.cfg.look = look; this.applyLooks() },
@@ -603,6 +608,16 @@ class App {
     // adversário sem personagem: o bot se veste sozinho
     this.botLook = f2 ? { ...f2.look } : this.bot ? rollLook(this.p1Look.body) : null
     this.applyLooks()
+    const m = this.match
+    if (m) {
+      m.world.ability[LEFT] = petOf(this.p1Look)
+      m.world.ability[RIGHT] = petOf(this.botLook)
+      m.world.weather = this.story ? CHAPTERS[this.story.index].weather : 0
+    }
+    if (this.stage instanceof StagePixel) {
+      this.stage.setOwners(!!this.story)
+      this.stage.ballSkin = this.story ? CHAPTERS[this.story.index].ball : 'volei'
+    }
     const nl = f1 ? f1.name : (cfg.mode === 'bot' ? cfg.name : 'P1')
     const nr = f2 ? f2.name : (cfg.mode === 'bot' ? 'CPU' : 'P2')
     this.hud.setNames(nl.toUpperCase(), nr.toUpperCase())
@@ -616,6 +631,45 @@ class App {
 
   private p1Look: PlayerLook | null = null
 
+  // ---------- história ----------
+
+  private story: { index: number } | null = null
+  private cfgBeforeStory: GameConfig | null = null
+
+  private startStory(index: number) {
+    this.arcade = null
+    if (!this.story) this.cfgBeforeStory = { ...this.cfg }
+    this.story = { index }
+    this.menu.dialog(CHAPTERS[index].intro, () => this.storyFight())
+  }
+
+  private storyFight() {
+    const st = this.story
+    if (!st) return
+    const ch = CHAPTERS[st.index]
+    const diff: Difficulty = st.index < 2 ? 'easy' : st.index < 4 ? 'normal' : 'hard'
+    this.startLocal({ ...this.cfg, mode: 'bot', p1: ch.cat, p2: ch.foe, scene: 'arena', difficulty: diff, scoreToWin: ch.scoreToWin, ruleId: 'default' })
+  }
+
+  private storyNext() {
+    const st = this.story
+    if (!st) return
+    const ch = CHAPTERS[st.index]
+    storyDone(st.index)
+    const last = st.index >= CHAPTERS.length - 1
+    this.menu.dialog(ch.outro, () => {
+      if (last) { this.endStory(); this.menu.storyEnd(); return }
+      this.startStory(st.index + 1)
+    })
+  }
+
+  private endStory() {
+    if (!this.story) return
+    this.story = null
+    if (this.cfgBeforeStory) { this.cfg = this.cfgBeforeStory; this.cfgBeforeStory = null }
+    if (this.stage instanceof StagePixel) { this.stage.setOwners(false); this.stage.ballSkin = 'volei' }
+  }
+
   // ---------- arcade ----------
 
   /** Escada: todo mundo do elenco menos você, do mais leve pro campeão. */
@@ -624,7 +678,7 @@ class App {
   private startArcade(cfg: GameConfig) {
     this.cfg = cfg
     cfg.mode = 'bot'
-    this.arcade = { order: ROSTER.filter(f => f.id !== cfg.p1), index: 0, losses: 0 }
+    this.arcade = { order: ROSTER.filter(f => f.id !== cfg.p1 && !f.guest), index: 0, losses: 0 }
     this.arcadeFight()
   }
 
@@ -866,6 +920,7 @@ class App {
 
   quitToMenu() {
     this.arcade = null
+    this.endStory()
     this.clearDrill()
     this.clearTutorial()
     this.leaveWatch(false)
@@ -1466,7 +1521,8 @@ class App {
       winner, loser,
       scoreL: m.logic.scores[LEFT], scoreR: m.logic.scores[RIGHT],
       winnerLeft: w === LEFT,
-      kind: s ? 'online' : a ? 'arcade' : this.bot ? 'bot' : 'local',
+      kind: s ? 'online' : this.story ? 'story' : a ? 'arcade' : this.bot ? 'bot' : 'local',
+      story: this.story ? { won: iWon, last: this.story.index >= CHAPTERS.length - 1, title: CHAPTERS[this.story.index].title } : undefined,
       arcade: a ? { index: a.index, total: a.order.length, next: a.order[a.index + 1] ?? null, won: iWon } : undefined,
       canSaveReplay: !!this.pendingReplay,
     }

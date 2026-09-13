@@ -31,6 +31,8 @@ export interface Fighter {
   temper: Temper
   win: string[]
   lose: string
+  /** convidado: joga no versus e na história, não entra na escada do arcade */
+  guest?: boolean
 }
 
 const L = (body: number, hair: number, hairColor: number): PlayerLook => ({ body, hair, hairColor })
@@ -39,6 +41,33 @@ const L = (body: number, hair: number, hairColor: number): PlayerLook => ({ body
 // cor cabelo: 0 preto 1 castanho 2 loiro 3 ruivo 4 branco 5 prata 6 rosa 7 azul 8 verde 9 roxo
 
 export const ROSTER: Fighter[] = [
+  {
+    id: 'mary', name: 'Blue Mary', title: 'a tricolor de Guarulhos',
+    bio: 'Pequena, rápida e nunca cai de mau jeito. Pula de novo no ar quando ninguém espera.',
+    look: { body: 11, hair: 0, hairColor: 0, pet: 1 }, home: 'arena', diff: 'normal', guest: true,
+    style: { speed: 1.05, reaction: 2, attack: 0.6, aimErr: 14, shotErr: 0.25, parry: 0.4, foeLead: 4 },
+    temper: { talk: 0.6, salt: 0.15, smug: 0.5, rude: 0, cool: 3 },
+    win: ['Miau. Isso foi só o alongamento.', 'Guarulhos manda lembranças.', 'Pulo duplo, ponto duplo.'],
+    lose: 'Tá. Mas eu cai de pé.',
+  },
+  {
+    id: 'godi', name: 'Godi', title: 'o Manigold, barriga pra cima',
+    bio: 'Grande, peludo e sem pressa. Deita de barriga pra cima e a bola vai pro céu.',
+    look: { body: 12, hair: 0, hairColor: 4, pet: 2 }, home: 'arena', diff: 'normal', guest: true,
+    style: { speed: 0.72, parry: 0.8, attack: 0.25, aimErr: 12, shotErr: 0.2, clear: 30, horizon: 100 },
+    temper: { talk: 0.3, salt: 0.05, smug: 0.3, rude: 0, cool: 6 },
+    win: ['Mrrrp.', 'Cochilo merecido.', 'A barriga venceu de novo.'],
+    lose: 'Mrrp... hora do lanche.',
+  },
+  {
+    id: 'link', name: 'Link', title: 'o tigrado da casa',
+    bio: 'O maior dos três. Dá o bote de longe e chega em bola que ninguém chegaria.',
+    look: { body: 13, hair: 0, hairColor: 1, pet: 3 }, home: 'arena', diff: 'hard', guest: true,
+    style: { speed: 0.95, attack: 0.8, aimErr: 10, shotErr: 0.15, parry: 0.55, foeLead: 6, offsets: 14 },
+    temper: { talk: 0.45, salt: 0.3, smug: 0.6, rude: 0.05, cool: 3 },
+    win: ['Bote certeiro.', 'Tigre não erra o salto.', 'Isso foi por Guarulhos.'],
+    lose: 'Grr. A próxima é minha.',
+  },
   {
     id: 'ze', name: 'Zé Areia', title: 'o veterano da praia',
     bio: 'Joga desde antes de existir rede. Não corre, mas está sempre onde a bola cai.',

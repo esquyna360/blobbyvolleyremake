@@ -19,6 +19,9 @@ import type { PortraitMood } from '../render/portrait.ts'
 import { PixelScene } from '../render/pixelscene.ts'
 import { getScene } from '../render/scenes.ts'
 import { ROSTER, fighterById } from '../core/roster.ts'
+import { CHAPTERS, storyProgress } from '../core/story.ts'
+import type { Line } from '../core/story.ts'
+import { drawHuman } from '../render/humans.ts'
 import type { Fighter } from '../core/roster.ts'
 import type { PadAction } from './pad.ts'
 import { PAD_NAME, padMap, pressedButton, resetPad, setPadButton } from './pad.ts'
@@ -72,8 +75,9 @@ export interface ResultInfo {
   scoreL: number
   scoreR: number
   winnerLeft: boolean
-  kind: 'bot' | 'local' | 'online' | 'arcade'
+  kind: 'bot' | 'local' | 'online' | 'arcade' | 'story'
   arcade?: { index: number; total: number; next: Fighter | null; won: boolean }
+  story?: { won: boolean; last: boolean; title: string }
   canSaveReplay: boolean
 }
 
@@ -115,6 +119,9 @@ export interface MenuHandlers {
   onArcade(cfg: GameConfig): void
   onArcadeNext(): void
   onArcadeRetry(): void
+  onStory(index: number): void
+  onStoryNext(): void
+  onStoryRetry(): void
   onSaveReplay(): Promise<boolean>
   onCreateRoom(code: string, pass: string, cfg: GameConfig, pub: boolean): void
   onJoinRoom(code: string, pass: string, cfg: GameConfig): void
@@ -444,6 +451,8 @@ export class Menu {
         el('div', { class: 'home-act' },
           this.act('ARCADE', 'escolha um lutador e encare os dez, cada um na sua quadra',
             () => this.charSelect('arcade'), 'go'),
+          this.act('HISTÓRIA', 'de Guarulhos ao Uruguai: três gatos, seis capítulos e dois humanos na torcida',
+            () => this.story(), storyProgress() === 0 ? 'go' : ''),
           this.act('VERSUS', 'contra o computador ou dois no mesmo aparelho',
             () => this.versus()),
           this.act('ONLINE', 'sala aberta, sala com código, assistir e replays',
@@ -457,6 +466,115 @@ export class Menu {
           this.tipLine(TOUCH ? '' : 'passa o cursor numa opção pra ver o que ela faz'))),
     )
     this.runPortrait(cv)
+  }
+
+  story() {
+    this.currentScreen = () => this.story()
+    const done = storyProgress()
+    const list = el('div', { class: 'story-list' })
+    CHAPTERS.forEach((ch, i) => {
+      const cat = fighterById(ch.cat)
+      const locked = i > done
+      const card = el('button', { class: `card chap${locked ? ' locked' : ''}${i === done ? ' next' : ''}`, onclick: () => { if (!locked) this.handlers.onStory(i) } },
+        el('span', { class: 'chap-n mono', textContent: locked ? '🔒' : i < done ? '✓' : String(i + 1) }),
+        el('span', { class: 'chap-body' },
+          el('b', { textContent: `${i + 1}. ${ch.title}` }),
+          el('small', { textContent: locked ? '???' : `${ch.place} · você é ${cat?.name ?? ch.cat}` })))
+      if (locked) card.setAttribute('disabled', '')
+      list.append(card)
+    })
+    this.panel(
+      this.title('HISTÓRIA', 'Blue Mary, Godi e Link saem de Guarulhos e vão morar no Uruguai'),
+      list,
+      this.tipLine(done >= CHAPTERS.length ? 'você já viu o fim. Pode rejogar qualquer capítulo.' : 'cada capítulo é uma partida curta com um gato diferente'),
+      this.back(() => this.main()),
+    )
+  }
+
+  /** Diálogo da história: retrato de quem fala, texto letra a letra, toque ou Enter avança. */
+  dialog(lines: Line[], onDone: () => void) {
+    this.currentScreen = () => this.dialog(lines, onDone)
+    this.show()
+    let at = 0
+    let timer = 0
+    let full = ''
+    let shown = 0
+    let stopAnim: (() => void) | null = null
+    const cv = el('canvas', { class: 'portrait dlg-face' }) as HTMLCanvasElement
+    const nameEl = el('b', { class: 'dlg-name' })
+    const textEl = el('p', { class: 'dlg-text' })
+    const hint = el('small', { class: 'dlg-hint', textContent: TOUCH ? 'toca pra continuar' : 'Enter ou clique pra continuar' })
+    const box = el('div', { class: 'dlg' }, cv, el('div', { class: 'dlg-col' }, nameEl, textEl, hint))
+    const skip = el('button', { class: 'ghost small dlg-skip', onclick: () => finish() }, 'PULAR')
+    const paintHuman = (who: 'bruno' | 'dessa') => {
+      cv.width = 64; cv.height = 64
+      const c = cv.getContext('2d')
+      if (!c) return
+      c.imageSmoothingEnabled = false
+      c.clearRect(0, 0, 64, 64)
+      drawHuman(c, who, 18, 8, 1, { lookRight: who === 'dessa', arms: 'rest', breathe: 0, bounce: 0 })
+    }
+    const render = () => {
+      const ln = lines[at]
+      const f = fighterById(ln.who)
+      stopAnim?.(); stopAnim = null
+      cv.classList.toggle('none', ln.who === 'narr')
+      cv.classList.toggle('human', ln.who === 'bruno' || ln.who === 'dessa')
+      if (f) { nameEl.textContent = f.name.toUpperCase(); stopAnim = this.animPortrait(cv, () => f.look, ln.mood ?? 'idle', 0.5) }
+      else if (ln.who === 'bruno' || ln.who === 'dessa') { nameEl.textContent = ln.who.toUpperCase(); paintHuman(ln.who) }
+      else nameEl.textContent = ''
+      box.classList.toggle('narr', ln.who === 'narr')
+      full = ln.text; shown = 0; textEl.textContent = ''
+      clearInterval(timer)
+      timer = window.setInterval(() => {
+        shown = Math.min(full.length, shown + 1)
+        textEl.textContent = full.slice(0, shown)
+        if (shown >= full.length) clearInterval(timer)
+      }, 18)
+    }
+    const advance = () => {
+      if (shown < full.length) { shown = full.length; textEl.textContent = full; clearInterval(timer); return }
+      at++
+      if (at >= lines.length) finish()
+      else render()
+    }
+    const finish = () => {
+      clearInterval(timer)
+      stopAnim?.()
+      removeEventListener('keydown', onKey)
+      this.cleanup = null
+      onDone()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyZ') { e.preventDefault(); advance() }
+      if (e.code === 'Escape') { e.preventDefault(); finish() }
+    }
+    box.onclick = advance
+    addEventListener('keydown', onKey)
+    this.panel(el('div', { class: 'dlg-wrap' }, box, skip))
+    this.cleanup = () => { clearInterval(timer); stopAnim?.(); removeEventListener('keydown', onKey) }
+    render()
+  }
+
+  storyEnd() {
+    this.currentScreen = () => this.storyEnd()
+    this.show()
+    const cvs = ['mary', 'godi', 'link'].map(id => {
+      const cv = el('canvas', { class: 'portrait win' }) as HTMLCanvasElement
+      const f = fighterById(id)!
+      const stop = this.animPortrait(cv, () => f.look, 'happy', 0.46)
+      return { cv, stop, name: f.name }
+    })
+    this.panel(
+      el('div', { class: 'sf won end' },
+        el('div', { class: 'sf-head' }, el('h1', { textContent: 'FIM' }),
+          el('div', { class: 'sf-score mono', textContent: 'Guarulhos → Montevidéu' })),
+        el('div', { class: 'story-cast' }, ...cvs.map(c => el('div', { class: 'sf-win' }, c.cv, el('b', { textContent: c.name.toUpperCase() })))),
+        el('p', { class: 'quote', textContent: 'Casa é onde os três dormem em cima da gente.' })),
+      el('div', { class: 'grid' },
+        el('button', { class: 'primary', onclick: () => this.handlers.onQuit?.() }, 'MENU')),
+    )
+    this.cleanup = () => cvs.forEach(c => c.stop())
   }
 
   versus() {
@@ -1121,7 +1239,12 @@ export class Menu {
 
     const buttons: HTMLElement[] = []
     const status = el('div', { class: 'status' })
-    if (r.kind === 'arcade' && r.arcade) {
+    if (r.kind === 'story' && r.story) {
+      const st = r.story
+      if (st.won) buttons.push(el('button', { class: 'primary', onclick: () => this.handlers.onStoryNext() }, st.last ? 'VER O FINAL' : 'CONTINUAR'))
+      else buttons.push(el('button', { class: 'primary', onclick: () => this.handlers.onStoryRetry() }, 'TENTAR DE NOVO'))
+      buttons.push(el('button', { class: 'center', onclick: () => this.handlers.onQuit?.() }, 'Sair da história'))
+    } else if (r.kind === 'arcade' && r.arcade) {
       const a = r.arcade
       if (a.won) {
         buttons.push(el('button', { class: 'primary', onclick: () => this.handlers.onArcadeNext() },

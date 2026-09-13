@@ -8,7 +8,7 @@ import { PhysicWorld } from './physics.ts'
 import type { PlayerInput } from './input.ts'
 
 export const STATE_FLOATS = 26
-export const STATE_INTS = 77
+export const STATE_INTS = 85
 
 export interface MatchState { f: Float64Array; i: Int32Array }
 
@@ -161,6 +161,8 @@ export class Match {
     i[69] = w.hitPass[0]; i[70] = w.hitPass[1]
     i[71] = w.wallCling[0]; i[72] = w.wallCling[1]; i[73] = w.wallSide[0]; i[74] = w.wallSide[1]
     i[75] = w.wallHold[0]; i[76] = w.wallHold[1]
+    i[77] = w.ability[0]; i[78] = w.ability[1]; i[79] = w.airJump[0]; i[80] = w.airJump[1]
+    i[81] = w.belly[0]; i[82] = w.belly[1]; i[83] = w.weather; i[84] = w.weatherT
     f[24] = w.tempo; f[25] = w.ballSpin
   }
 
@@ -213,6 +215,8 @@ export class Match {
     w.hitPass[0] = i[69]; w.hitPass[1] = i[70]
     w.wallCling[0] = i[71]; w.wallCling[1] = i[72]; w.wallSide[0] = i[73]; w.wallSide[1] = i[74]
     w.wallHold[0] = i[75]; w.wallHold[1] = i[76]
+    w.ability[0] = i[77]; w.ability[1] = i[78]; w.airJump[0] = i[79]; w.airJump[1] = i[80]
+    w.belly[0] = i[81]; w.belly[1] = i[82]; w.weather = i[83]; w.weatherT = i[84]
     w.tempo = f[24]; w.ballSpin = f[25]
     w.rally = g.rally
     w.matchPoint = this.atMatchPoint()

@@ -14,10 +14,12 @@ import { emoteAt } from '../core/emote.ts'
 import { FaceRig, crouchMoods, faceEvents, rallyTension, reachMoods } from './face.ts'
 import { getScene } from './scenes.ts'
 import type { Scene, SceneId } from './scenes.ts'
-import { bodyHex, defaultLook, hairHex, hairStyle, shade, tuftBeads, puffCenter } from '../core/looks.ts'
+import { bodyHex, defaultLook, hairHex, hairStyle, shade, tuftBeads, puffCenter, petOf } from '../core/looks.ts'
 import type { PlayerLook } from '../core/looks.ts'
 import type { TargetMark } from '../core/drill.ts'
 import { PixelScene } from './pixelscene.ts'
+import { drawHuman } from './humans.ts'
+import type { Arms } from './humans.ts'
 import { FONT_H, pxText, textWidth } from './pixelfont.ts'
 
 const GROUND = GROUND_PLANE_HEIGHT_MAX
@@ -152,6 +154,15 @@ export class StagePixel implements GameRenderer {
   private swingDir = [1, -1]
   private netHit: { y: number; dir: number; t: number } | null = null
   private meshCache: { key: string; cv: HTMLCanvasElement } | null = null
+  private tailPts: { x: number; y: number }[][] = [[], []]
+  private earTw = [0, 0]
+  private earSide = [0, 0]
+  private owners = false
+  private cheer = [0, 0]
+  private petT = [0, 0]
+  private heartT = 0
+  ballSkin: 'volei' | 'novelo' = 'volei'
+  setOwners(on: boolean) { this.owners = on; this.applyFrame() }
   private ballCache = new Map<string, HTMLCanvasElement>()
   private clingK = [0, 0]
   private landX = -1
@@ -214,7 +225,7 @@ export class StagePixel implements GameRenderer {
 
   /** enquadramento mais aberto: a quadra inteira cabe */
   private baseScale() {
-    return Math.min(this.W / (RIGHT_PLANE + 70), this.H / 560)
+    return Math.min(this.W / (RIGHT_PLANE + (this.owners ? 200 : 70)), this.H / 560)
   }
 
   /** quadro fixo: a quadra inteira, sempre; a simulacao nunca ve a camera */
@@ -367,7 +378,16 @@ export class StagePixel implements GameRenderer {
     for (const e of events) {
       switch (e.event) {
         case Ev.BALL_HIT_BLOB: {
-          const inten = 0.35 + e.intensity * 0.65
+          if (e.intensity > 1.5) {
+            const p = e.side as Side
+            this.callout(p, 'BARRIGADA!', '#ffd257')
+            this.trauma = Math.min(1, this.trauma + 0.35)
+            this.hitstop = Math.max(this.hitstop, 0.08)
+            this.rings.push({ x: w.ballX, y: w.ballY, r: 8, max: 160, life: 0, color: '#ffe9a8', w: 2 })
+            this.faces[p].set('laugh', 0.9, 3)
+            this.blobKick[p] = 1
+          }
+          const inten = 0.35 + Math.min(1, e.intensity) * 0.65
           this.trauma = Math.min(1, this.trauma + 0.16 * inten)
           this.ooze(w.ballX, w.ballY, Math.floor(6 + 10 * inten), 220 * inten, e.side as Side, 0.6)
           this.burst(w.ballX, w.ballY, Math.floor(14 + 22 * inten), 190 * inten, this.fill(e.side as Side), 0.4)
@@ -419,7 +439,17 @@ export class StagePixel implements GameRenderer {
         }
         case Ev.SCORE:
           this.flash = Math.max(this.flash, 0.16)
+          if (this.owners) { this.cheer[LEFT] = e.side === LEFT ? 1.6 : -1.4; this.cheer[RIGHT] = this.cheer[LEFT] }
           break
+        case Ev.AIR_JUMP: {
+          const p = e.side as Side
+          this.rings.push({ x: w.blobX[p], y: w.blobY[p] + 10, r: 6, max: 70, life: 0, color: '#ffffff', flat: true })
+          this.burst(w.blobX[p], w.blobY[p] + 12, 18, 140, '#ffffff', 0.2)
+          this.ooze(w.blobX[p], w.blobY[p] + 8, 6, 120, p, 0.1)
+          this.faces[p].set('smug', 0.5, 2)
+          this.blobKick[p] = Math.max(this.blobKick[p], 0.7)
+          break
+        }
         case Ev.SPECIAL_READY:
           this.burst(w.blobX[e.side as Side], w.blobY[e.side as Side] - 20, 26, 120, '#ffd257', 1.5)
           break
@@ -741,6 +771,12 @@ export class StagePixel implements GameRenderer {
     }
     this.squash.k = Math.max(0, this.squash.k - dt * 0.85)
     if (this.netHit) { this.netHit.t += dt; if (this.netHit.t > 1.2) this.netHit = null }
+    for (const p of [0, 1] as Side[]) {
+      this.cheer[p] = this.cheer[p] > 0 ? Math.max(0, this.cheer[p] - dt) : Math.min(0, this.cheer[p] + dt)
+      this.petT[p] = Math.max(0, this.petT[p] - dt)
+      if (this.earTw[p] > 0) this.earTw[p] -= dt
+      else if (Math.random() < dt * 0.35) { this.earTw[p] = 0.18 + Math.random() * 0.12; this.earSide[p] = Math.random() < 0.5 ? -1 : 1 }
+    }
     this.wallHits = this.wallHits.filter(h => { h.life += dt; return h.life < 0.5 })
     this.craters = this.craters.filter(c => { c.life += dt; return c.life < CRATER_LIFE })
     this.scorch = this.scorch.filter(s => { s.life += dt; return s.life < 14 })
@@ -880,6 +916,169 @@ export class StagePixel implements GameRenderer {
   private Y(y: number) { return Math.round(this.oy + y * this.scale) }
   private S(v: number) { return v * this.scale }
 
+
+  private petCols(pet: number) {
+    return pet === 1 ? { a: colsOf('#e07a28'), b: colsOf('#1e1e24') }
+      : pet === 2 ? { a: colsOf('#f4f6fa'), b: colsOf('#f4f6fa') }
+      : { a: colsOf('#5a2a0a'), b: colsOf('#f5e2b8') }
+  }
+
+  /** Rabo: corrente de pontos com mola. Segue o corpo com atraso, balança parado e levanta no pulo. */
+  private tail(p: Side, pet: number, bx: number, by: number, brx: number, bry: number, fac: number, vx: number, onG: boolean, c: Cols) {
+    const g = this.g
+    const n = 7
+    const pts = this.tailPts[p]
+    const rootX = bx - fac * brx * 0.78, rootY = by - bry * 0.15
+    if (pts.length !== n) { pts.length = 0; for (let i = 0; i < n; i++) pts.push({ x: rootX - fac * i * 3, y: rootY - i * 2 }) }
+    const seg = Math.max(2, this.S(pet === 3 ? 6.5 : pet === 2 ? 5.5 : 5))
+    const lift = onG ? 0 : 0.6
+    const wag = Math.sin(this.time * (pet === 1 ? 4.2 : 2.6) + p * 2) * 0.55
+    pts[0].x = rootX; pts[0].y = rootY
+    for (let i = 1; i < n; i++) {
+      const k = i / (n - 1)
+      const ang = Math.PI * (fac > 0 ? 1 : 0) - fac * (0.55 + lift + wag * k) - fac * clamp(vx * 0.05, -0.6, 0.6)
+      const tx = pts[i - 1].x + Math.cos(ang) * seg, ty = pts[i - 1].y - Math.sin(Math.abs(ang) > Math.PI / 2 ? Math.PI - Math.abs(ang) : Math.abs(ang)) * seg
+      const spring = 0.42 - k * 0.22
+      pts[i].x += (tx - pts[i].x) * spring
+      pts[i].y += (ty - pts[i].y) * spring
+    }
+    const pc = this.petCols(pet)
+    for (let i = n - 1; i >= 1; i--) {
+      const k = i / (n - 1)
+      const r = Math.max(1.5, this.S(pet === 2 ? 4.6 : 3.4) * (1 - k * 0.35))
+      const col = pet === 1 ? (k > 0.55 ? pc.a.base : pc.b.base) : pet === 3 ? ((i & 1) ? pc.a.base : c.base) : c.dk
+      const fin = k > 0.85 && pet !== 2 ? shade(col, 1.2) : col
+      const ax = pts[i - 1].x, ay = pts[i - 1].y, bx2 = pts[i].x, by2 = pts[i].y
+      const len = Math.hypot(bx2 - ax, by2 - ay)
+      const steps = Math.max(1, Math.ceil(len / Math.max(1, r * 0.6)))
+      for (let t = 0; t <= steps; t++) discP(g, ax + (bx2 - ax) * t / steps, ay + (by2 - ay) * t / steps, r, fin)
+    }
+  }
+
+  private bodyMarks(p: Side, pet: number, bx: number, by: number, brx: number, bry: number, fac: number, lx: number, ly: number) {
+    const g = this.g
+    const pc = this.petCols(pet)
+    if (pet === 1) {
+      ellipseP(g, bx - fac * brx * 0.35, by - bry * 0.45, brx * 0.34, bry * 0.28, pc.a, lx, ly)
+      ellipseP(g, bx + fac * brx * 0.42, by + bry * 0.1, brx * 0.26, bry * 0.22, pc.b, lx, ly)
+    } else if (pet === 2) {
+      ellipseP(g, bx + fac * brx * 0.15, by + bry * 0.12, brx * 0.5, bry * 0.55, pc.a, lx, ly)
+    } else {
+      g.fillStyle = pc.a.base
+      for (let i = -1; i <= 1; i++) {
+        const sx = Math.round(bx + i * brx * 0.42), w = Math.max(1, Math.round(brx * 0.12))
+        g.fillRect(sx - (w >> 1), Math.round(by - bry * 0.9), w, Math.max(2, Math.round(bry * 0.55)))
+      }
+      ellipseP(g, bx + fac * brx * 0.1, by + bry * 0.45, brx * 0.55, bry * 0.3, pc.b, lx, ly)
+    }
+    void p
+  }
+
+  private headMarks(pet: number, hx: number, hy: number, ru: number, fac: number, lx: number, ly: number) {
+    const g = this.g
+    const pc = this.petCols(pet)
+    if (pet === 1) {
+      ellipseP(g, hx - fac * ru * 0.45, hy - ru * 0.5, ru * 0.38, ru * 0.3, pc.b, lx, ly)
+      ellipseP(g, hx + fac * ru * 0.55, hy - ru * 0.3, ru * 0.22, ru * 0.2, pc.a, lx, ly)
+    } else if (pet === 2) {
+      ellipseP(g, hx + fac * ru * 0.1, hy + ru * 0.42, ru * 0.5, ru * 0.36, pc.a, lx, ly)
+    } else {
+      g.fillStyle = pc.a.base
+      const w = Math.max(1, Math.round(ru * 0.1))
+      for (let i = -1; i <= 1; i++) g.fillRect(Math.round(hx + i * ru * 0.3) - (w >> 1), Math.round(hy - ru * 0.95), w, Math.max(2, Math.round(ru * 0.35 - Math.abs(i) * ru * 0.1)))
+      ellipseP(g, hx + fac * ru * 0.15, hy + ru * 0.45, ru * 0.42, ru * 0.28, pc.b, lx, ly)
+    }
+  }
+
+  private ears(p: Side, pet: number, hx: number, hy: number, ru: number, c: Cols, vy: number) {
+    const g = this.g
+    const flat = clamp(-vy / 14, 0, 0.55)
+    const base = pet === 3 ? this.petCols(3).a.base : c.dk
+    const dark = pet === 2 ? c.base : base
+    for (let i = -1; i <= 1; i += 2) {
+      const twitch = this.earTw[p] > 0 && this.earSide[p] === i ? 0.35 : 0
+      const cx = hx + i * ru * 0.58, top = hy - ru * (1.35 - flat * 0.6 + twitch * 0.15)
+      const bot = hy - ru * 0.72
+      const h = Math.max(2, Math.round(bot - top)), wb = Math.max(2, Math.round(ru * 0.5))
+      const lean = i * (0.25 + twitch)
+      for (let yy = 0; yy < h; yy++) {
+        const t = yy / h
+        const w = Math.max(1, Math.round(wb * t))
+        const ox = Math.round(lean * (1 - t) * ru * 0.35)
+        g.fillStyle = dark
+        g.fillRect(Math.round(cx + ox - w / 2), Math.round(top + yy), w, 1)
+        if (t > 0.3 && w > 3) {
+          g.fillStyle = '#ffb4c8'
+          g.fillRect(Math.round(cx + ox - (w - 2) / 2) + 1, Math.round(top + yy), w - 3, 1)
+        }
+      }
+    }
+  }
+
+  private whiskers(hx: number, hy: number, ru: number, fac: number, col: string) {
+    const g = this.g
+    g.fillStyle = col
+    const len = Math.max(3, Math.round(ru * 0.55))
+    const y0 = Math.round(hy + ru * 0.3)
+    for (const s of [-1, 1]) {
+      const x0 = Math.round(hx + s * ru * 0.55)
+      for (let k = 0; k < len; k++) {
+        g.fillRect(x0 + s * k, y0 - Math.round(k * 0.25), 1, 1)
+        g.fillRect(x0 + s * k, y0 + 2 + Math.round(k * 0.15), 1, 1)
+      }
+    }
+    void fac
+  }
+
+  /** Bruno e Dessa nos banquinhos fora da quadra: olham a bola, vibram no ponto e fazem carinho em gato que chega perto. */
+  private ownersDraw(w: Match['world']) {
+    if (!this.owners) return
+    const g = this.g
+    const k = this.scale >= 0.42 ? 2 : 1
+    const gy = this.Y(GROUND)
+    const spots: [number, 'dessa' | 'bruno'][] = [[LEFT_PLANE - 62, 'dessa'], [RIGHT_PLANE + 62, 'bruno']]
+    for (const [wx, who] of spots) {
+      const x = clamp(this.X(wx) - 14 * k, 1, this.W - 30 * k)
+      const y = gy - 42 * k + 2
+      g.fillStyle = '#3a2a1c'
+      g.fillRect(Math.round(x + 2 * k), Math.round(gy - 10 * k), 24 * k, 3 * k)
+      g.fillRect(Math.round(x + 5 * k), Math.round(gy - 7 * k), 2 * k, 7 * k)
+      g.fillRect(Math.round(x + 21 * k), Math.round(gy - 7 * k), 2 * k, 7 * k)
+      const side = who === 'dessa' ? LEFT : RIGHT
+      const ch = this.cheer[side]
+      const near = Math.min(Math.abs(w.blobX[LEFT] - wx), Math.abs(w.blobX[RIGHT] - wx)) < 110 && petOf(this.looks[LEFT]) > 0
+      const arms: Arms = ch > 0.05 ? 'up' : near ? 'pet' : 'rest'
+      const bounce = ch > 0 ? Math.abs(Math.sin(this.time * 14)) * 3 * k * Math.min(1, ch) : ch < 0 ? -2 * k : 0
+      drawHuman(g, who, x, y, k, { lookRight: w.ballX > wx, arms, breathe: Math.sin(this.time * 3 + (who === 'bruno' ? 1 : 0)) > 0 ? 1 : 0, bounce })
+      if (ch > 0.05) {
+        pxText(g, ch > 1.2 ? '!!!' : 'GOOOL', this.X(wx) - textWidth('GOOOL') / 2, y - 12, '#ffd257')
+      } else if (ch < -0.05) {
+        pxText(g, '...', this.X(wx) - 6, y - 12, '#8f98ad')
+      }
+      if (arms === 'pet') {
+        this.heartT += 1
+        if (this.heartT % 18 === 0) this.burst(wx, GROUND - 40, 3, 40, '#ff6f9f', 1.6, 2)
+      }
+    }
+  }
+
+  private weatherDraw(w: Match['world']) {
+    if (w.weather !== 1) return
+    const g = this.g
+    g.globalAlpha = 0.35
+    g.fillStyle = '#cfd8ff'
+    const gust = Math.sin(w.weatherT * 0.021)
+    const dir = gust >= 0 ? 1 : -1
+    const n = Math.round(3 + Math.abs(gust) * 12)
+    for (let i = 0; i < n; i++) {
+      const y = 30 + ((i * 47) % (this.H * 0.55))
+      const len = 6 + (i * 13) % 20
+      const x = ((this.time * (60 + i * 9) * dir + i * 97) % (this.W + 40) + this.W + 40) % (this.W + 40) - 20
+      g.fillRect(Math.round(x), Math.round(y), len, 1)
+    }
+    g.globalAlpha = 1
+  }
+
   private hair(p: Side, cx: number, cy: number, ru: number, fac: number, back: boolean) {
     const st = hairStyle(this.looks[p])
     if (!st.tufts.length && !st.puffs.length) return
@@ -997,8 +1196,11 @@ export class StagePixel implements GameRenderer {
     const wv = this.lastWorld
     const vx = wv ? wv.blobVX[p] + wv.knock[p] : 0
     const onG = wy >= GROUND_PLANE_HEIGHT - 0.5
+    const pet = petOf(this.looks[p])
+    if (pet && !tint) this.tail(p, pet, bkx, bky, brx, bry, fac, vx, onG, c)
     this.feet(p, x, ly, rl, bry, vx, onG, c, dk)
     ellipseP(g, bkx, bky, brx, bry, c, sunX, sunY, rim)
+    if (pet && !tint) this.bodyMarks(p, pet, bkx, bky, brx, bry, fac, sunX, sunY)
     // tronco: corpo e cabeça são uma massa só
     const nw = Math.round(ru * 1.3)
     const ny0 = Math.round(hy), ny1 = Math.round(bky - bry * 0.4)
@@ -1020,8 +1222,11 @@ export class StagePixel implements GameRenderer {
     g.fillStyle = c.hi
     g.fillRect(Math.round(hx + sunX * ru * 0.45), Math.round(hy + sunY * ru * 0.55), 2, 1)
     g.fillRect(Math.round(hx + sunX * ru * 0.55), Math.round(hy + sunY * ru * 0.35), 1, 2)
+    if (pet && !tint) this.headMarks(pet, hx, hy, ru, fac, sunX, sunY)
     this.face(p, hx, hy, ru, fac, ball, stunned)
     this.hair(p, hx, hy, ru, fac, false)
+    if (pet) this.ears(p, pet, hx, hy, ru, c, wv ? wv.blobVY[p] : 0)
+    if (pet) this.whiskers(hx, hy, ru, fac, pet === 2 ? '#e8ecf2' : '#f4f4f6')
     if (this.blobFlash[p] > 0.05) {
       g.globalAlpha = this.blobFlash[p] * 0.7
       const fl = { base: '#fff2c8', hi: '#fff2c8', dk: '#fff2c8', dk2: '#fff2c8' }
@@ -1121,14 +1326,15 @@ export class StagePixel implements GameRenderer {
     const sq = this.squash.k
     const sxk = 1 + sq * Math.abs(Math.cos(this.squash.ang)) * 0.5, syk = 1 + sq * Math.abs(Math.sin(this.squash.ang)) * 0.5
     const rx = Math.round(r * sxk), ry = Math.round(r * syk)
-    const pal = ['#f4f6fa', '#2f7ff0', '#ffd23f']
-    const dark = ['#b8c0cc', '#1d54b0', '#d9a41e']
-    const light = ['#ffffff', '#7fb4ff', '#fff0a0']
-    const seam = '#1b2436'
+    const yarn = this.ballSkin === 'novelo'
+    const pal = yarn ? ['#ff7ac2', '#f45aa8', '#ff9ad2'] : ['#f4f6fa', '#2f7ff0', '#ffd23f']
+    const dark = yarn ? ['#c94c8e', '#b03a7a', '#d9609e'] : ['#b8c0cc', '#1d54b0', '#d9a41e']
+    const light = yarn ? ['#ffc2e2', '#ff9ad2', '#ffd2ea'] : ['#ffffff', '#7fb4ff', '#fff0a0']
+    const seam = yarn ? '#8a2a5c' : '#1b2436'
     const [lx0, ly0] = this.lightAt(cx, cy)
     const lx = Math.round(lx0 * 4) / 4, ly = Math.round(ly0 * 4) / 4
     const qr = Math.round(((rot % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2) * 48) % 48
-    const key = rx + ':' + ry + ':' + qr + ':' + lx + ':' + ly
+    const key = rx + ':' + ry + ':' + qr + ':' + lx + ':' + ly + (yarn ? ':y' : '')
     const hit = this.ballCache.get(key)
     if (hit) { g.drawImage(hit, cx - rx, cy - ry); g.fillStyle = '#ffffff'; g.fillRect(cx + Math.round(lx * r * 0.5), cy + Math.round(ly * r * 0.55), 2, 1); return }
     const cv = document.createElement('canvas')
@@ -1640,7 +1846,8 @@ export class StagePixel implements GameRenderer {
     this.landX = this.intro < 0 && match.logic.isBallValid ? this.landing(w) : -1
 
     const tr = this.trauma * this.trauma
-    const sx = Math.round((Math.random() - 0.5) * 6 * tr), sy = Math.round((Math.random() - 0.5) * 6 * tr)
+    const turb = w.weather === 2 ? Math.round(Math.sin(this.time * 2.9) * 3 + Math.sin(this.time * 7.1)) : 0
+    const sx = Math.round((Math.random() - 0.5) * 6 * tr), sy = Math.round((Math.random() - 0.5) * 6 * tr) + turb
     g.setTransform(1, 0, 0, 1, 0, 0)
     this.px.background(g, this.time, this.pan * this.W, this.Y(GROUND), dt)
     g.setTransform(1, 0, 0, 1, sx, sy)
@@ -1648,6 +1855,8 @@ export class StagePixel implements GameRenderer {
     this.ground()
     this.walls()
     this.gooDraw()
+    this.weatherDraw(w)
+    this.ownersDraw(w)
 
     if (this.intro < 0) this.shadow(bx, by, BALL_RADIUS)
     if (this.landX >= 0) this.landingMark(this.landX, this.landX < NET_POSITION_X ? this.light(LEFT) : this.light(RIGHT))

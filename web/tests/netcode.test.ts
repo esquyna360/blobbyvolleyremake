@@ -502,3 +502,36 @@ test('parede: empurrando contra ela no ar o blob gruda e salta pra fora', () => 
   assert.ok(w.blobX[LEFT] > LEFT_PLANE + BLOBBY_LOWER_RADIUS + 10, `salto não empurrou pra fora: x ${w.blobX[LEFT]}`)
 })
 
+
+test('gatos: Mary pula de novo no ar, Godi deitado manda a bola pro alto', () => {
+  const m = new Match('default', 15, LEFT, true)
+  const w = m.world
+  w.ability[LEFT] = 1
+  const up = { ...NO_INPUT, up: true }
+  m.step(up, NO_INPUT)
+  for (let f = 0; f < 12; f++) m.step(NO_INPUT, NO_INPUT)
+  assert.ok(w.blobY[LEFT] < GROUND_PLANE_HEIGHT - 20, 'não subiu no primeiro pulo')
+  const before = w.blobVY[LEFT]
+  m.step(up, NO_INPUT)
+  assert.ok(m.events.some(e => e.event === Ev.AIR_JUMP), 'sem pulo duplo')
+  assert.ok(w.blobVY[LEFT] < before - 5, `pulo duplo sem impulso: ${before} -> ${w.blobVY[LEFT]}`)
+  m.step(NO_INPUT, NO_INPUT)
+  m.step(up, NO_INPUT)
+  assert.ok(!m.events.some(e => e.event === Ev.AIR_JUMP), 'terceiro pulo no ar não pode')
+
+  const g = new Match('default', 15, LEFT, true)
+  const gw = g.world
+  g.logic.isBallValid = true
+  g.logic.isGameRunning = true
+  gw.ability[LEFT] = 2
+  const down = { ...NO_INPUT, down: true }
+  for (let f = 0; f < 10; f++) g.step(down, NO_INPUT)
+  gw.ballX = gw.blobX[LEFT]
+  gw.ballY = gw.blobY[LEFT] - 60
+  gw.ballVX = 0; gw.ballVY = 6
+  let hit = false
+  for (let f = 0; f < 30 && !hit; f++) { g.step(down, NO_INPUT); if (g.events.some(e => e.event === Ev.BALL_HIT_BLOB && e.intensity > 1.5)) hit = true }
+  assert.ok(hit, 'barrigada não disparou')
+  assert.ok(gw.ballVY < -14, `barrigada sem altura: vy ${gw.ballVY}`)
+  assert.ok(Math.abs(gw.ballVX) < 6, `barrigada saiu de lado: vx ${gw.ballVX}`)
+})
