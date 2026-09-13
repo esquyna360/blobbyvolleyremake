@@ -318,39 +318,46 @@ export class PixelScene {
     this.props = layer(W, 90, () => {})
   }
 
+  private arenaBg: { key: string; cv: HTMLCanvasElement } | null = null
+
   private arena(g: CanvasRenderingContext2D, time: number, gy: number) {
     const W = this.W, H = this.H, sky = this.scene.d2.sky
-    const bands = sky.length
-    for (let y = 0; y < gy; y++) {
-      const t = (y / gy) * (bands - 1)
-      const i = Math.min(bands - 2, Math.floor(t)), f = t - i
-      for (let x = 0; x < W; x++) {
-        const d = ((x * 3 + y * 5) & 7) / 8
-        g.fillStyle = f > d ? sky[i + 1] : sky[i]
-        g.fillRect(x, y, 1, 1)
-      }
-    }
-    const cx = W / 2
-    for (let y = 0; y < gy; y += 2) {
-      const spread = 40 + y * 0.9
-      for (let x = 0; x < W; x += 2) {
-        const dx = Math.abs(x - cx) / spread
-        if (dx < 1 && ((x + y) & 3) === 0 && dx * dx < 0.5 + Math.sin(time * 0.6 + y * 0.03) * 0.05) {
-          g.fillStyle = 'rgba(180,170,255,0.06)'
-          g.fillRect(x, y, 2, 2)
+    const key = W + ':' + H + ':' + gy + ':' + sky.join()
+    if (!this.arenaBg || this.arenaBg.key !== key) {
+      const cv = document.createElement('canvas')
+      cv.width = W; cv.height = H
+      const c = cv.getContext('2d')!
+      const bands = sky.length
+      for (let y = 0; y < gy; y++) {
+        const t = (y / gy) * (bands - 1)
+        const i = Math.min(bands - 2, Math.floor(t)), f = t - i
+        for (let x = 0; x < W; x++) {
+          const d = ((x * 3 + y * 5) & 7) / 8
+          c.fillStyle = f > d ? sky[i + 1] : sky[i]
+          c.fillRect(x, y, 1, 1)
         }
       }
+      c.fillStyle = this.pal.sand1; c.fillRect(0, gy, W, H - gy)
+      c.fillStyle = this.pal.sand2
+      for (let y = gy + 4; y < H; y += 1) if (((y - gy) & 3) === 0) c.fillRect(0, y, W, 1)
+      seed = 99
+      for (let i = 0; i < 160; i++) {
+        const x = rnd() * W, y = gy + 2 + rnd() * (H - gy - 2)
+        c.fillStyle = rnd() < 0.5 ? this.pal.sandDk : shade(this.pal.sand1, 1.25)
+        c.fillRect(x | 0, y | 0, 1, 1)
+      }
+      c.fillStyle = shade(this.pal.sand1, 1.5); c.fillRect(0, gy, W, 1)
+      this.arenaBg = { key, cv }
     }
-    g.fillStyle = this.pal.sand1; g.fillRect(0, gy, W, H - gy)
-    g.fillStyle = this.pal.sand2
-    for (let y = gy + 4; y < H; y += 1) if (((y - gy) & 3) === 0) g.fillRect(0, y, W, 1)
-    seed = 99
-    for (let i = 0; i < 160; i++) {
-      const x = rnd() * W, y = gy + 2 + rnd() * (H - gy - 2)
-      g.fillStyle = rnd() < 0.5 ? this.pal.sandDk : shade(this.pal.sand1, 1.25)
-      g.fillRect(x | 0, y | 0, 1, 1)
+    g.drawImage(this.arenaBg.cv, 0, 0)
+    const cx = W / 2
+    g.fillStyle = 'rgba(180,170,255,0.06)'
+    for (let y = 0; y < gy; y += 2) {
+      const spread = 40 + y * 0.9
+      const lim = Math.sqrt(Math.max(0, 0.5 + Math.sin(time * 0.6 + y * 0.03) * 0.05)) * spread
+      const x0 = Math.max(0, Math.ceil((cx - lim) / 2) * 2), x1 = Math.min(W, cx + lim)
+      for (let x = x0; x < x1; x += 2) if (((x + y) & 3) === 0) g.fillRect(x, y, 2, 2)
     }
-    g.fillStyle = shade(this.pal.sand1, 1.5); g.fillRect(0, gy, W, 1)
   }
 
   private buildGinasio() {

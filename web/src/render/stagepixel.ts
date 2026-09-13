@@ -151,6 +151,8 @@ export class StagePixel implements GameRenderer {
   private swing = [0, 0]
   private swingDir = [1, -1]
   private netHit: { y: number; dir: number; t: number } | null = null
+  private meshCache: { key: string; cv: HTMLCanvasElement } | null = null
+  private ballCache = new Map<string, HTMLCanvasElement>()
   private clingK = [0, 0]
   private landX = -1
   private scene: Scene = getScene('praia')
@@ -1123,7 +1125,16 @@ export class StagePixel implements GameRenderer {
     const dark = ['#b8c0cc', '#1d54b0', '#d9a41e']
     const light = ['#ffffff', '#7fb4ff', '#fff0a0']
     const seam = '#1b2436'
-    const [lx, ly] = this.lightAt(cx, cy)
+    const [lx0, ly0] = this.lightAt(cx, cy)
+    const lx = Math.round(lx0 * 4) / 4, ly = Math.round(ly0 * 4) / 4
+    const qr = Math.round(((rot % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2) * 48) % 48
+    const key = rx + ':' + ry + ':' + qr + ':' + lx + ':' + ly
+    const hit = this.ballCache.get(key)
+    if (hit) { g.drawImage(hit, cx - rx, cy - ry); g.fillStyle = '#ffffff'; g.fillRect(cx + Math.round(lx * r * 0.5), cy + Math.round(ly * r * 0.55), 2, 1); return }
+    const cv = document.createElement('canvas')
+    cv.width = rx * 2 + 1; cv.height = ry * 2 + 1
+    const c = cv.getContext('2d')!
+    rot = qr / 48 * Math.PI * 2
     const cr = Math.cos(rot), sr = Math.sin(rot)
     const ct = 0.82, st = 0.57
     for (let yy = -ry; yy <= ry; yy++) for (let xx = -rx; xx <= rx; xx++) {
@@ -1147,9 +1158,12 @@ export class StagePixel implements GameRenderer {
       else if (lit > 0.55 && d < 0.55) col = light[idx]
       else if (lit < -0.4) col = dark[idx]
       else col = pal[idx]
-      g.fillStyle = col
-      g.fillRect(cx + xx, cy + yy, 1, 1)
+      c.fillStyle = col
+      c.fillRect(xx + rx, yy + ry, 1, 1)
     }
+    if (this.ballCache.size > 400) this.ballCache.clear()
+    this.ballCache.set(key, cv)
+    g.drawImage(cv, cx - rx, cy - ry)
     g.fillStyle = '#ffffff'
     g.fillRect(cx + Math.round(lx * r * 0.5), cy + Math.round(ly * r * 0.55), 2, 1)
   }
@@ -1358,14 +1372,28 @@ export class StagePixel implements GameRenderer {
       const dy = (y - this.Y(nh.y)) / this.S(70)
       return nh.dir * this.S(14) * Math.exp(-nh.t * 4.5) * Math.sin(nh.t * 26) * Math.exp(-dy * dy) * (1 - Math.exp(-nh.t * 40))
     }
-    g.fillStyle = '#e8e8e0'
-    for (let y = mTop; y < bot; y++) {
-      const off = Math.round(bend(y))
-      g.globalAlpha = 0.5
-      for (let x = mesh0; x <= mesh0 + meshW; x += cell) g.fillRect(x + off, y, 1, 1)
-      if ((y - mTop) % cell === 0) { g.globalAlpha = 0.3; g.fillRect(mesh0 + off, y, meshW + 1, 1) }
+    const mh = bot - mTop
+    const key = meshW + ':' + mh + ':' + cell
+    if (!this.meshCache || this.meshCache.key !== key) {
+      const cv = document.createElement('canvas')
+      cv.width = meshW + 1; cv.height = Math.max(1, mh)
+      const c = cv.getContext('2d')!
+      c.fillStyle = '#e8e8e0'
+      c.globalAlpha = 0.5
+      for (let x = 0; x <= meshW; x += cell) c.fillRect(x, 0, 1, mh)
+      c.globalAlpha = 0.3
+      for (let y = 0; y < mh; y += cell) c.fillRect(0, y, meshW + 1, 1)
+      this.meshCache = { key, cv }
     }
-    g.globalAlpha = 1
+    const cv = this.meshCache.cv
+    if (!nh) g.drawImage(cv, mesh0, mTop)
+    else {
+      const hy = this.Y(nh.y), span = this.S(70) * 2.5
+      const y0 = Math.max(mTop, Math.floor(hy - span)), y1 = Math.min(bot, Math.ceil(hy + span))
+      if (y0 > mTop) g.drawImage(cv, 0, 0, cv.width, y0 - mTop, mesh0, mTop, cv.width, y0 - mTop)
+      for (let y = y0; y < y1; y++) g.drawImage(cv, 0, y - mTop, cv.width, 1, mesh0 + Math.round(bend(y)), y, cv.width, 1)
+      if (y1 < bot) g.drawImage(cv, 0, y1 - mTop, cv.width, bot - y1, mesh0, y1, cv.width, bot - y1)
+    }
 
     // mastro metalico: sombra de um lado, brilho fino do outro
     const pw = Math.max(2, Math.round(w * 0.5))
@@ -1445,7 +1473,7 @@ export class StagePixel implements GameRenderer {
       if (kb <= 0) continue
       const ax = this.X(a.x), ay = this.Y(a.y), bx = this.X(b.x), by = this.Y(b.y)
       const len = Math.hypot(bx - ax, by - ay)
-      const steps = Math.max(1, Math.ceil(len / 2))
+      const steps = Math.max(1, Math.ceil(len / 5))
       for (let s = 0; s < steps; s++) {
         const t = s / steps
         const k = Math.max(0, ka + (kb - ka) * t)
