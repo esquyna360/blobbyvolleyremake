@@ -1591,7 +1591,8 @@ body.arena .touches { transform: scale(0.7); transform-origin: center top; }
 body.arena .rally { font-size: 6px; }
 body.arena .charge { height: 8px; border-width: 1px; box-shadow: 2px 2px 0 #000; width: 90px; }
 body.arena .charge b { font-size: 5px; }
-body.arena .abxy .tbtn.dive, body.arena .abxy .tbtn.special { display: none; }
-body.arena .abxy { width: 150px; height: 150px; }
+body.arena .abxy .tbtn.special { display: none; }
+body.arena .abxy { width: 190px; height: 160px; }
 body.arena .abxy .tbtn.hit { top: 0; left: 0; transform: none; }
-body.arena .abxy .tbtn.up { bottom: 0; right: 0; left: auto; transform: none; }
+body.arena .abxy .tbtn.dive { top: 0; right: 0; transform: none; }
+body.arena .abxy .tbtn.up { bottom: 0; left: 50%; transform: translateX(-50%); }

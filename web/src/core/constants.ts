@@ -29,11 +29,13 @@ export const GRAVITATION = (BLOBBY_JUMP_ACCELERATION * BLOBBY_JUMP_ACCELERATION)
 export const BLOBBY_JUMP_BUFFER = GRAVITATION / 2
 export const WALL_SLIDE = 1.4
 export const WALL_JUMP_MUL = 0.94
-export const WALL_JUMP_PUSH = 8.5
+export const WALL_JUMP_PUSH = 11
 export const WALL_COYOTE = 6
 export const WALL_HOLD = 50
+/** a parede engole parte do impacto da bola */
+export const WALL_DAMP = 0.78
 
-export const BALL_RADIUS = 31.5
+export const BALL_RADIUS = 27
 export const BALL_GRAVITATION = 0.287
 export const BALL_COLLISION_VELOCITY = Math.sqrt(0.75 * RIGHT_PLANE * BALL_GRAVITATION)
 
@@ -42,8 +44,8 @@ export const NET_POSITION_Y = 438
 export const NET_RADIUS = 7
 export const NET_SPHERE_POSITION = 284
 
-export const STANDARD_BALL_HEIGHT = 269 + BALL_RADIUS
-export const BLOBBY_SPEED = 4.5
+export const STANDARD_BALL_HEIGHT = 300.5
+export const BLOBBY_SPEED = 5.3
 export const STANDARD_BALL_ANGULAR_VELOCITY = 0.1
 export const BLOBBY_ANIMATION_SPEED = 0.5
 
@@ -215,7 +217,7 @@ export const ARENAS: [ArenaId, string, string][] = [
   ['wide', 'Estendida', '1210'],
 ]
 
-export const ARENA_WIDTH: Record<ArenaId, number> = { default: 880, wide: 1210 }
+export const ARENA_WIDTH: Record<ArenaId, number> = { default: 1080, wide: 1320 }
 
 /**
  * Largura da quadra é global e viva: física, bot e render leem os bindings.

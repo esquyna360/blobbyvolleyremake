@@ -3,7 +3,7 @@ import {
   BLOBBY_JUMP_ACCELERATION, BLOBBY_JUMP_BUFFER, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE,
   BLOBBY_SPEED, BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, GRAVITATION,
   GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, OPEN_MARGIN,
-  WALL_SLIDE, WALL_JUMP_MUL, WALL_JUMP_PUSH, WALL_COYOTE, WALL_HOLD,
+  WALL_SLIDE, WALL_JUMP_MUL, WALL_JUMP_PUSH, WALL_COYOTE, WALL_HOLD, WALL_DAMP,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
@@ -862,12 +862,12 @@ export class PhysicWorld {
     }
     if (walls && onLeft) {
       this.ballSpin = 0
-      this.ballVX = -this.ballVX
+      this.ballVX = -this.ballVX * WALL_DAMP
       this.ballX = LEFT_PLANE + BALL_RADIUS
       out.push({ event: Ev.BALL_HIT_WALL, side: LEFT, intensity: 0 })
     } else if (walls && onRight) {
       this.ballSpin = 0
-      this.ballVX = -this.ballVX
+      this.ballVX = -this.ballVX * WALL_DAMP
       this.ballX = RIGHT_PLANE - BALL_RADIUS
       out.push({ event: Ev.BALL_HIT_WALL, side: RIGHT, intensity: 0 })
     } else if (this.ballY > NET_SPHERE_POSITION && Math.abs(this.ballX - NET_POSITION_X) < BALL_RADIUS + NET_RADIUS) {

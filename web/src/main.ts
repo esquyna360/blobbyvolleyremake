@@ -1,6 +1,6 @@
 import './ui/style.css'
 import * as THREE from 'three'
-import { LEFT, RIGHT, TICK_MS, NO_PLAYER, setArena, arenaId, GROUND_PLANE_HEIGHT, SPECIAL_FULL } from './core/constants.ts'
+import { LEFT, RIGHT, TICK_MS, NO_PLAYER, setArena, arenaId, SPECIAL_FULL } from './core/constants.ts'
 import type { Side, ArenaId } from './core/constants.ts'
 import { Match } from './core/match.ts'
 import { getRules } from './core/logic.ts'
@@ -1111,18 +1111,13 @@ class App {
 
   // ---------- loop ----------
 
-  /**
-   * Um botao so: bater. Com a barra cheia a mesma tecla solta o especial; segurando
-   * baixo ela vira mergulho. Menos pra decorar, mesma fisica.
-   */
+  /** Tres botoes: pular, mergulhar e atacar. Com a barra cheia atacar solta o especial. */
   private simple(inp: PlayerInput, side: Side): PlayerInput {
     const w = this.match?.world
     if (!w) return inp
-    const act = inp.hit || inp.special || inp.dive
-    const ground = w.blobY[side] >= GROUND_PLANE_HEIGHT - 0.5
-    const dive = act && inp.down && ground && (inp.left || inp.right)
-    const special = act && !dive && (w.charge[side] >= SPECIAL_FULL || (w.superFrames > 0 && w.superOwner !== side) || w.hold[side] > 0)
-    return { ...inp, hit: act && !dive && !special, dive, special }
+    const act = inp.hit || inp.special
+    const special = act && (w.charge[side] >= SPECIAL_FULL || (w.superFrames > 0 && w.superOwner !== side) || w.hold[side] > 0)
+    return { ...inp, hit: act && !special, special }
   }
 
   private readLocalInputs(): [PlayerInput, PlayerInput] {
