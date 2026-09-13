@@ -222,8 +222,10 @@ export class StagePixel implements GameRenderer {
     this.oy = this.H * 0.9 - (GROUND + 44) * this.scale
   }
 
+  /** na arena o cenario e sempre o escuro: o foco sao os jogadores */
   setScene(id: SceneId) {
-    this.scene = getScene(id)
+    void id
+    this.scene = getScene('arena')
     this.px.setScene(this.scene)
   }
 
