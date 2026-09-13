@@ -24,6 +24,16 @@ const GROUND = GROUND_PLANE_HEIGHT_MAX
 const CRATER_LIFE = 7
 /** Altura do mundo em pixels: a quadra (880 + margens) cabe em ~2.3 unidades por pixel. */
 const VH = 216
+/** folga em volta de cada corpo enquadrado */
+const CAM_PAD = 34
+/** metade da faixa em volta da rede que fica sempre visivel */
+const CAM_NET = 120
+/** quanto a camera pode passar de cada parede */
+const CAM_EDGE = 60
+/** folga acima da ponteira da rede */
+const CAM_NET_TOP = 34
+const CAM_MIN = 0.82
+const CAM_MAX = 1.78
 export const INTRO_LEN = 5.6
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
@@ -40,7 +50,7 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 const ease = (k: number) => k * k * (3 - 2 * k)
 
 export function ellipseP(g: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number,
-                         cols: Cols, lx = -0.5, ly = -0.6) {
+                         cols: Cols, lx = -0.5, ly = -0.6, rim: string | null = null) {
   rx = Math.max(1, rx); ry = Math.max(1, ry)
   const x0 = Math.floor(cx - rx - 1), x1 = Math.ceil(cx + rx + 1)
   const y0 = Math.floor(cy - ry - 1), y1 = Math.ceil(cy + ry + 1)
@@ -53,7 +63,7 @@ export function ellipseP(g: CanvasRenderingContext2D, cx: number, cy: number, rx
     const inner = nx2 * nx2 + ny2 * ny2 <= 1
     const lit = nx * lx + ny * ly
     let col: string
-    if (!inner) col = cols.dk2
+    if (!inner) col = rim && lit > 0.12 ? rim : cols.dk2
     else if (lit > 0.62 && d < 0.6) col = cols.hi
     else if (lit < -0.45 && d > 0.45) col = cols.dk
     else col = cols.base
@@ -149,6 +159,10 @@ export class StagePixel implements GameRenderer {
   private wallsOn = true
   private frameExtra = 0
   private zoom = 1
+  /** zoom da camera dinamica, em multiplos do enquadramento minimo */
+  private camZ = 1
+  /** centro horizontal do enquadramento, em coordenadas de mundo */
+  private camX = NET_POSITION_X
   private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
   private cols: Cols[] = [colsOf(bodyHex(defaultLook(LEFT))), colsOf(bodyHex(defaultLook(RIGHT)))]
   private hairCols: Cols[] = [colsOf(hairHex(defaultLook(LEFT))), colsOf(hairHex(defaultLook(RIGHT)))]
@@ -198,12 +212,51 @@ export class StagePixel implements GameRenderer {
     this.applyFrame()
   }
 
+  /** enquadramento mais aberto: a quadra inteira cabe */
+  private baseScale() {
+    return Math.min(this.W / (RIGHT_PLANE + 90), this.H / 640)
+  }
+
   private applyFrame() {
-    const fitW = this.W / (RIGHT_PLANE + 90 + this.frameExtra * 2)
-    const fitH = this.H / 640
-    this.scale = Math.min(fitW, fitH) * this.zoom
-    this.ox = (this.W - RIGHT_PLANE * this.scale) / 2
+    const base = this.baseScale()
+    this.scale = base * this.zoom * this.camZ
+    this.ox = this.W / 2 - this.camX * this.scale
     this.oy = this.H * 0.86 - (GROUND + 44) * this.scale
+  }
+
+  /**
+   * Fecha o enquadramento na caixa que contem os blobs e a bola e abre de volta
+   * quando a acao se espalha. So mexe no render: a simulacao nao ve a camera.
+   */
+  private camera(dt: number, bx: number, by: number, ballOn: boolean, px: number[], py: number[]) {
+    const base = this.baseScale()
+    let x0 = Infinity, x1 = -Infinity, top = GROUND
+    const see = (x: number, y: number, r: number) => {
+      x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); top = Math.min(top, y - r)
+    }
+    for (const s of [0, 1] as Side[]) {
+      if (this.off(s)) continue
+      see(px[s], py[s] - BLOBBY_UPPER_SPHERE, BLOBBY_LOWER_RADIUS + CAM_PAD)
+    }
+    if (this.intro < 0 && ballOn) see(bx, by, BALL_RADIUS + CAM_PAD)
+    if (!isFinite(x0)) { x0 = LEFT_PLANE; x1 = RIGHT_PLANE; top = GROUND - 200 }
+    // a rede inteira, ponteira incluida, nunca sai do quadro
+    x0 = Math.min(x0, NET_POSITION_X - CAM_NET); x1 = Math.max(x1, NET_POSITION_X + CAM_NET)
+    top = Math.min(top, NET_SPHERE_POSITION - CAM_NET_TOP)
+
+    const fitH = (this.H * 0.84) / Math.max(120, GROUND + 10 - top)
+    const fitW = this.W / Math.max(200, x1 - x0)
+    const want = clamp(Math.min(fitH, fitW) / base, CAM_MIN, CAM_MAX)
+    const kz = want < this.camZ ? 9 : 2.4
+    this.camZ += (want - this.camZ) * (1 - Math.exp(-dt * kz))
+
+    const sc = base * this.zoom * this.camZ
+    const halfW = this.W / (2 * sc)
+    const lo = LEFT_PLANE - CAM_EDGE + halfW, hi = RIGHT_PLANE + CAM_EDGE - halfW
+    let cx = (x0 + x1) / 2
+    cx = lo <= hi ? clamp(cx, lo, hi) : NET_POSITION_X
+    this.camX += (cx - this.camX) * (1 - Math.exp(-dt * 4.5))
+    this.applyFrame()
   }
 
   setScene(id: SceneId) {
@@ -689,6 +742,16 @@ export class StagePixel implements GameRenderer {
     this.trail = this.trail.filter(t => { t.life += dt; return t.life < 0.38 })
   }
 
+  /** para onde fica a luz da cena, visto de um ponto da tela */
+  private lightAt(x: number, y: number): [number, number] {
+    const s = this.px.sun
+    if (!s) return [-0.5, -0.6]
+    const dx = s.x - x, dy = s.y - y
+    const d = Math.hypot(dx, dy)
+    if (d < 1) return [-0.5, -0.6]
+    return [dx / d, dy / d]
+  }
+
   /** física → pixel do mundo (inteiro) */
   private X(x: number) { return Math.round(this.ox + x * this.scale) }
   private Y(y: number) { return Math.round(this.oy + y * this.scale) }
@@ -742,18 +805,25 @@ export class StagePixel implements GameRenderer {
     if (alt > 0) pxText(g, String(alt), x + 12, ty + 3, '#ffd257', 1, '#1a1620')
   }
 
+  /** elipse de contato no chao: da a altura do corpo que a projeta */
   private shadow(x: number, y: number, r: number) {
     const g = this.g
-    const k = clamp(1 - (GROUND - y) / 420, 0.3, 1)
-    const rx = Math.round(this.S(r) * k), ry = Math.max(1, Math.round(this.S(r) * 0.3 * k))
-    const gy = this.Y(GROUND) + 1
-    g.fillStyle = this.px.pal.shadow
-    g.globalAlpha = 0.45
-    for (let yy = -ry; yy <= ry; yy++) {
-      const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (yy / (ry + 0.5)) ** 2)))
-      g.fillRect(this.X(x) - w, gy + yy, w * 2, 1)
+    const h = clamp((GROUND - y) / 330, 0, 1)
+    const k = 1 - 0.5 * h
+    const cx = this.X(x), gy = this.Y(GROUND) + 1
+    const rx = Math.max(2, Math.round(this.S(r) * 1.05 * k))
+    const ry = Math.max(2, Math.round(this.S(r) * 0.4 * k))
+    const ring = (sx: number, sy: number, alpha: number, color: string) => {
+      g.fillStyle = color
+      g.globalAlpha = alpha
+      for (let yy = -sy; yy <= sy; yy++) {
+        const w = Math.round(sx * Math.sqrt(Math.max(0, 1 - (yy / (sy + 0.5)) ** 2)))
+        if (w > 0) g.fillRect(cx - w, gy + yy, w * 2, 1)
+      }
+      g.globalAlpha = 1
     }
-    g.globalAlpha = 1
+    ring(rx, ry, 0.3 - 0.16 * h, this.px.pal.shadow)
+    ring(Math.round(rx * 0.62), Math.max(1, Math.round(ry * 0.62)), 0.34 - 0.18 * h, this.px.pal.shadow)
   }
 
   private blob(p: Side, wx: number, wy: number, state: number, ball: { x: number; y: number },
@@ -794,7 +864,9 @@ export class StagePixel implements GameRenderer {
       }
       g.globalAlpha = 1
     }
-    ellipseP(g, bkx, bky, brx, bry, c)
+    const [sunX, sunY] = this.lightAt(hx, hy)
+    const rim = shade(c.hi, 1.45)
+    ellipseP(g, bkx, bky, brx, bry, c, sunX, sunY, rim)
     // tronco: corpo e cabeça são uma massa só
     const nw = Math.round(ru * 1.3)
     const ny0 = Math.round(hy), ny1 = Math.round(bky - bry * 0.4)
@@ -812,10 +884,10 @@ export class StagePixel implements GameRenderer {
       discP(g, ax + d * len, ay + len * 0.35, ru * 0.3, c.dk)
     }
     this.hair(p, hx, hy, ru, fac, true)
-    ellipseP(g, hx, hy, ru, ru, c)
+    ellipseP(g, hx, hy, ru, ru, c, sunX, sunY, rim)
     g.fillStyle = c.hi
-    g.fillRect(Math.round(hx - ru * 0.45), Math.round(hy - ru * 0.55), 2, 1)
-    g.fillRect(Math.round(hx - ru * 0.55), Math.round(hy - ru * 0.35), 1, 2)
+    g.fillRect(Math.round(hx + sunX * ru * 0.45), Math.round(hy + sunY * ru * 0.55), 2, 1)
+    g.fillRect(Math.round(hx + sunX * ru * 0.55), Math.round(hy + sunY * ru * 0.35), 1, 2)
     this.face(p, hx, hy, ru, fac, ball, stunned)
     this.hair(p, hx, hy, ru, fac, false)
     if (this.blobFlash[p] > 0.05) {
@@ -1116,20 +1188,50 @@ export class StagePixel implements GameRenderer {
 
   private net() {
     const g = this.g
+    const pal = this.px.pal
     const nx = this.X(NET_POSITION_X)
     const top = this.Y(NET_SPHERE_POSITION), bot = this.Y(GROUND + 30)
-    const w = Math.max(2, Math.round(this.S(NET_RADIUS * 2)))
-    const x0 = nx - Math.floor(w / 2)
-    g.fillStyle = this.px.pal.pole
-    g.fillRect(x0, top, w, bot - top + 2)
-    g.fillStyle = this.px.pal.netDk
-    for (let y = top + 2; y < bot; y += 3) g.fillRect(x0, y, w, 1)
-    g.fillStyle = '#f2f2f2'
-    g.fillRect(x0 - 1, top - 2, w + 2, 3)
+    const w = Math.max(3, Math.round(this.S(NET_RADIUS * 2)))
+    const flare = Math.max(1, Math.round(this.S(5)))
+    const mesh0 = nx - Math.floor(w / 2) - flare
+    const meshW = w + flare * 2
+    const tape = Math.max(2, Math.round(this.S(8)))
+    const cell = Math.max(2, Math.round(this.S(5)))
+
+    this.shadow(NET_POSITION_X, GROUND, NET_RADIUS * 2.2)
+
+    // trama translucida: as cordas filtram o cenario em vez de tapar
+    const mTop = top + tape
+    g.globalAlpha = 0.5
+    g.fillStyle = '#e8e8e0'
+    for (let x = mesh0; x <= mesh0 + meshW; x += cell) g.fillRect(x, mTop, 1, bot - mTop)
+    g.globalAlpha = 0.3
+    for (let y = mTop; y < bot; y += cell) g.fillRect(mesh0, y, meshW + 1, 1)
+    g.globalAlpha = 1
+
+    // mastro metalico: sombra de um lado, brilho fino do outro
+    const pw = Math.max(2, Math.round(w * 0.5))
+    const px0 = nx - Math.floor(pw / 2)
+    g.fillStyle = shade(pal.pole, 0.55)
+    g.fillRect(px0, top, pw, bot - top + 2)
+    g.fillStyle = shade(pal.pole, 0.88)
+    g.fillRect(px0, top, Math.max(1, pw - 1), bot - top + 2)
+    g.fillStyle = shade(pal.pole, 1.14)
+    g.fillRect(px0, top + 1, 1, bot - top)
+
+    // fita da borda superior
+    g.fillStyle = '#eeeee8'
+    g.fillRect(mesh0, top, meshW + 1, tape)
     g.fillStyle = '#ffffff'
-    g.fillRect(nx, top - 3, 1, 1)
-    g.fillStyle = 'rgba(0,0,0,0.25)'
-    g.fillRect(nx + 2, this.Y(GROUND) + 1, 8, 1)
+    g.fillRect(mesh0, top, meshW + 1, 1)
+    g.fillStyle = shade('#eeeee8', 0.72)
+    g.fillRect(mesh0, top + tape - 1, meshW + 1, 1)
+
+    // ponteira do mastro
+    const kn = Math.max(1, Math.round(this.S(5)))
+    discP(g, nx, top - kn, kn, shade(pal.pole, 0.8))
+    discP(g, nx, top - kn, Math.max(0, kn - 1), shade(pal.pole, 1.1))
+
   }
 
   private fx() {
@@ -1310,7 +1412,7 @@ export class StagePixel implements GameRenderer {
       Math.abs(w.blobX[RIGHT] - NET_POSITION_X)) - half
     const want = Math.max(0, Math.min(OPEN_MARGIN, far + 24))
     this.frameExtra += (want - this.frameExtra) * (1 - Math.exp(-dt * (want > this.frameExtra ? 5.5 : 1.4)))
-    this.applyFrame()
+    this.camera(dt, bx, by, match.logic.isBallValid, [L(p.px[0], q.px[0]), L(p.px[1], q.px[1])], [L(p.py[0], q.py[0]), L(p.py[1], q.py[1])])
     const panWant = clamp(((bx - NET_POSITION_X) / half) * 0.06, -0.06, 0.06)
     this.pan += (panWant - this.pan) * (1 - Math.exp(-dt * 3.2))
     if (eOn) {

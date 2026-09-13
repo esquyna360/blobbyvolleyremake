@@ -82,6 +82,8 @@ export class PixelScene {
   private props!: HTMLCanvasElement
   private gy = 0
   private horizon = 0
+  /** onde o disco do céu foi desenhado, em pixels do buffer; null quando não há */
+  sun: { x: number; y: number } | null = null
   private shore = 0
   private flies: { x: number; y: number; ph: number; col: string }[] = []
   private motes: { x: number; y: number; ph: number }[] = []
@@ -109,6 +111,7 @@ export class PixelScene {
     this.pal.sand2 = d2.ground[1] ?? shade(d2.ground[0], 0.8)
     this.pal.sandDk = shade(this.pal.sand2, 0.7)
     this.pal.shadow = shade(this.pal.sand2, 0.3)
+    this.sun = null
     this.horizon = this.gy - (id === 'ginasio' ? 70 : id === 'selva' ? 62 : 52)
     this.shore = this.gy - (id === 'ginasio' ? 26 : id === 'selva' ? 34 : 22)
     this.buildSky()
@@ -150,6 +153,7 @@ export class PixelScene {
       const orb = this.scene.d2.orb
       if (orb) {
         const sx = Math.round(orb.x * W), sy = Math.round(this.horizon - (418 - orb.y) * 0.34)
+        this.sun = { x: sx, y: sy }
         const r = Math.max(6, Math.round(orb.r * 0.42))
         const col = this.scene.night ? '#f6f6e2' : '#fff3b0', halo = this.scene.night ? '#dde2ff' : '#f6e9a0'
         for (let rr = r + 5; rr >= r; rr -= 5) {
