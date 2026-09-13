@@ -5,7 +5,7 @@
  */
 import type { DepthId } from './depth.ts'
 
-export type SceneId = 'selva' | 'praia' | 'gruta' | 'luau' | 'ginasio'
+export type SceneId = 'arena' | 'selva' | 'praia' | 'gruta' | 'luau' | 'ginasio'
 
 /** Trilha do menu: fica fora da lista de cenários porque não é um. */
 export const MENU_SONG = 'menu'
@@ -77,6 +77,50 @@ export interface Scene {
 }
 
 export const SCENES: Record<SceneId, Scene> = {
+  arena: {
+    id: 'arena',
+    name: 'Arena',
+    hint: 'escuro, só os jogadores importam',
+    music: 'ginasio',
+    depth: 'none',
+    fg: 'dust',
+    night: true,
+    d2: {
+      sky: ['#07070c', '#0c0b14', '#12101c', '#181524'],
+      mid: ['#14121e', '#1a1726'],
+      ground: ['#221e30', '#171422'],
+      horizon: 300,
+      shore: 430,
+      cloud: null,
+      clouds: 0,
+      star: null,
+      stars: 0,
+      orb: null,
+      hills: null,
+      foam: null,
+      line: 'rgba(255,255,255,0.8)',
+      wash: null,
+      sand: '#221e30',
+      sandDark: '#0f0d18',
+    },
+    d3: {
+      sun: [-0.2, 0.92, 0.34],
+      exposure: 0.2,
+      fog: [0.03, 0.03, 0.05],
+      fogDensity: 0.004,
+      key: 0xffffff,
+      keyIntensity: 2.4,
+      ambient: 0x6a6a90,
+      ambientIntensity: 0.5,
+      sand: [0.3, 0.28, 0.4],
+      ocean: false,
+      oceanTint: [1.0, 1.0, 1.0],
+      palms: false,
+      fire: 0,
+      indoor: true,
+    },
+  },
+
   selva: {
     id: 'selva',
     name: 'Selva',
@@ -301,4 +345,4 @@ export const SCENES: Record<SceneId, Scene> = {
 export const SCENE_LIST: [SceneId, string, string][] =
   (Object.keys(SCENES) as SceneId[]).map(id => [id, SCENES[id].name, SCENES[id].hint])
 
-export const getScene = (id: string): Scene => SCENES[id as SceneId] ?? SCENES.praia
+export const getScene = (id: string): Scene => SCENES[id as SceneId] ?? SCENES.arena

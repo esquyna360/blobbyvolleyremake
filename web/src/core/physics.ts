@@ -3,6 +3,7 @@ import {
   BLOBBY_JUMP_ACCELERATION, BLOBBY_JUMP_BUFFER, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE,
   BLOBBY_SPEED, BLOBBY_UPPER_RADIUS, BLOBBY_UPPER_SPHERE, GRAVITATION,
   GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, OPEN_MARGIN,
+  WALL_SLIDE, WALL_JUMP_MUL, WALL_JUMP_PUSH, WALL_COYOTE, WALL_HOLD,
   NET_RADIUS, NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, STANDARD_BALL_ANGULAR_VELOCITY,
   STANDARD_BALL_HEIGHT, SPECIAL_BALL_FRAMES, SPECIAL_CAP, SPECIAL_FULL, SPECIAL_GAIN_FRAME,
   SPECIAL_GAIN_TOUCH, SPECIAL_REACH, SPECIAL_VELOCITY, STUN_FRAMES,
@@ -115,6 +116,11 @@ export class PhysicWorld {
    * quadra fica aberta e sair pelo lado é ponto de quem não tocou por último.
    */
   walls = true
+  /** frames restantes grudado na parede; permite saltar dela */
+  wallCling = [0, 0]
+  wallSide = [0, 0]
+  /** frames seguidos grudado: depois de um tempo a gosma cede e o blob desliza */
+  wallHold = [0, 0]
 
   /**
    * Minigame de mira: o lado direito é cenário. Sem isso um blob invisível
@@ -126,7 +132,7 @@ export class PhysicWorld {
 
   matchPoint = false
 
-  get wallsOn() { return this.walls }
+  get wallsOn() { return true }
 
   blobHitGround(p: Side) { return this.blobY[p] >= GROUND_PLANE_HEIGHT }
 
@@ -661,14 +667,22 @@ export class PhysicWorld {
 
   private startAnim(p: Side) { if (this.animSpeed[p] === 0) this.animSpeed[p] = BLOBBY_ANIMATION_SPEED }
 
-  private handleBlob(p: Side, input: PlayerInput) {
+  private handleBlob(p: Side, input: PlayerInput, out: MatchEvent[]) {
     const ground = this.blobHitGround(p)
     const T = this.tempo
     const T2 = T * T
     let g = GRAVITATION
+    if (this.wallCling[p] > 0) this.wallCling[p]--
     if (input.up && !input.down) {
       // pulo é aperto, não tecla segurada: soltar a mira pra cima não pode virar pulo
       if (ground && this.prevUp[p] === 0) { this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * T; this.startAnim(p) }
+      else if (this.wallCling[p] > 0 && this.prevUp[p] === 0) {
+        this.blobVY[p] = BLOBBY_JUMP_ACCELERATION * WALL_JUMP_MUL * T
+        this.knock[p] = -this.wallSide[p] * WALL_JUMP_PUSH
+        this.wallCling[p] = 0
+        this.startAnim(p)
+        out.push({ event: Ev.WALL_JUMP, side: p, intensity: 0 })
+      }
       g -= BLOBBY_JUMP_BUFFER
     }
     // no ar, pra baixo é queda rápida
@@ -720,6 +734,17 @@ export class PhysicWorld {
     }
     this.blobY[p] += 0.5 * g + this.blobVY[p]
     this.blobVY[p] += g
+
+    const inner = p === LEFT ? LEFT_PLANE + BLOBBY_LOWER_RADIUS : RIGHT_PLANE - BLOBBY_LOWER_RADIUS
+    const atWall = p === LEFT ? this.blobX[p] <= inner : this.blobX[p] >= inner
+    const toWall = p === LEFT ? input.left : input.right
+    if (atWall && toWall && this.blobVY[p] > 0 && this.blobY[p] < GROUND_PLANE_HEIGHT - 1 && this.diveRecover[p] === 0 && this.wallHold[p] < WALL_HOLD) {
+      if (this.wallCling[p] === 0) out.push({ event: Ev.WALL_CLING, side: p, intensity: 0 })
+      this.wallCling[p] = WALL_COYOTE
+      this.wallHold[p]++
+      this.wallSide[p] = p === LEFT ? -1 : 1
+      if (this.blobVY[p] > WALL_SLIDE * T) this.blobVY[p] = WALL_SLIDE * T
+    } else if (!atWall || ground) this.wallHold[p] = 0
 
     if (this.blobY[p] > GROUND_PLANE_HEIGHT) {
       if (this.blobVY[p] > 3.5) this.startAnim(p)
@@ -906,8 +931,8 @@ export class PhysicWorld {
 
     this.tryCrouch(LEFT, el)
     this.tryCrouch(RIGHT, er)
-    this.handleBlob(LEFT, el)
-    this.handleBlob(RIGHT, er)
+    this.handleBlob(LEFT, el, out)
+    this.handleBlob(RIGHT, er, out)
 
     this.holdStep(LEFT, li, out)
     this.holdStep(RIGHT, ri, out)
@@ -966,10 +991,8 @@ export class PhysicWorld {
       this.blobX[LEFT] = NET_POSITION_X - NET_RADIUS - BLOBBY_LOWER_RADIUS
     if (this.blobX[RIGHT] - BLOBBY_LOWER_RADIUS < NET_POSITION_X + NET_RADIUS)
       this.blobX[RIGHT] = NET_POSITION_X + NET_RADIUS + BLOBBY_LOWER_RADIUS
-    // com a quadra aberta dá pra ir buscar a bola fora da linha
-    const outer = this.wallsOn ? 0 : OPEN_MARGIN
-    if (this.blobX[LEFT] < LEFT_PLANE - outer) this.blobX[LEFT] = LEFT_PLANE - outer
-    if (this.blobX[RIGHT] > RIGHT_PLANE + outer) this.blobX[RIGHT] = RIGHT_PLANE + outer
+    if (this.blobX[LEFT] < LEFT_PLANE + BLOBBY_LOWER_RADIUS) this.blobX[LEFT] = LEFT_PLANE + BLOBBY_LOWER_RADIUS
+    if (this.blobX[RIGHT] > RIGHT_PLANE - BLOBBY_LOWER_RADIUS) this.blobX[RIGHT] = RIGHT_PLANE - BLOBBY_LOWER_RADIUS
 
     const speed = Math.sqrt(this.ballVX * this.ballVX + this.ballVY * this.ballVY)
     if (!isGameRunning) this.ballRot -= this.ballAngVel

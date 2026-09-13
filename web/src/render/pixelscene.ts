@@ -103,7 +103,7 @@ export class PixelScene {
 
   private build() {
     const H = this.H
-    this.gy = Math.round(H * 0.86 - 44 * (H / 640))
+    this.gy = Math.round(H * 0.9 - 44 * (H / 560))
     const id = this.scene.id
     seed = 1337
     const d2 = this.scene.d2
@@ -122,6 +122,7 @@ export class PixelScene {
       case 'gruta': this.buildGruta(); break
       case 'luau': this.buildLuau(); break
       case 'ginasio': this.buildGinasio(); break
+      case 'arena': this.buildArena(); break
     }
     this.flies = []; this.motes = []; this.leaves = []; this.gulls = []; this.crowd = []
     const W = this.W
@@ -310,6 +311,48 @@ export class PixelScene {
     })
   }
 
+  private buildArena() {
+    const W = this.W, hz = this.horizon
+    const blank = layer(W * 2, hz + 10, () => {})
+    this.far = blank; this.mid = blank; this.near = blank
+    this.props = layer(W, 90, () => {})
+  }
+
+  private arena(g: CanvasRenderingContext2D, time: number, gy: number) {
+    const W = this.W, H = this.H, sky = this.scene.d2.sky
+    const bands = sky.length
+    for (let y = 0; y < gy; y++) {
+      const t = (y / gy) * (bands - 1)
+      const i = Math.min(bands - 2, Math.floor(t)), f = t - i
+      for (let x = 0; x < W; x++) {
+        const d = ((x * 3 + y * 5) & 7) / 8
+        g.fillStyle = f > d ? sky[i + 1] : sky[i]
+        g.fillRect(x, y, 1, 1)
+      }
+    }
+    const cx = W / 2
+    for (let y = 0; y < gy; y += 2) {
+      const spread = 40 + y * 0.9
+      for (let x = 0; x < W; x += 2) {
+        const dx = Math.abs(x - cx) / spread
+        if (dx < 1 && ((x + y) & 3) === 0 && dx * dx < 0.5 + Math.sin(time * 0.6 + y * 0.03) * 0.05) {
+          g.fillStyle = 'rgba(180,170,255,0.06)'
+          g.fillRect(x, y, 2, 2)
+        }
+      }
+    }
+    g.fillStyle = this.pal.sand1; g.fillRect(0, gy, W, H - gy)
+    g.fillStyle = this.pal.sand2
+    for (let y = gy + 4; y < H; y += 1) if (((y - gy) & 3) === 0) g.fillRect(0, y, W, 1)
+    seed = 99
+    for (let i = 0; i < 160; i++) {
+      const x = rnd() * W, y = gy + 2 + rnd() * (H - gy - 2)
+      g.fillStyle = rnd() < 0.5 ? this.pal.sandDk : shade(this.pal.sand1, 1.25)
+      g.fillRect(x | 0, y | 0, 1, 1)
+    }
+    g.fillStyle = shade(this.pal.sand1, 1.5); g.fillRect(0, gy, W, 1)
+  }
+
   private buildGinasio() {
     const W = this.W, hz = this.horizon
     this.far = layer(W * 2, hz + 10, g => {
@@ -335,6 +378,7 @@ export class PixelScene {
 
   background(g: CanvasRenderingContext2D, time: number, pan: number, gy: number, dt: number) {
     const W = this.W, H = this.H, hz = this.horizon, sh = this.shore, id = this.scene.id
+    if (id === 'arena') { this.arena(g, time, gy); void pan; void dt; return }
     g.drawImage(this.sky, 0, 0)
     const par = (l: HTMLCanvasElement, k: number, y: number) => {
       const w = l.width

@@ -1578,3 +1578,20 @@ body.pixel .sf-stats { display: grid; grid-template-columns: 1fr auto 1fr; gap: 
 .acct .row input { width: 100%; }
 .acct .hint { margin: 6px 0; }
 body.pixel .acct input { font-family: inherit; font-size: 9px; border: 2px solid #3a4258; background: #0a0d16; }
+
+/* arena: HUD minusculo, um botao so */
+body.arena .hud { padding: 6px 10px; }
+body.arena .score-card { padding: 3px 8px; gap: 8px; border-width: 1px; box-shadow: 2px 2px 0 #000; background: rgba(8,8,14,0.85); }
+body.arena .side { min-width: 44px; }
+body.arena .side .name { font-size: 5px; }
+body.arena .side .pts { font-size: 14px; text-shadow: 2px 2px 0 #000; line-height: 1.1; }
+body.arena .mid .sep { font-size: 8px; }
+body.arena .mid .rule { display: none; }
+body.arena .touches { transform: scale(0.7); transform-origin: center top; }
+body.arena .rally { font-size: 6px; }
+body.arena .charge { height: 8px; border-width: 1px; box-shadow: 2px 2px 0 #000; width: 90px; }
+body.arena .charge b { font-size: 5px; }
+body.arena .abxy .tbtn.dive, body.arena .abxy .tbtn.special { display: none; }
+body.arena .abxy { width: 150px; height: 150px; }
+body.arena .abxy .tbtn.hit { top: 0; left: 0; transform: none; }
+body.arena .abxy .tbtn.up { bottom: 0; right: 0; left: auto; transform: none; }

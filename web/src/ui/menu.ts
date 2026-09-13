@@ -79,8 +79,8 @@ export interface ResultInfo {
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'bot', difficulty: 'normal', ruleId: 'default',
-  scoreToWin: 15, quality: 'high', name: 'Blobby', arena: 'default', showFps: false,
-  scene: 'praia', walls: true, look: defaultLook(0), p1: null, p2: null,
+  scoreToWin: 15, quality: 'pixel', name: 'Blobby', arena: 'default', showFps: false,
+  scene: 'arena', walls: true, look: defaultLook(0), p1: null, p2: null,
 }
 
 const DIFFS: [Difficulty, string, string][] = [

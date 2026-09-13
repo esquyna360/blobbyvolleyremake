@@ -1,6 +1,6 @@
 import './ui/style.css'
 import * as THREE from 'three'
-import { LEFT, RIGHT, TICK_MS, NO_PLAYER, setArena, arenaId } from './core/constants.ts'
+import { LEFT, RIGHT, TICK_MS, NO_PLAYER, setArena, arenaId, GROUND_PLANE_HEIGHT, SPECIAL_FULL } from './core/constants.ts'
 import type { Side, ArenaId } from './core/constants.ts'
 import { Match } from './core/match.ts'
 import { getRules } from './core/logic.ts'
@@ -151,6 +151,7 @@ class App {
     syncArena()
     document.body.classList.toggle('lite', IS_2D(this.cfg.quality))
     document.body.classList.toggle('pixel', this.cfg.quality === 'pixel')
+    document.body.classList.add('arena')
     this.audio.setChip(this.cfg.quality === 'pixel')
     document.body.dataset.platform = PLATFORM
     // blur por cima do canvas é caro no celular; aqui ele sai de cena
@@ -1110,14 +1111,28 @@ class App {
 
   // ---------- loop ----------
 
+  /**
+   * Um botao so: bater. Com a barra cheia a mesma tecla solta o especial; segurando
+   * baixo ela vira mergulho. Menos pra decorar, mesma fisica.
+   */
+  private simple(inp: PlayerInput, side: Side): PlayerInput {
+    const w = this.match?.world
+    if (!w) return inp
+    const act = inp.hit || inp.special || inp.dive
+    const ground = w.blobY[side] >= GROUND_PLANE_HEIGHT - 0.5
+    const dive = act && inp.down && ground && (inp.left || inp.right)
+    const special = act && !dive && (w.charge[side] >= SPECIAL_FULL || (w.superFrames > 0 && w.superOwner !== side) || w.hold[side] > 0)
+    return { ...inp, hit: act && !dive && !special, dive, special }
+  }
+
   private readLocalInputs(): [PlayerInput, PlayerInput] {
     if (this.phase !== 'playing') return [NO_INPUT, NO_INPUT]
     if (this.session) {
-      const mine = this.input.read(SOLO, 0, true)
+      const mine = this.simple(this.input.read(SOLO, 0, true), this.localSide)
       return this.localSide === LEFT ? [mine, NO_INPUT] : [NO_INPUT, mine]
     }
-    if (this.bot || this.drill || this.tutorial) return [this.input.read(SOLO, 0, true), NO_INPUT]
-    return [this.input.read(P1, 0), this.input.read(P2, 1)]
+    if (this.bot || this.drill || this.tutorial) return [this.simple(this.input.read(SOLO, 0, true), LEFT), NO_INPUT]
+    return [this.simple(this.input.read(P1, 0), LEFT), this.simple(this.input.read(P2, 1), RIGHT)]
   }
 
   private stepSim() {
@@ -1143,7 +1158,7 @@ class App {
 
     if (this.session?.rollback) {
       const rb = this.session.rollback
-      const mine = this.phase === 'playing' ? this.input.read(SOLO, 0, true) : NO_INPUT
+      const mine = this.phase === 'playing' ? this.simple(this.input.read(SOLO, 0, true), this.localSide) : NO_INPUT
       const stepped = rb.advance(packInput(mine))
       const now = performance.now()
       if (now - this.lastSend > 12) { this.session.sendInputs(); this.lastSend = now }

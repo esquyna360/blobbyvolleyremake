@@ -1,7 +1,7 @@
 import {
   BALL_RADIUS, BLOBBY_LOWER_RADIUS, BLOBBY_LOWER_SPHERE, BLOBBY_UPPER_RADIUS,
   BLOBBY_UPPER_SPHERE, GROUND_PLANE_HEIGHT, GROUND_PLANE_HEIGHT_MAX, LEFT, LEFT_PLANE, NET_POSITION_X, NET_RADIUS,
-  NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE,
+  NET_SPHERE_POSITION, RIGHT, RIGHT_PLANE, BALL_GRAVITATION,
   CROUCH_DUCK, CROUCH_SLIM, CROUCH_SPREAD, DIG_WINDOW,
   DIVE_RECOVER, OPEN_MARGIN, SPECIAL_FULL, SPECIAL_HOLD, SPECIAL_REACH, HIT_CHARGE_MAX, REVERSAL_ORBIT,
 } from '../core/constants.ts'
@@ -23,17 +23,7 @@ import { FONT_H, pxText, textWidth } from './pixelfont.ts'
 const GROUND = GROUND_PLANE_HEIGHT_MAX
 const CRATER_LIFE = 7
 /** Altura do mundo em pixels: a quadra (880 + margens) cabe em ~2.3 unidades por pixel. */
-const VH = 216
-/** folga em volta de cada corpo enquadrado */
-const CAM_PAD = 34
-/** metade da faixa em volta da rede que fica sempre visivel */
-const CAM_NET = 120
-/** quanto a camera pode passar de cada parede */
-const CAM_EDGE = 60
-/** folga acima da ponteira da rede */
-const CAM_NET_TOP = 34
-const CAM_MIN = 0.82
-const CAM_MAX = 1.78
+const VH = 360
 export const INTRO_LEN = 5.6
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
@@ -43,6 +33,10 @@ interface Pop { side: Side; id: number; life: number; max: number; seed: number 
 interface Big { text: string; kind: BigKind; color: string; life: number; max: number }
 interface Callout { side: Side; text: string; color: string; life: number }
 interface Cols { base: string; hi: string; dk: string; dk2: string }
+interface Goo { x: number; y: number; vx: number; vy: number; life: number; max: number; col: string; st: number; r: number }
+interface Foot { x: number; tx: number; t: number }
+const GOO_MAX = 220
+const STRIDE = 34
 
 const snap = (): Snap => ({ bx: 200, by: 300, rot: 0, px: [200, 600], py: [GROUND, GROUND], st: [0, 0] })
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
@@ -153,14 +147,17 @@ export class StagePixel implements GameRenderer {
   private flash = 0
   private squash = { k: 0, ang: 0 }
   private wallHits: { x: number; y: number; life: number }[] = []
+  private goo: Goo[] = []
+  private feet: Foot[][] = [[{ x: -1e9, tx: 0, t: 1 }, { x: -1e9, tx: 0, t: 1 }], [{ x: -1e9, tx: 0, t: 1 }, { x: -1e9, tx: 0, t: 1 }]]
+  private oozeT = [0, 0]
+  private clingK = [0, 0]
+  private landX = -1
   private scene: Scene = getScene('praia')
   private px: PixelScene
   private pan = 0
   private wallsOn = true
   private frameExtra = 0
   private zoom = 1
-  /** zoom da camera dinamica, em multiplos do enquadramento minimo */
-  private camZ = 1
   /** centro horizontal do enquadramento, em coordenadas de mundo */
   private camX = NET_POSITION_X
   private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
@@ -214,49 +211,15 @@ export class StagePixel implements GameRenderer {
 
   /** enquadramento mais aberto: a quadra inteira cabe */
   private baseScale() {
-    return Math.min(this.W / (RIGHT_PLANE + 90), this.H / 640)
+    return Math.min(this.W / (RIGHT_PLANE + 70), this.H / 560)
   }
 
+  /** quadro fixo: a quadra inteira, sempre; a simulacao nunca ve a camera */
   private applyFrame() {
-    const base = this.baseScale()
-    this.scale = base * this.zoom * this.camZ
+    this.camX = NET_POSITION_X
+    this.scale = this.baseScale() * this.zoom
     this.ox = this.W / 2 - this.camX * this.scale
-    this.oy = this.H * 0.86 - (GROUND + 44) * this.scale
-  }
-
-  /**
-   * Fecha o enquadramento na caixa que contem os blobs e a bola e abre de volta
-   * quando a acao se espalha. So mexe no render: a simulacao nao ve a camera.
-   */
-  private camera(dt: number, bx: number, by: number, ballOn: boolean, px: number[], py: number[]) {
-    const base = this.baseScale()
-    let x0 = Infinity, x1 = -Infinity, top = GROUND
-    const see = (x: number, y: number, r: number) => {
-      x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); top = Math.min(top, y - r)
-    }
-    for (const s of [0, 1] as Side[]) {
-      if (this.off(s)) continue
-      see(px[s], py[s] - BLOBBY_UPPER_SPHERE, BLOBBY_LOWER_RADIUS + CAM_PAD)
-    }
-    if (this.intro < 0 && ballOn) see(bx, by, BALL_RADIUS + CAM_PAD)
-    if (!isFinite(x0)) { x0 = LEFT_PLANE; x1 = RIGHT_PLANE; top = GROUND - 200 }
-    // a rede inteira, ponteira incluida, nunca sai do quadro
-    x0 = Math.min(x0, NET_POSITION_X - CAM_NET); x1 = Math.max(x1, NET_POSITION_X + CAM_NET)
-    top = Math.min(top, NET_SPHERE_POSITION - CAM_NET_TOP)
-
-    const fitH = (this.H * 0.84) / Math.max(120, GROUND + 10 - top)
-    const fitW = this.W / Math.max(200, x1 - x0)
-    const want = clamp(Math.min(fitH, fitW) / base, CAM_MIN, CAM_MAX)
-    const kz = want < this.camZ ? 9 : 2.4
-    this.camZ += (want - this.camZ) * (1 - Math.exp(-dt * kz))
-
-    const sc = base * this.zoom * this.camZ
-    const halfW = this.W / (2 * sc)
-    const lo = LEFT_PLANE - CAM_EDGE + halfW, hi = RIGHT_PLANE + CAM_EDGE - halfW
-    let cx = (x0 + x1) / 2
-    cx = lo <= hi ? clamp(cx, lo, hi) : NET_POSITION_X
-    this.camX += (cx - this.camX) * (1 - Math.exp(-dt * 4.5))
-    this.applyFrame()
+    this.oy = this.H * 0.9 - (GROUND + 44) * this.scale
   }
 
   setScene(id: SceneId) {
@@ -332,9 +295,11 @@ export class StagePixel implements GameRenderer {
       const wasG = p.py[s] >= GROUND_PLANE_HEIGHT - 0.5, isG = c.py[s] >= GROUND_PLANE_HEIGHT - 0.5
       if (wasG && !isG && c.py[s] < p.py[s]) {
         this.burst(c.px[s], GROUND + 4, 16, 140, shade(this.px.pal.sand1, 1.25), 0.9, 2)
+        this.ooze(c.px[s], GROUND - 4, 7, 150, s, 0.9)
         this.blobKick[s] = Math.max(this.blobKick[s], 0.3)
       } else if (!wasG && isG) {
         const power = clamp((c.py[s] - p.py[s]) / 14, 0.15, 1)
+        this.ooze(c.px[s], GROUND - 2, Math.floor(8 + 14 * power), 160 + 200 * power, s, 0.5)
         this.burst(c.px[s], GROUND + 4, Math.floor(18 + 30 * power), 130 + 170 * power, shade(this.px.pal.sand1, 1.25), 0.6, 2)
         this.burst(c.px[s], GROUND + 2, Math.floor(8 + 12 * power), 100 + 140 * power, this.px.pal.sandDk, 0.3, 1)
         this.blobKick[s] = Math.max(this.blobKick[s], 0.35 + 0.45 * power)
@@ -363,6 +328,21 @@ export class StagePixel implements GameRenderer {
     }
   }
 
+  /** gosma: gotas que voam, grudam onde caem e somem aos poucos */
+  private ooze(x: number, y: number, n: number, speed: number, p: Side, up = 0.5) {
+    const room = GOO_MAX - this.goo.length
+    const count = Math.min(n, Math.max(0, room))
+    const c = this.cols[p]
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = speed * (0.3 + Math.random() * 0.8)
+      this.goo.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - up * speed,
+        life: 0, max: 1.6 + Math.random() * 1.6, col: Math.random() < 0.6 ? c.base : c.dk, st: 0, r: 1 + Math.floor(Math.random() * 2),
+      })
+    }
+  }
+
   private fill(p: Side) { return this.cols[p].base }
   private light(p: Side) { return this.cols[p].hi }
 
@@ -374,6 +354,7 @@ export class StagePixel implements GameRenderer {
         case Ev.BALL_HIT_BLOB: {
           const inten = 0.35 + e.intensity * 0.65
           this.trauma = Math.min(1, this.trauma + 0.16 * inten)
+          this.ooze(w.ballX, w.ballY, Math.floor(6 + 10 * inten), 220 * inten, e.side as Side, 0.6)
           this.burst(w.ballX, w.ballY, Math.floor(14 + 22 * inten), 190 * inten, this.fill(e.side as Side), 0.4)
           this.squashBall(w, 0.10 + 0.07 * inten)
           break
@@ -403,6 +384,22 @@ export class StagePixel implements GameRenderer {
         case Ev.RESET_BALL:
           this.gib[0] = 0; this.gib[1] = 0
           break
+        case Ev.WALL_CLING: {
+          const p = e.side as Side
+          const wx = p === LEFT ? LEFT_PLANE : RIGHT_PLANE
+          this.ooze(wx, w.blobY[p], 10, 120, p, 0.2)
+          this.rings.push({ x: wx, y: w.blobY[p], r: 4, max: 60, life: 0, color: this.light(p) })
+          break
+        }
+        case Ev.WALL_JUMP: {
+          const p = e.side as Side
+          const wx = p === LEFT ? LEFT_PLANE : RIGHT_PLANE
+          this.trauma = Math.min(1, this.trauma + 0.08)
+          this.ooze(wx, w.blobY[p] + 10, 14, 260, p, 0.4)
+          this.burst(wx, w.blobY[p], 12, 200, this.light(p), 0.3)
+          this.blobKick[p] = Math.max(this.blobKick[p], 0.5)
+          break
+        }
         case Ev.SCORE:
           this.flash = Math.max(this.flash, 0.16)
           break
@@ -740,6 +737,111 @@ export class StagePixel implements GameRenderer {
     this.dust = keep
     this.rings = this.rings.filter(r => { r.life += dt; return r.life < 0.55 })
     this.trail = this.trail.filter(t => { t.life += dt; return t.life < 0.38 })
+    const keepGoo: Goo[] = []
+    for (const o of this.goo) {
+      o.life += dt
+      if (o.life >= o.max) continue
+      if (o.st === 0) {
+        o.vy += 900 * dt
+        o.x += o.vx * dt
+        o.y += o.vy * dt
+        if (o.y >= GROUND + 2) { o.y = GROUND + 2 + Math.random() * 3; o.st = 1 }
+        else if (o.x <= LEFT_PLANE + 1) { o.x = LEFT_PLANE + 1; o.st = 2; o.vy = 0 }
+        else if (o.x >= RIGHT_PLANE - 1) { o.x = RIGHT_PLANE - 1; o.st = 2; o.vy = 0 }
+      } else if (o.st === 2) {
+        o.y += 22 * dt
+        if (o.y >= GROUND + 2) { o.y = GROUND + 2; o.st = 1 }
+      }
+      keepGoo.push(o)
+    }
+    this.goo = keepGoo
+  }
+
+  private gooDraw() {
+    const g = this.g
+    for (const o of this.goo) {
+      const a = Math.min(1, (1 - o.life / o.max) * 1.5)
+      g.globalAlpha = a
+      g.fillStyle = o.col
+      const x = this.X(o.x), y = this.Y(o.y)
+      if (o.st === 0) g.fillRect(x, y, o.r, o.r)
+      else if (o.st === 1) {
+        const rx = Math.max(1, Math.round(this.S(o.r * 3)))
+        g.fillRect(x - rx, y, rx * 2, 1)
+        if (o.r > 1) g.fillRect(x - Math.round(rx * 0.6), y + 1, Math.round(rx * 1.2), 1)
+      } else g.fillRect(o.x <= LEFT_PLANE + 1 ? x : x - 1, y - 2, 1, 3 + o.r)
+    }
+    g.globalAlpha = 1
+  }
+
+  /** pernas de gosma: dois pes que se replantam conforme o corpo anda */
+  private legs(p: Side, wx: number, wy: number, vx: number, ground: boolean, c: Cols, dive: number) {
+    if (dive > 0.05) return
+    const g = this.g
+    const f = this.feet[p]
+    const dir = vx > 0.05 ? 1 : vx < -0.05 ? -1 : 0
+    const x = this.ox + wx * this.scale
+    const y = this.oy + wy * this.scale
+    const rl = this.S(BLOBBY_LOWER_RADIUS)
+    const ly = y + this.S(BLOBBY_LOWER_SPHERE)
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? -1 : 1
+      const ft = f[i]
+      const rest = wx + side * 15
+      if (ft.x < -1e8) { ft.x = rest; ft.tx = rest; ft.t = 1 }
+      if (!ground) { ft.tx = rest; ft.x += (ft.tx - ft.x) * 0.3; ft.t = 1 }
+      else if (dir === 0) { ft.tx = rest; ft.x += (ft.tx - ft.x) * 0.25; ft.t = Math.min(1, ft.t + 0.2) }
+      else {
+        const other = f[1 - i]
+        const behind = (wx - ft.x) * dir
+        if (ft.t >= 1 && behind > STRIDE * 0.55 && other.t >= 1) { ft.tx = wx + dir * STRIDE * 0.75 + side * 7; ft.t = 0 }
+        if (ft.t < 1) { ft.t = Math.min(1, ft.t + 0.22); ft.x += (ft.tx - ft.x) * 0.45 }
+      }
+      const lift = ground ? Math.sin(ft.t * Math.PI) * this.S(14) : 0
+      const fx = this.X(ft.x)
+      const fy = ground ? this.Y(GROUND) - lift : ly + this.S(10)
+      const ax = x + side * rl * 0.4, ay = ly + rl * 0.25
+      const n = 5
+      for (let pass = 0; pass < 2; pass++) {
+        for (let k = 0; k <= n; k++) {
+          const t = k / n
+          const r = (rl * 0.34 * (1 - t) + rl * 0.2 * t) * (ground ? 1 : 0.7)
+          discP(g, ax + (fx - ax) * t, ay + (fy - ay) * t, r + (pass === 0 ? 1 : 0), pass === 0 ? c.dk2 : c.base)
+        }
+      }
+      if (ground) ellipseP(g, fx, fy, rl * 0.45, Math.max(1.5, rl * 0.2), c, -0.5, -0.6)
+    }
+    if (ground && dir !== 0) {
+      this.oozeT[p] += 1
+      if (this.oozeT[p] % 9 === 0) this.ooze(wx - dir * 12, GROUND - 1, 1, 30, p, 0.1)
+    }
+  }
+
+  /** onde a bola vai cair, ignorando quem esta no caminho */
+  private landing(w: Match['world']) {
+    let x = w.ballX, y = w.ballY, vx = w.ballVX, vy = w.ballVY
+    const T2 = w.tempo * w.tempo
+    for (let i = 0; i < 600; i++) {
+      vy += BALL_GRAVITATION * T2
+      x += vx; y += vy
+      if (x - BALL_RADIUS <= LEFT_PLANE && vx < 0) { vx = -vx; x = LEFT_PLANE + BALL_RADIUS }
+      else if (x + BALL_RADIUS >= RIGHT_PLANE && vx > 0) { vx = -vx; x = RIGHT_PLANE - BALL_RADIUS }
+      if (Math.abs(x - NET_POSITION_X) < NET_RADIUS + BALL_RADIUS && y > NET_SPHERE_POSITION - BALL_RADIUS) return -1
+      if (y + BALL_RADIUS >= GROUND) return x
+    }
+    return -1
+  }
+
+  private landingMark(x: number, col: string) {
+    const g = this.g
+    const px = this.X(x), gy = this.Y(GROUND) + 2
+    const k = 0.55 + Math.sin(this.time * 9) * 0.25
+    g.globalAlpha = k
+    g.fillStyle = col
+    for (let i = 0; i < 4; i++) g.fillRect(px - i, gy + i, i * 2 + 1, 1)
+    g.globalAlpha = 1
+    g.fillStyle = '#ffffff'
+    g.fillRect(px, gy, 1, 1)
   }
 
   /** para onde fica a luz da cena, visto de um ponto da tela */
@@ -836,15 +938,17 @@ export class StagePixel implements GameRenderer {
     const squash = (1 + Math.sin(state * 1.6) * 0.045 + Math.sin(kick * 9) * kick * 0.12) * (1 - cr * 0.12)
     const ru = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
     const rl = this.S(BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) / squash
-    const x = this.ox + wx * this.scale
+    const ck = this.clingK[p]
+    const wallDir = p === LEFT ? -1 : 1
+    const x = this.ox + wx * this.scale + wallDir * this.S(6) * ck
     const y = this.oy + wy * this.scale
-    const uy = y - this.S(BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
+    const uy = y - this.S(BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash + this.S(4) * ck
     const ly = y + this.S(BLOBBY_LOWER_SPHERE)
     const d = dvDir, dk = dive
     const bkx = x - d * this.S(20) * dk
     const bky = ly + this.S(13) * dk
-    const brx = rl * (1 + 0.42 * dk)
-    const bry = rl * (1 - 0.3 * dk)
+    const brx = rl * (1 + 0.42 * dk) * (1 - 0.18 * ck)
+    const bry = rl * (1 - 0.3 * dk) * (1 + 0.14 * ck)
     const hx = x + d * this.S(30) * dk
     const hy = uy + this.S(22) * dk
     const fac = p === LEFT ? 1 : -1
@@ -1118,14 +1222,15 @@ export class StagePixel implements GameRenderer {
   }
 
   private walls() {
-    if (!this.wallsOn) return
     const g = this.g
     const gy = this.Y(GROUND + 44)
-    const top = this.Y(GROUND - 520)
+    const top = this.Y(GROUND - 560)
     for (const wx of [LEFT_PLANE, RIGHT_PLANE]) {
       const x = this.X(wx) + (wx === LEFT_PLANE ? -1 : 0)
-      g.fillStyle = this.scene.night ? 'rgba(210,230,255,0.28)' : 'rgba(255,255,255,0.35)'
-      for (let y = top; y < gy; y += 2) g.fillRect(x, y, 1, 1)
+      g.fillStyle = 'rgba(255,255,255,0.55)'
+      g.fillRect(x, top, 1, gy - top)
+      g.fillStyle = 'rgba(255,255,255,0.12)'
+      g.fillRect(wx === LEFT_PLANE ? x - 3 : x + 1, top, 3, gy - top)
     }
     for (const h of this.wallHits) {
       const k = 1 - h.life / 0.5
@@ -1182,8 +1287,8 @@ export class StagePixel implements GameRenderer {
       g.fillRect(x0, y0, 1, y1 - y0); g.fillRect(x1 - 1, y0, 1, y1 - y0)
       g.globalAlpha = 1
     }
-    g.fillStyle = this.scene.night ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.65)'
-    g.fillRect(this.X(20), this.Y(GROUND + 44), this.X(RIGHT_PLANE - 20) - this.X(20), 1)
+    g.fillStyle = this.scene.d2.line
+    g.fillRect(this.X(0), this.Y(GROUND + 44), this.X(RIGHT_PLANE) - this.X(0), 1)
   }
 
   private net() {
@@ -1276,12 +1381,20 @@ export class StagePixel implements GameRenderer {
 
   private trailFx() {
     const g = this.g
-    for (const tr of this.trail) {
+    const n = this.trail.length
+    const hot = this.energy > 0.01
+    for (let i = 0; i < n; i++) {
+      const tr = this.trail[i]
       const k = 1 - tr.life / 0.38
       if (k <= 0) continue
-      g.globalAlpha = k * 0.7
-      const rr = Math.max(1, Math.round(this.S(BALL_RADIUS) * k * 0.9))
-      discP(g, this.X(tr.x), this.Y(tr.y) - (1 - k) * 8, rr, k > 0.5 ? '#ffd257' : '#ff7a1a')
+      const rr = Math.max(1, Math.round(this.S(BALL_RADIUS) * (0.25 + 0.6 * k)))
+      g.globalAlpha = k * (hot ? 0.8 : 0.45)
+      discP(g, this.X(tr.x), this.Y(tr.y), rr, hot ? (k > 0.5 ? '#ffd257' : '#ff7a1a') : '#ffffff')
+      if (i % 5 === 0 && k < 0.8) {
+        g.globalAlpha = k * 0.35
+        const ring = this.S(BALL_RADIUS) * (1 + (1 - k) * 0.9)
+        outlineP(g, this.X(tr.x), this.Y(tr.y), ring, ring, hot ? '#ffe9a8' : '#ffffff')
+      }
     }
     g.globalAlpha = 1
   }
@@ -1412,13 +1525,14 @@ export class StagePixel implements GameRenderer {
       Math.abs(w.blobX[RIGHT] - NET_POSITION_X)) - half
     const want = Math.max(0, Math.min(OPEN_MARGIN, far + 24))
     this.frameExtra += (want - this.frameExtra) * (1 - Math.exp(-dt * (want > this.frameExtra ? 5.5 : 1.4)))
-    this.camera(dt, bx, by, match.logic.isBallValid, [L(p.px[0], q.px[0]), L(p.px[1], q.px[1])], [L(p.py[0], q.py[0]), L(p.py[1], q.py[1])])
     const panWant = clamp(((bx - NET_POSITION_X) / half) * 0.06, -0.06, 0.06)
     this.pan += (panWant - this.pan) * (1 - Math.exp(-dt * 3.2))
-    if (eOn) {
+    const last = this.trail[this.trail.length - 1]
+    if (this.intro < 0 && match.logic.isBallValid && (!last || Math.hypot(last.x - bx, last.y - by) > 3)) {
       this.trail.push({ x: bx, y: by, life: 0 })
-      while (this.trail.length > 14) this.trail.shift()
+      while (this.trail.length > 18) this.trail.shift()
     }
+    this.landX = this.intro < 0 && match.logic.isBallValid ? this.landing(w) : -1
 
     const tr = this.trauma * this.trauma
     const sx = Math.round((Math.random() - 0.5) * 6 * tr), sy = Math.round((Math.random() - 0.5) * 6 * tr)
@@ -1428,8 +1542,10 @@ export class StagePixel implements GameRenderer {
 
     this.ground()
     this.walls()
+    this.gooDraw()
 
     if (this.intro < 0) this.shadow(bx, by, BALL_RADIUS)
+    if (this.landX >= 0) this.landingMark(this.landX, this.landX < NET_POSITION_X ? this.light(LEFT) : this.light(RIGHT))
     for (const s of [0, 1] as Side[]) {
       if (this.off(s)) continue
       this.shadow(L(p.px[s], q.px[s]), L(p.py[s], q.py[s]), BLOBBY_LOWER_RADIUS)
@@ -1446,6 +1562,8 @@ export class StagePixel implements GameRenderer {
       if (this.diveK[s] < 0.002) this.diveK[s] = 0
       if (air) this.diveStreak(px, py - BLOBBY_UPPER_SPHERE * 0.5, w.diveDir[s])
       if (w.hold[s] > 0 && eOn) this.holdAura(s, px, py, w.hold[s] / SPECIAL_HOLD)
+      this.clingK[s] += ((w.wallCling[s] > 0 ? 1 : 0) - this.clingK[s]) * (1 - Math.exp(-dt * 14))
+      if (!this.off(s)) this.legs(s, px, py, w.blobVX[s] + w.knock[s], py >= GROUND_PLANE_HEIGHT - 0.5, this.cols[s], this.diveK[s])
       this.blob(s, px, py, L(p.st[s], q.st[s]), { x: this.X(bx), y: this.Y(by) }, w.stun[s] > 0, w.crouch[s],
         this.diveK[s], w.diveDir[s])
       if (w.hitCharge[s] > 0 && this.intro < 0) this.arms(s, px, py, w)
@@ -1456,6 +1574,11 @@ export class StagePixel implements GameRenderer {
       for (const s of [0, 1] as Side[]) if (w.revSpin[s] > 0) this.orbitFx(s, w)
       this.trailFx()
       if (this.energy > 0.01) this.energyBall(this.X(bx), this.Y(by), w.superOwner as number)
+      g.globalAlpha = 0.07
+      discP(g, this.X(bx), this.Y(by), this.S(BALL_RADIUS) * 2.1, '#ffffff')
+      g.globalAlpha = 0.1
+      discP(g, this.X(bx), this.Y(by), this.S(BALL_RADIUS) * 1.5, '#ffffff')
+      g.globalAlpha = 1
       this.ball(this.X(bx), this.Y(by), rot)
       if (this.Y(by) < -BALL_RADIUS * this.scale * 0.5) this.ballArrow(this.X(bx), this.Y(by))
       if (eOn && Math.sin(this.time * 30) > 0) {
@@ -1508,6 +1631,7 @@ export class StagePixel implements GameRenderer {
     this.craters.length = 0
     this.rings.length = 0
     this.wallHits.length = 0
+    this.goo.length = 0
     this.trail.length = 0
     this.pops.length = 0
     this.bigs.length = 0
