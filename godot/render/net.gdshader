@@ -8,6 +8,9 @@ uniform vec3 sun_color : source_color = vec3(1.0, 0.93, 0.8);
 uniform float cell = 12.0;
 uniform float net_top = 4.32;
 uniform float bulge = 0.30;
+uniform float flat_shade = 0.0;
+uniform vec2 cell_mul = vec2(2.2, 1.0);
+uniform float lw = 0.34;
 
 varying float v_ripple;
 
@@ -29,12 +32,11 @@ void vertex() {
 }
 
 void fragment() {
-	vec2 g = fract(UV * vec2(cell * 2.2, cell));
-	float lw = 0.34;
+	vec2 g = fract(UV * cell * cell_mul);
 	float cx = 1.0 - smoothstep(lw * 0.45, lw, abs(g.x - 0.5));
 	float cy = 1.0 - smoothstep(lw * 0.45, lw, abs(g.y - 0.5));
 	float cord = max(cx, cy);
-	float band = 1.0 - smoothstep(0.93, 0.95, UV.y);
+	float band = 1.0 - smoothstep(0.90, 0.915, UV.y);
 	float a = max(cord, 1.0 - band);
 	if (a < 0.35) { discard; }
 
@@ -42,10 +44,11 @@ void fragment() {
 	// o nó onde as cordas cruzam é mais grosso e mais claro
 	float knot = cx * cy;
 	col = mix(col, col * 1.6 + 0.08, knot);
-	if (UV.y > 0.93) { col = vec3(0.95, 0.95, 0.97) * (0.85 + 0.15 * step(0.5, fract(UV.y * 40.0))); }
+	if (UV.y > 0.90) { col = vec3(0.97, 0.96, 0.94); }
 	col *= 0.85 + 0.45 * abs(v_ripple) * 6.0;
 	col += sun_color * 0.06;
-	ALBEDO = col;
+	ALBEDO = col * (1.0 - flat_shade);
+	EMISSION = col * flat_shade;
 	ROUGHNESS = 0.75;
 	SPECULAR = 0.25;
 }

@@ -19,7 +19,7 @@ const DIFFS := [["easy", "Fácil", "bola lenta, bot distraído"], ["normal", "No
 	["hard", "Difícil", "prevê a bola e usa especial"], ["insane", "Insano", "simula a física igual a você"]]
 const QUALS := ["Baixo", "Médio", "Alto", "Máximo"]
 const SCENES := [
-	["selva", "Selva"], ["praia", "Praia ao pôr do sol"], ["galpao", "Galpão"],
+	["anoitecer", "Praia ao anoitecer"], ["selva", "Selva"], ["praia", "Praia ao pôr do sol"], ["galpao", "Galpão"],
 	["acampamento", "Acampamento"], ["neve", "Pinhal nevado"], ["telhado", "Telhado"],
 	["ruinas", "Ruínas"], ["caverna", "Caverna de lava"]]
 const MUTED := Color(1, 1, 1, 0.55)

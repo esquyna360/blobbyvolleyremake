@@ -41,6 +41,7 @@ func _init(s: int, shadows := true) -> void:
 	_mat.set_shader_parameter("facing", 1.0 if s == BV.LEFT else -1.0)
 	_mat.set_shader_parameter("ru", BlobMesh.RU)
 	_mat.set_shader_parameter("ou", BlobMesh.OU)
+	_mat.set_shader_parameter("light_dir", Stage.key_dir())
 	_mesh.mesh = _shared_mesh
 	_mesh.material_override = _mat
 	_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows \

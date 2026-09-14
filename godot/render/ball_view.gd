@@ -44,6 +44,24 @@ func _init(shadows := true) -> void:
 	_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows \
 		else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_squash.add_child(_mesh)
+	if Stage.dusk():
+		_mat.clearcoat = 0.4
+		_mat.rim = 0.0
+		var om := StandardMaterial3D.new()
+		om.albedo_color = Color(0.08, 0.07, 0.09)
+		om.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		om.cull_mode = BaseMaterial3D.CULL_FRONT
+		om.disable_fog = true
+		var outline := MeshInstance3D.new()
+		var osm := SphereMesh.new()
+		osm.radius = R * 1.07
+		osm.height = R * 2.14
+		osm.radial_segments = 40
+		osm.rings = 24
+		outline.mesh = osm
+		outline.material_override = om
+		outline.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_squash.add_child(outline)
 	add_child(_squash)
 
 	var sh := SphereMesh.new()

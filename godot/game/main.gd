@@ -112,8 +112,10 @@ func _enter_match(left: int, right: int, diff: String, looks: Array, scene := ""
 	game.link = null
 	game.rb = null
 	_set_scene(scene)
+	var lk: Array = [looks[0].duplicate(), looks[1].duplicate()]
+	lk[1][0] = Looks.pair_body(lk[0][0], lk[1][0])
 	game.start(settings.rules, settings.score_to_win, settings.walls, settings.quality,
-		left, right, diff, looks)
+		left, right, diff, lk)
 	hud.names = names
 	_finish_enter()
 

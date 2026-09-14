@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode cull_back, unshaded, fog_disabled;
 
 // A pança balança no vértice e a cara é pintada no pixel — as duas contas são
 // as mesmas do shader do web, só que sem raymarch: o celular fraco desenha um
@@ -23,6 +23,9 @@ uniform float hit_flash = 0.0;
 uniform float ru = 0.5;
 uniform float ou = 0.38;
 uniform float t = 0.0;
+uniform vec3 light_dir = vec3(-0.35, 0.80, 0.48);
+uniform vec3 rim_color : source_color = vec3(1.0, 0.85, 0.63);
+uniform float toon = 1.0;
 
 varying vec3 base_pos;
 
@@ -118,24 +121,23 @@ void fragment() {
 	vec4 face = face_layer(base_pos, face_zone);
 	float gloss = 1.0 - face_zone * 0.82;
 
-	// mais escuro embaixo, como geleia com fundo: dá volume e brilho de bala
-	float depth_k = clamp(0.35 - base_pos.y * 0.45, 0.0, 0.5);
+	vec3 n = normalize(mat3(INV_VIEW_MATRIX) * NORMAL);
+	vec3 l = normalize(light_dir);
+	float ndl = dot(n, l);
+	float lit = smoothstep(-0.02, 0.06, ndl);
+	float depth_k = clamp(0.35 - base_pos.y * 0.45, 0.0, 0.5) * 0.35;
 	vec3 body = mix(body_color, deep_color, depth_k);
-	ALBEDO = mix(body, face.rgb, face.a) + body_color * hit_flash * 1.6;
-	ROUGHNESS = mix(0.12, 0.5, face.a);
-	SPECULAR = 0.85 * gloss;
-	METALLIC = 0.0;
-	CLEARCOAT = 1.0 * gloss;
-	CLEARCOAT_ROUGHNESS = 0.08;
-	// a luz que atravessa a geleia: o que dá a leitura de corpo mole
-	BACKLIGHT = deep_color * (1.0 - face.a) * 0.6;
-	RIM = 0.7 * gloss * (1.0 - face.a * 0.7);
-	RIM_TINT = 0.35;
-	// reflexo pintado: o ponto de luz branco no alto e a janela do céu no ombro
-	vec3 l1 = normalize(vec3(-0.45, 0.75, 0.55));
-	vec3 h1 = normalize(l1 + VIEW);
-	float spot = pow(max(dot(NORMAL, h1), 0.0), 90.0);
-	float win = pow(max(dot(NORMAL, normalize(vec3(-0.3, 0.55, 0.8))), 0.0), 14.0) * 0.35;
-	float sky = smoothstep(-0.2, 0.9, NORMAL.y) * 0.10;
-	EMISSION = vec3(1.0, 0.98, 0.95) * (spot * 1.1 + win + sky) * gloss * (1.0 - face.a * 0.8);
+	vec3 base = mix(body, face.rgb, face.a);
+	vec3 col = base * mix(0.80, 1.0, lit);
+
+	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.6);
+	float top = smoothstep(-0.1, 0.55, ndl);
+	float rim = smoothstep(0.22, 0.55, fres) * top * gloss * (1.0 - face.a * 0.8);
+	col = mix(col, rim_color, rim * 0.95);
+
+	vec3 h = normalize(l + normalize(mat3(INV_VIEW_MATRIX) * VIEW));
+	float spot = step(0.93, pow(max(dot(n, h), 0.0), 1.0)) * gloss * (1.0 - face.a * 0.8);
+	col += vec3(1.0, 0.96, 0.9) * spot * 0.35;
+	col += body_color * hit_flash * 1.6;
+	ALBEDO = col;
 }

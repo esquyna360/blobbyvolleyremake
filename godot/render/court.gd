@@ -48,8 +48,13 @@ func _cloth(quality: int) -> void:
 	_mat.shader = load("res://render/net.gdshader")
 	_mat.set_shader_parameter("cell", CELL)
 	_mat.set_shader_parameter("net_top", NET_TOP)
-	_mat.set_shader_parameter("cord_color", Color(0.10, 0.11, 0.13))
+	_mat.set_shader_parameter("cord_color", Color(0.10, 0.11, 0.13) if not Stage.dusk() else Color(0.46, 0.44, 0.42))
 	_mat.set_shader_parameter("sun_color", Color(1.0, 0.93, 0.8))
+	_mat.set_shader_parameter("flat_shade", 1.0 if Stage.dusk() else 0.0)
+	if Stage.dusk():
+		_mat.set_shader_parameter("cell", 10.0)
+		_mat.set_shader_parameter("cell_mul", Vector2(0.45, 1.0))
+		_mat.set_shader_parameter("lw", 0.16)
 	_push_uniforms()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -68,6 +73,12 @@ func _post(quality: int) -> void:
 	var pmat := StandardMaterial3D.new()
 	pmat.albedo_color = Color(0.93, 0.36, 0.20)
 	pmat.roughness = 0.75
+	if Stage.dusk():
+		metal.albedo_color = Color(0.10, 0.10, 0.13)
+		metal.metallic = 0.0
+		metal.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		pmat.albedo_color = Color(0.13, 0.12, 0.14)
+		pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	for k in 2:
 		var z := DEPTH * 0.5 * (1.0 if k == 0 else -1.0)
 		var pole := CylinderMesh.new()
@@ -130,6 +141,9 @@ func _lines() -> void:
 	var half := Map.court_half_w()
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.98, 0.96, 0.90)
+	if Stage.dusk():
+		mat.albedo_color = Color(0.42, 0.41, 0.40)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.roughness = 0.9
 	var w := 0.09
 	var segs := [
@@ -162,7 +176,7 @@ func _walls_build() -> void:
 		var sm := ShaderMaterial.new()
 		sm.shader = sh
 		sm.set_shader_parameter("height", h)
-		sm.set_shader_parameter("color", Color(0.45, 0.85, 1.0))
+		sm.set_shader_parameter("color", Color(0.55, 0.62, 0.72) if Stage.dusk() else Color(0.45, 0.85, 1.0))
 		sm.set_shader_parameter("hit_t", 10.0)
 		mi.material_override = sm
 		mi.rotation_degrees = Vector3(0, 90, 0)

@@ -55,19 +55,17 @@ static func _styles() -> Array:
 	]
 
 const BODY_COLORS := [
-	{"id": "vermelho", "name": "Vermelho", "hex": "#ec2f3f"},
-	{"id": "azul", "name": "Azul", "hex": "#2f7ff0"},
-	{"id": "verde", "name": "Verde", "hex": "#2fbf5c"},
-	{"id": "roxo", "name": "Roxo", "hex": "#9b5cf0"},
-	{"id": "laranja", "name": "Laranja", "hex": "#ff8a2b"},
-	{"id": "rosa", "name": "Rosa", "hex": "#ff5fa8"},
-	{"id": "ciano", "name": "Ciano", "hex": "#22cfd4"},
-	{"id": "amarelo", "name": "Amarelo", "hex": "#f5c62e"},
-	{"id": "menta", "name": "Menta", "hex": "#79e0b4"},
-	{"id": "areia", "name": "Areia", "hex": "#d9ac72"},
-	{"id": "grafite", "name": "Grafite", "hex": "#4a5364"},
-	{"id": "neve", "name": "Neve", "hex": "#e6ecf5"},
+	{"id": "rosa", "name": "Rosa", "hex": "#F58CB8"},
+	{"id": "lima", "name": "Lima", "hex": "#B8E05C"},
+	{"id": "coral", "name": "Coral", "hex": "#FF9A6B"},
+	{"id": "menta", "name": "Menta", "hex": "#6FD9A8"},
+	{"id": "lavanda", "name": "Lavanda", "hex": "#B49BF0"},
+	{"id": "creme", "name": "Creme", "hex": "#F0E2C0"},
+	{"id": "ciano", "name": "Ciano", "hex": "#63C8E8"},
+	{"id": "ambar", "name": "Âmbar", "hex": "#F5C451"},
 ]
+
+const PAIR_MIN_LUMA := 30.0
 
 const HAIR_COLORS := [
 	{"id": "preto", "name": "Preto", "hex": "#221d2a"},
@@ -88,9 +86,32 @@ static func widx(v: int, n: int) -> int:
 static func default_look(side: int) -> Array:
 	return [0 if side == 0 else 1, 0, 0]
 
+static func luma(c: Color) -> float:
+	return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * 255.0
+
+static func body_luma(idx: int) -> float:
+	return luma(Color(BODY_COLORS[widx(idx, BODY_COLORS.size())].hex))
+
+static func pair_ok(a: int, b: int) -> bool:
+	return absf(body_luma(a) - body_luma(b)) >= PAIR_MIN_LUMA
+
+## Os dois da partida precisam ler diferente até sem cor: distância mínima de
+## luminosidade. Quem cede é o segundo (bot ou convidado), nunca o jogador.
+static func pair_body(keep: int, other: int) -> int:
+	if pair_ok(keep, other):
+		return widx(other, BODY_COLORS.size())
+	var best := -1
+	var best_d := 0.0
+	for i in BODY_COLORS.size():
+		var d := absf(body_luma(keep) - body_luma(i))
+		if d >= PAIR_MIN_LUMA and (best < 0 or d < best_d):
+			best = i
+			best_d = d
+	return best if best >= 0 else widx(other + 1, BODY_COLORS.size())
+
 static func roll_look(avoid_body: int) -> Array:
 	var n := BODY_COLORS.size()
-	var body := (avoid_body + 1 + randi() % (n - 1)) % n
+	var body := pair_body(avoid_body, (avoid_body + 1 + randi() % (n - 1)) % n)
 	return [body, randi() % HAIR_STYLES.size(), randi() % HAIR_COLORS.size()]
 
 static func body_color(look: Array) -> Color:

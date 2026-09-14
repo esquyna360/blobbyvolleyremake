@@ -58,6 +58,25 @@ const THEMES := {
 			{"m": "cliff_large_rock", "x": 21.0, "y": -0.3, "z": -20.0, "h": 4.5, "ry": -25},
 		],
 	},
+	"anoitecer": {
+		"dir": "res://assets/stage/dusk/", "fringe": false, "leaves": false, "dusk": true,
+		"bg": Color(0.165, 0.173, 0.204), "ambient": Color(0.30, 0.33, 0.42),
+		"fog": Color(0.20, 0.21, 0.25), "sat": 1.0, "sky_mult": 1.0, "sky_y": 4.0,
+		"back_rot": Vector3(-28, 168, 0), "back_col": Color(0.45, 0.55, 0.80), "back_e": 0.35,
+		"key_rot": Vector3(-52, -28, 0), "key_col": Color(1.0, 0.85, 0.63), "key_e": 1.35,
+		"ground": Color(1.0, 1.0, 1.0),
+		"water": {}, "falls": false, "rays": false, "ray_col": Color(1, 1, 1),
+		"glow": {}, "butterflies": false, "birds": false, "fire": null,
+		"mote_col": Color(1.0, 0.85, 0.6, 0.12), "fog_col": Color(0.25, 0.27, 0.34, 0.10),
+		"leaf_ramp": [Color(0.5, 0.5, 0.55), Color(0.6, 0.6, 0.65), Color(0.55, 0.55, 0.6), Color(0.45, 0.45, 0.5)],
+		"layers": [
+			{"tex": "l1_sea.png", "z": -150.0, "h": 15.0, "y": -0.6, "rate": 0.08, "repeat": true, "k": 1.0, "sw": 0.0, "blur": 0.0, "sat": 1.0, "haze": 0.0},
+			{"tex": "l2_cliff.png", "z": -110.0, "h": 13.0, "y": -0.8, "rate": 0.20, "repeat": true, "k": 1.0, "sw": 0.0, "blur": 0.0, "sat": 1.0, "haze": 0.0},
+			{"tex": "l3_poles.png", "z": -48.0, "h": 0.0, "y": -0.5, "rate": 0.45, "repeat": false, "k": 1.0, "sw": 0.0, "blur": 0.0, "sat": 1.0, "haze": 0.0},
+			{"tex": "l5_fore.png", "z": 9.5, "h": 2.6, "y": -0.3, "rate": 1.60, "repeat": false, "k": 1.0, "sw": 0.004, "blur": 0.0, "sat": 1.0, "haze": 0.0},
+		],
+		"props": [],
+	},
 	"praia": {
 		"dir": "res://assets/stage/beach/",
 		"bg": Color(0.95, 0.55, 0.35), "ambient": Color(0.80, 0.62, 0.72),
@@ -311,6 +330,16 @@ var _rng := RandomNumberGenerator.new()
 static var _tex_cache := {}
 
 
+static func dusk() -> bool:
+	return THEMES.has(theme) and THEMES[theme].get("dusk", false)
+
+
+static func key_dir() -> Vector3:
+	var th: Dictionary = THEMES[theme] if THEMES.has(theme) else THEMES["selva"]
+	var rot: Vector3 = th.key_rot
+	return Basis.from_euler(Vector3(deg_to_rad(rot.x), deg_to_rad(rot.y), deg_to_rad(rot.z))) * Vector3(0, 0, 1)
+
+
 static func tex(name: String) -> Texture2D:
 	var dir: String = THEMES[theme].dir
 	var key := dir + name
@@ -396,9 +425,10 @@ func _env() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = _t.ambient
 	env.ambient_light_energy = 1.0
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR if _t.get("dusk", false) \
+		else Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 4.0
-	env.tonemap_exposure = 0.95
+	env.tonemap_exposure = 1.0 if _t.get("dusk", false) else 0.95
 
 	# névoa curta só pro 3D encostar na camada pintada de trás
 	env.fog_enabled = true
@@ -425,7 +455,7 @@ func _env() -> void:
 
 	env.adjustment_enabled = true
 	env.adjustment_saturation = _t.sat
-	env.adjustment_contrast = 1.05
+	env.adjustment_contrast = 1.0 if _t.get("dusk", false) else 1.05
 	env.adjustment_brightness = 1.0
 	we.environment = env
 	add_child(we)
@@ -524,12 +554,13 @@ func _backdrop() -> void:
 	_sky.position = Vector3(0, 0, SKY_Z)
 	if not _t.get("layers", true):
 		return
-	for spec in LAYERS:
-		var t := soft_tex(spec.tex, float(spec.blur), float(spec.sat))
-		var mi := _quad(t, spec.k, true, true, float(spec.sw), 1)
+	for spec in _t.get("layers", LAYERS):
+		var t := soft_tex(spec.tex, float(spec.blur), float(spec.sat)) if float(spec.blur) > 1.0 else tex(spec.tex)
+		var mi := _quad(t, spec.k, true, bool(spec.get("repeat", true)), float(spec.sw), 1)
 		var hz: Color = _t.fog
 		hz.a = float(spec.haze)
-		mi.material_override.set_shader_parameter("haze", hz)
+		if mi.material_override is ShaderMaterial:
+			mi.material_override.set_shader_parameter("haze", hz)
 		mi.set_meta("spec", spec)
 		_layers.append(mi)
 
@@ -544,26 +575,39 @@ func _fit_layers() -> void:
 	var d := _cam_z - SKY_Z
 	var vh := 2.0 * ht * d
 	_sky.scale = Vector3(vh * maxf(_aspect, 2.1) * 1.1, vh * 1.05, 1)
-	_sky.position = Vector3(0, float(_t.sky_y), SKY_Z)
+	_sky.position = Vector3(_look_x if _t.get("dusk", false) else 0.0, float(_t.sky_y), SKY_Z)
 
 	for mi in _layers:
 		var spec: Dictionary = mi.get_meta("spec")
 		var dd: float = _cam_z - float(spec.z)
 		var vhh := 2.0 * ht * dd
+		var t := _tex_of(mi)
+		var ta := float(t.get_width()) / float(t.get_height())
+		if spec.has("rate"):
+			var rate := float(spec.rate)
+			var rep: bool = spec.get("repeat", true)
+			var w: float = vhh * _aspect * (1.35 if rep else 1.7)
+			var h: float = float(spec.h) if float(spec.h) > 0.0 else w / ta
+			mi.scale = Vector3(w, h, 1)
+			mi.position = Vector3(_look_x * (1.0 - rate * dd / maxf(1.0, _cam_z)),
+				float(spec.y) + h * 0.5, float(spec.z))
+			_set_uv(mi, Vector2((w / h) / ta if rep else 1.0, 1.0))
+			continue
 		var w: float = vhh * _aspect * 1.35
 		var h: float = float(spec.h) * PADK
 		mi.scale = Vector3(w, h, 1)
 		mi.position = Vector3(-_look_x * float(spec.px), float(spec.y) + h * 0.5,
 			float(spec.z))
-		var t := _tex_of(mi)
-		_set_uv(mi, Vector2((w / h) / (float(t.get_width()) / float(t.get_height())), 1.0))
+		_set_uv(mi, Vector2((w / h) / ta, 1.0))
 
 
 # --------------------------------------------------------------------- chão
 
 func _ground() -> void:
+	var dusk: bool = _t.get("dusk", false)
+	var far := -140.0 if dusk else GROUND_FAR
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(420, GROUND_NEAR - GROUND_FAR)
+	pm.size = Vector2(420, GROUND_NEAR - far)
 	pm.subdivide_width = 1
 	pm.subdivide_depth = 1
 	var mi := MeshInstance3D.new()
@@ -571,12 +615,15 @@ func _ground() -> void:
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = tex("ground.png")
 	m.albedo_color = _t.ground
-	m.uv1_scale = Vector3(52, 10.0, 1)
+	m.uv1_scale = Vector3(52, 10.0 * (GROUND_NEAR - far) / (GROUND_NEAR - GROUND_FAR), 1)
 	m.texture_repeat = true
 	m.roughness = 1.0
 	m.metallic = 0.0
+	if dusk:
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.disable_fog = true
 	mi.material_override = m
-	mi.position = Vector3(0, 0, (GROUND_FAR + GROUND_NEAR) * 0.5)
+	mi.position = Vector3(0, 0, (far + GROUND_NEAR) * 0.5)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 
@@ -739,6 +786,9 @@ func _campfire() -> void:
 # ------------------------------------------------------------------- ar
 
 func _air() -> void:
+	if _t.get("dusk", false):
+		_motes()
+		return
 	if quality >= 1 and _t.rays:
 		_god_rays()
 	_motes()

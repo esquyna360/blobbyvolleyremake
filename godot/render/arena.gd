@@ -18,6 +18,7 @@ const CAM_EYE_Y := 3.3
 const CAM_LOOK_Y := 2.3
 const CAM_NEED := 0.74
 const CAM_BOX_PAD := 1.35
+const CAM_SIDE := 3.0
 const OPEN_HALF := BV.OPEN_MARGIN * Map.S
 
 const EMOJI := ["laugh", "cry", "rage", "finger", "taunt"]
@@ -57,6 +58,15 @@ var _cam_z := CAM_Z
 var _cam_span := 0.0
 var _cam_top := CAM_TOP_MIN
 var _cam_ly := CAM_LOOK_Y
+var _last_scores := PackedInt32Array([0, 0])
+var _pt_t := 0.0
+var _pt_x := 0.0
+var _rec_t := 0.0
+var _rec_base := 0
+var _rec_fired := false
+const PT_HOLD := 1.3
+const REC_HOLD := 1.2
+const RALLY_MIN := 6
 var intro_t := -1.0
 const INTRO_LEN := 5.6
 
@@ -704,18 +714,35 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var open_rate := 5.5 if want_open > _open_extra else 1.4
 	_open_extra += (want_open - _open_extra) * (1.0 - exp(-dt * open_rate))
 	var heads := maxf(Map.gy(w.blob_y[BV.LEFT]), Map.gy(w.blob_y[BV.RIGHT])) + 1.5
-	var want_top := clampf(maxf(heads, minf(by + CAM_TOP_PAD, CAM_BALL_TOP)),
-		CAM_TOP_MIN, CAM_TOP_MAX)
+	var want_top := CAM_TOP_MAX
 	_cam_top += (want_top - _cam_top) * (1.0 - exp(-dt * (7.0 if want_top > _cam_top else 1.1)))
-	var fov := CAM_FOV - minf(ball_speed, 22.0) * 0.03 - tension * 0.8
-	var lx := minf(minf(Map.gx(w.blob_x[BV.LEFT]), Map.gx(w.blob_x[BV.RIGHT])) - CAM_BOX_PAD, bx - 0.9)
-	var rx := maxf(maxf(Map.gx(w.blob_x[BV.LEFT]), Map.gx(w.blob_x[BV.RIGHT])) + CAM_BOX_PAD, bx + 0.9)
-	_fit_arena(aspect, tan(deg_to_rad(fov) * 0.5), (rx - lx) * 0.5, dt)
+	var fov := CAM_FOV
+	var g := m.logic
+	for i in 2:
+		if g.scores[i] != _last_scores[i]:
+			if g.scores[i] > _last_scores[i]:
+				_pt_t = PT_HOLD
+				_pt_x = Map.gx(w.blob_x[1 - i])
+			_last_scores[i] = g.scores[i]
+	if g.rally == 0:
+		_rec_base = g.rally_best
+		_rec_fired = false
+	elif g.rally >= RALLY_MIN and g.rally > _rec_base and not _rec_fired:
+		_rec_fired = true
+		_rec_t = REC_HOLD
+	_pt_t = maxf(0.0, _pt_t - dt)
+	_rec_t = maxf(0.0, _rec_t - dt)
+	var kp := smoothstep(0.0, 1.0, minf(1.0, (PT_HOLD - _pt_t) * 2.5)) * \
+		smoothstep(0.0, 1.0, minf(1.0, _pt_t * 2.0)) if _pt_t > 0.0 else 0.0
+	var kr := sin(PI * (1.0 - _rec_t / REC_HOLD)) if _rec_t > 0.0 else 0.0
+	var full_half := Map.court_half_w() + CAM_MARGIN + _open_extra
+	_fit_arena(aspect, tan(deg_to_rad(fov) * 0.5), full_half, dt)
 
-	var mid := (lx + rx) * 0.5
-	_cam_target_x = lerpf(_cam_target_x, mid * 0.8 + bx * 0.2, 1.0 - exp(-dt * 3.4))
-	var sway := sin(time * 0.31) * 0.09 + sin(time * 0.17) * 0.05
-	var sway_y := sin(time * 0.23 + 1.7) * 0.05
+	var want_x := _pt_x * kp + bx * 0.25 * kr
+	_cam_target_x = lerpf(_cam_target_x, want_x, 1.0 - exp(-dt * 4.0))
+	var zoom := 1.0 - 0.32 * kp - 0.12 * kr
+	var sway := 0.0
+	var sway_y := 0.0
 
 	trauma = maxf(0.0, trauma - dt * 1.5)
 	var sh := trauma * trauma
@@ -724,11 +751,13 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var shy := (sin(t * 1.7 + 2.0) + sin(t * 3.1)) * 0.5 * sh * 0.30
 	var shr := sin(t * 1.3) * sh * 0.022
 
-	var px := clampf(_cam_target_x, -_cam_span, _cam_span)
+	var zc := _cam_z * zoom
+	var span := maxf(0.0, full_half - zc * tan(deg_to_rad(fov) * 0.5) * maxf(0.5, aspect))
+	var px := clampf(_cam_target_x, -span, span)
 	if not _intro_cam(dt, w):
-		camera.position = Vector3(px + sway + shx, CAM_EYE_Y + sway_y + shy,
-			_cam_z - trauma * 0.9)
-		camera.look_at(Vector3(px + (bx - px) * CAM_LOOK, _cam_ly, 0.0), Vector3.UP)
+		camera.position = Vector3(px + CAM_SIDE + sway + shx, CAM_EYE_Y + sway_y + shy,
+			zc - trauma * 0.9)
+		camera.look_at(Vector3(px + CAM_SIDE * 0.45, _cam_ly - (_cam_z - zc) * 0.12, 0.0), Vector3.UP)
 		camera.rotate_object_local(Vector3.FORWARD, shr - px * 0.004)
 		camera.fov = fov
 		_outro_cam(dt, w)

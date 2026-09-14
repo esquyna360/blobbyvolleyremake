@@ -127,9 +127,9 @@ func build(left: Color, right: Color) -> void:
 	_info.anchor_right = 0.5
 	_info.offset_left = -180
 	_info.offset_right = 180
-	_info.offset_top = 112
+	_info.offset_top = 108
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_info.add_theme_font_size_override("font_size", 16)
+	_info.add_theme_font_size_override("font_size", 22)
 	_info.add_theme_color_override("font_color", Color(1, 1, 1, 0.78))
 	_info.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	_info.add_theme_constant_override("outline_size", 5)
@@ -155,8 +155,8 @@ func build(left: Color, right: Color) -> void:
 	_big.set_anchors_preset(Control.PRESET_CENTER)
 	_big.anchor_left = 0.5
 	_big.anchor_right = 0.5
-	_big.anchor_top = 0.36
-	_big.anchor_bottom = 0.36
+	_big.anchor_top = 0.24
+	_big.anchor_bottom = 0.24
 	_big.offset_left = -460
 	_big.offset_right = 460
 	_big.offset_top = -56
@@ -244,6 +244,7 @@ func shout(text: String, color := Color(1, 1, 1), hold := 1.8) -> void:
 	_big.add_theme_color_override("font_color", color)
 	_big_t = hold
 	_big_pop = 1.0
+	_rally_t = 0.0
 
 func update(m: BVMatch, dt: float) -> void:
 	var g := m.logic
@@ -282,13 +283,13 @@ func update(m: BVMatch, dt: float) -> void:
 				shout("RALLY %d!" % g.rally, Color(1.0, 0.6, 0.3), 1.2)
 			_rally.text = ("RECORDE %d" if rec else "RALLY %d") % g.rally
 			_rally_pulse = 1.0
-			_rally_t = RALLY_HOLD
+			_rally_t = 0.0 if _big_t > 0.0 else RALLY_HOLD
 			_rally.add_theme_color_override("font_color",
 				UiTheme.GOLD if rec else Color(1.0, 0.85, 0.35))
 			_rally.add_theme_font_size_override("font_size", 24 + mini(g.rally, 30))
 	_rally_t -= dt
 	_rally_pulse = maxf(0.0, _rally_pulse - dt * 4.0)
-	_rally.modulate.a = clampf(_rally_t * 3.0, 0.0, 1.0) if g.rally >= RALLY_MIN else 0.0
+	_rally.modulate.a = clampf(_rally_t * 3.0, 0.0, 1.0) if g.rally >= RALLY_MIN and _big_t <= 0.0 else 0.0
 	_rally.pivot_offset = _rally.size * 0.5
 	_rally.scale = Vector2.ONE * (1.0 + _rally_pulse * 0.10)
 

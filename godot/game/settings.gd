@@ -10,7 +10,7 @@ var rules := "default"
 var score_to_win := 15
 var walls := true
 var difficulty := "normal"
-var scene := "selva"
+var scene := "anoitecer"
 var player_name := ""
 var towers: Array = [0, 0, 0]
 
@@ -24,7 +24,7 @@ func load_all() -> void:
 		score_to_win = c.get_value("v", "stw", 15)
 		walls = c.get_value("v", "walls", true)
 		difficulty = c.get_value("v", "diff", "normal")
-		scene = c.get_value("v", "scene", "selva")
+		scene = c.get_value("v", "scene", "anoitecer")
 		player_name = c.get_value("v", "name", "")
 		towers = c.get_value("v", "towers", [0, 0, 0])
 	if quality < 0:
