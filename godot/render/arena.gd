@@ -6,17 +6,18 @@ extends Node3D
 
 const CAM_FOV := 26.0
 const CAM_Z := 12.8
-const CAM_Z_MAX := 19.5
+const CAM_Z_MAX := 24.0
 const CAM_TOP_MIN := 5.1
 const CAM_TOP_PAD := 0.9
-const CAM_TOP_MAX := 8.1
-const CAM_BALL_TOP := 6.8
+const CAM_TOP_MAX := 9.2
+const CAM_BALL_TOP := 8.0
 const CAM_BOTTOM := 0.55
 const CAM_MARGIN := 0.4
 const CAM_LOOK := 0.34
 const CAM_EYE_Y := 3.3
 const CAM_LOOK_Y := 2.3
 const CAM_NEED := 0.74
+const CAM_BOX_PAD := 1.35
 const OPEN_HALF := BV.OPEN_MARGIN * Map.S
 
 const EMOJI := ["laugh", "cry", "rage", "finger", "taunt"]
@@ -667,12 +668,13 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 ## (CAM_NEED), não ela inteira. A folga entre a janela e a lateral da quadra
 ## é o quanto ela anda de lado. Na vertical o quadro vai de um palmo abaixo
 ## do chão até `_cam_top`; a distância e a altura do olhar saem daí.
-func _fit_arena(aspect: float, vt: float) -> void:
+func _fit_arena(aspect: float, vt: float, box_half: float, dt: float) -> void:
 	var half := Map.court_half_w() + CAM_MARGIN + _open_extra
-	var need := Map.court_half_w() * CAM_NEED + CAM_MARGIN
+	var need := maxf(Map.court_half_w() * CAM_NEED + CAM_MARGIN, box_half)
 	var ht := vt * maxf(0.5, aspect)
 	var zv := (_cam_top + CAM_BOTTOM) / (2.0 * vt)
-	_cam_z = minf(CAM_Z_MAX, maxf(maxf(CAM_Z, need / ht), zv))
+	var want_z := minf(CAM_Z_MAX, maxf(maxf(CAM_Z, need / ht), zv))
+	_cam_z += (want_z - _cam_z) * (1.0 - exp(-dt * (6.0 if want_z > _cam_z else 1.6)))
 	_cam_span = maxf(0.0, half - _cam_z * ht)
 	_cam_ly = vt * _cam_z - CAM_BOTTOM
 
@@ -706,10 +708,12 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 		CAM_TOP_MIN, CAM_TOP_MAX)
 	_cam_top += (want_top - _cam_top) * (1.0 - exp(-dt * (7.0 if want_top > _cam_top else 1.1)))
 	var fov := CAM_FOV - minf(ball_speed, 22.0) * 0.03 - tension * 0.8
-	_fit_arena(aspect, tan(deg_to_rad(fov) * 0.5))
+	var lx := minf(minf(Map.gx(w.blob_x[BV.LEFT]), Map.gx(w.blob_x[BV.RIGHT])) - CAM_BOX_PAD, bx - 0.9)
+	var rx := maxf(maxf(Map.gx(w.blob_x[BV.LEFT]), Map.gx(w.blob_x[BV.RIGHT])) + CAM_BOX_PAD, bx + 0.9)
+	_fit_arena(aspect, tan(deg_to_rad(fov) * 0.5), (rx - lx) * 0.5, dt)
 
-	var mid := (Map.gx(w.blob_x[BV.LEFT]) + Map.gx(w.blob_x[BV.RIGHT])) * 0.5
-	_cam_target_x = lerpf(_cam_target_x, bx * 0.5 + mid * 0.3, 1.0 - exp(-dt * 3.4))
+	var mid := (lx + rx) * 0.5
+	_cam_target_x = lerpf(_cam_target_x, mid * 0.8 + bx * 0.2, 1.0 - exp(-dt * 3.4))
 	var sway := sin(time * 0.31) * 0.09 + sin(time * 0.17) * 0.05
 	var sway_y := sin(time * 0.23 + 1.7) * 0.05
 
