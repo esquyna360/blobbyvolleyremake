@@ -63,6 +63,8 @@ jobs:
           cp -r mods/web/dist/. site/mods/
           mkdir -p site/arena
           cp -r arena/web/dist/. site/arena/
+          mkdir -p site/godot
+          cp -r arena/godot-web/. site/godot/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -5,6 +5,21 @@ const GOLD := Color(1.0, 0.78, 0.28)
 const INK := Color(0.05, 0.08, 0.06)
 const LEAF := Color(0.32, 0.62, 0.30)
 
+const GLYPHS := preload("res://assets/font/glyphs.ttf")
+
+## A fonte padrão do Godot não tem ● ▲ ★ ✓ e companhia. No desktop o motor
+## completa com fonte do sistema; no navegador não existe fonte de sistema e
+## sobravam quadradinhos. Esta fonte mínima entra como reserva.
+static func install_glyphs() -> void:
+	var f := ThemeDB.fallback_font
+	if f == null:
+		return
+	var fb := f.fallbacks
+	if GLYPHS in fb:
+		return
+	fb.append(GLYPHS)
+	f.fallbacks = fb
+
 static func panel(bg := Color(0.04, 0.07, 0.05, 0.80), border := Color(1, 1, 1, 0.10)) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = bg

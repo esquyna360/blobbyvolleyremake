@@ -13,6 +13,7 @@ var _fps_sum := 0.0
 var _fps_n := 0.0
 
 func _ready() -> void:
+	UiTheme.install_glyphs()
 	process_priority = 100
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0

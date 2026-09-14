@@ -247,7 +247,8 @@ func _main() -> void:
 	_btn("Dois jogadores", func(): _gate(func():
 		_stage_cb = func(sc): play_local.emit(sc)
 		show_page("stage")), "no mesmo teclado", UiTheme.LEAF)
-	_btn("Online", func(): _gate(func(): show_page("net")), "IP direto, sem conta", Color(0.36, 0.72, 1.0))
+	if OS.get_name() != "Web":
+		_btn("Online", func(): _gate(func(): show_page("net")), "IP direto, sem conta", Color(0.36, 0.72, 1.0))
 	_spacer()
 	_btn("Nome e aparência", func(): show_page("look"), "", Color(0.9, 0.45, 0.8))
 	_btn("Gráficos e som", func(): show_page("options"), "", Color(0.7, 0.75, 0.8))

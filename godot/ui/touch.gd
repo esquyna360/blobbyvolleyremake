@@ -27,7 +27,7 @@ func build(slot_index := 0) -> void:
 			"col": Color(0.92, 0.86, 0.66), "side": 0},
 		{"act": "down", "icon": "▼", "label": "", "pos": Vector2(168, -92), "r": 50.0,
 			"col": Color(0.92, 0.86, 0.66), "side": 0},
-		{"act": "up", "icon": "⤒", "label": "PULAR", "pos": Vector2(-112, -128), "r": 74.0,
+		{"act": "up", "icon": "↥", "label": "PULAR", "pos": Vector2(-112, -128), "r": 74.0,
 			"col": Color(0.55, 0.90, 0.45), "side": 1},
 		{"act": "dive", "icon": "↯", "label": "SE JOGAR", "pos": Vector2(-268, -104),
 			"r": 58.0, "col": Color(0.55, 0.82, 1.0), "side": 1},

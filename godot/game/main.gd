@@ -29,6 +29,7 @@ var _result_next: Button
 var _card_step := 0
 
 func _ready() -> void:
+	UiTheme.install_glyphs()
 	settings.load_all()
 	Stage.theme = settings.scene
 	Controls.setup()
