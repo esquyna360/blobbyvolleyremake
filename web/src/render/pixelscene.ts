@@ -6,6 +6,14 @@ interface Pal {
 }
 
 let seed = 1337
+/** escurece e puxa pro cinza: a mata fica atrás dos personagens em vez de competir */
+function dull(hex: string, dark = 0.72, gray = 0.35): string {
+  const n = parseInt(hex.slice(1), 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  const l = r * 0.3 + g * 0.59 + b * 0.11
+  const f = (v: number) => Math.max(0, Math.min(255, Math.round((v + (l - v) * gray) * dark)))
+  return `#${((f(r) << 16) | (f(g) << 8) | f(b)).toString(16).padStart(6, '0')}`
+}
 function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 }
 
 function layer(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): HTMLCanvasElement {
@@ -39,8 +47,8 @@ function blobTrees(g: CanvasRenderingContext2D, w: number, base: number, count: 
 }
 
 function palm(g: CanvasRenderingContext2D, x: number, base: number, h: number, lean: number, dark: boolean) {
-  const trunk = dark ? '#3a2a22' : '#7a5a3a', trunkHi = dark ? '#4a382c' : '#a07a4c'
-  const leaf = dark ? ['#2b4a36', '#1d3526'] : ['#3fa64a', '#2a7a34']
+  const trunk = dark ? '#3a2a22' : '#5e4a34', trunkHi = dark ? '#4a382c' : '#7a6146'
+  const leaf = dark ? ['#2b4a36', '#1d3526'] : [dull('#3fa64a', 0.8, 0.3), dull('#2a7a34', 0.8, 0.3)]
   let px = x
   for (let y = 0; y < h; y++) {
     px = x + lean * (y / h) * (y / h) * 14
@@ -103,7 +111,7 @@ export class PixelScene {
 
   private build() {
     const H = this.H
-    this.gy = Math.round(H * 0.86 - 44 * (H / 640))
+    this.gy = Math.round(H * 0.93)
     const id = this.scene.id
     seed = 1337
     const d2 = this.scene.d2
@@ -178,8 +186,10 @@ export class PixelScene {
   private buildSelva() {
     const W = this.W, H = this.H, hz = this.horizon, sh = this.shore, gy = this.gy
     const P = {
-      far: ['#7fb8a4', '#6aa896', '#5c9a89'], mid: ['#3f8a63', '#357552', '#2c6244'], near: ['#4c8a4a', '#2a5f3a', '#1f4a2d'],
-      near2: '#163821', fog: this.scene.d2.sky[2],
+      far: ['#7fb8a4', '#6aa896', '#5c9a89'].map(c => dull(c, 0.82, 0.3)),
+      mid: ['#3f8a63', '#357552', '#2c6244'].map(c => dull(c, 0.7, 0.4)),
+      near: ['#4c8a4a', '#2a5f3a', '#1f4a2d'].map(c => dull(c, 0.62, 0.4)),
+      near2: dull('#163821', 0.62, 0.4), fog: this.scene.d2.sky[2],
     }
     this.far = layer(W * 2, hz + 10, g => {
       blobTrees(g, W * 2, hz + 2, 70, 40, 70, P.far, false)
@@ -191,7 +201,7 @@ export class PixelScene {
       for (let x = 0; x < W * 2; x += 3) {
         const h = 3 + Math.floor(rnd() * 5)
         g.fillStyle = rnd() < 0.5 ? P.near[2] : P.near2; g.fillRect(x, hz + 8 - h, 3, h + 6)
-        if (rnd() < 0.18) { g.fillStyle = ['#ff5e8a', '#ffd257', '#ffffff'][Math.floor(rnd() * 3)]; g.fillRect(x + 1, hz + 8 - h - 1, 1, 1) }
+        if (rnd() < 0.08) { g.fillStyle = dull(['#ff5e8a', '#ffd257', '#ffffff'][Math.floor(rnd() * 3)], 0.7, 0.3); g.fillRect(x + 1, hz + 8 - h - 1, 1, 1) }
       }
     })
     this.cliff = layer(70, 34, g => {
@@ -202,8 +212,8 @@ export class PixelScene {
         g.fillStyle = (x * 7 + y * 13) % 17 === 0 ? '#2b2e35' : sc
         g.fillRect(x, y, 1, 1)
       }
-      for (let i = 0; i < 40; i++) { g.fillStyle = '#4f8a3f'; g.fillRect(12 + rnd() * 46, rnd() * 8, 2, 1) }
-      for (let i = 0; i < 14; i++) { g.fillStyle = '#4c8a4a'; g.fillRect(14 + rnd() * 42, rnd() * 4, 3, 2) }
+      for (let i = 0; i < 40; i++) { g.fillStyle = dull('#4f8a3f', 0.7, 0.4); g.fillRect(12 + rnd() * 46, rnd() * 8, 2, 1) }
+      for (let i = 0; i < 14; i++) { g.fillStyle = dull('#4c8a4a', 0.7, 0.4); g.fillRect(14 + rnd() * 42, rnd() * 4, 3, 2) }
     })
     this.props = layer(W, 90, g => {
       g.translate(0, 60)
@@ -236,7 +246,7 @@ export class PixelScene {
       for (let i = 0; i < 5; i++) {
         const x = Math.floor(rnd() * W * 2), w = 30 + rnd() * 60, h = 4 + rnd() * 6
         for (let y = 0; y < h; y++) {
-          g.fillStyle = y < 2 ? '#3f8a63' : '#2c6244'
+          g.fillStyle = y < 2 ? dull('#3f8a63', 0.78, 0.35) : dull('#2c6244', 0.78, 0.35)
           g.fillRect(Math.round(x + (y / h) * w * 0.5), Math.round(hz + 8 - h + y), Math.round(w - (y / h) * w * 0.9), 1)
         }
       }
@@ -418,8 +428,7 @@ export class PixelScene {
     const wet = shade(this.pal.sand1, 0.78)
     g.fillStyle = wet; g.fillRect(0, sh, W, 1)
     for (let y = sh + 1; y < H; y++) {
-      const t = (y - sh) / Math.max(1, H - sh)
-      g.fillStyle = t < 0.12 ? wet : t < 0.6 ? this.pal.sand1 : this.pal.sand2
+      g.fillStyle = y < sh + 4 ? wet : y <= gy + 6 ? this.pal.sand1 : shade(this.pal.sand1, 0.9)
       g.fillRect(0, y, W, 1)
     }
     seed = 99
@@ -452,7 +461,7 @@ export class PixelScene {
     const W = this.W, H = this.H, id = this.scene.id
     g.drawImage(this.props, 0, gy - 78)
     if (id === 'selva' || id === 'praia' || id === 'luau') {
-      const grass = id === 'selva' ? ['#4f9a3a', '#6fbf4a'] : id === 'praia' ? ['#7fb86a', '#a4d48a'] : ['#2a4a3a', '#3a6a4a']
+      const grass = id === 'selva' ? ['#3d7a30', '#55953c'] : id === 'praia' ? ['#6f9e5c', '#8fb878'] : ['#2a4a3a', '#3a6a4a']
       for (const [gx, n] of [[60, 6], [130, 4], [W * 0.55, 5], [W * 0.7, 4], [W - 40, 5]]) {
         for (let k = 0; k < n; k++) {
           const h = 4 + (k % 3) * 2

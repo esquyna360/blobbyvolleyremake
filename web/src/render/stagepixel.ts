@@ -32,8 +32,14 @@ const CAM_NET = 120
 const CAM_EDGE = 60
 /** folga acima da ponteira da rede */
 const CAM_NET_TOP = 34
-const CAM_MIN = 0.82
-const CAM_MAX = 1.78
+const CAM_MIN = 1.0
+/** a bola acima disso sai do quadro e vira seta, em vez de afastar a câmera */
+const CAM_BALL_TOP = GROUND_PLANE_HEIGHT_MAX - 400
+const CAM_MAX = 1.9
+/** fração da tela onde fica a linha do chão */
+const GROUND_FRAC = 0.93
+/** areia à frente do chão que ainda aparece, em unidades de mundo */
+const APRON = 16
 export const INTRO_LEN = 5.6
 
 interface Snap { bx: number; by: number; rot: number; px: number[]; py: number[]; st: number[] }
@@ -163,6 +169,16 @@ export class StagePixel implements GameRenderer {
   private camZ = 1
   /** centro horizontal do enquadramento, em coordenadas de mundo */
   private camX = NET_POSITION_X
+  /** zoom curto ao impacto: decai sozinho */
+  private camPunch = 0
+  /** escala vertical do corpo: 1 neutro, <1 achatado, >1 esticado; mola com overshoot */
+  private deform = [1, 1]
+  private deformV = [0, 0]
+  private airK = [0, 0]
+  private lean = [0, 0]
+  private hitFace = [0, 0]
+  private landFace = [0, 0]
+  private netShake = 0
   private looks: PlayerLook[] = [defaultLook(LEFT), defaultLook(RIGHT)]
   private cols: Cols[] = [colsOf(bodyHex(defaultLook(LEFT))), colsOf(bodyHex(defaultLook(RIGHT)))]
   private hairCols: Cols[] = [colsOf(hairHex(defaultLook(LEFT))), colsOf(hairHex(defaultLook(RIGHT)))]
@@ -214,14 +230,14 @@ export class StagePixel implements GameRenderer {
 
   /** enquadramento mais aberto: a quadra inteira cabe */
   private baseScale() {
-    return Math.min(this.W / (RIGHT_PLANE + 90), this.H / 640)
+    return Math.min(this.W / (RIGHT_PLANE + 90), this.H / 520)
   }
 
   private applyFrame() {
     const base = this.baseScale()
-    this.scale = base * this.zoom * this.camZ
+    this.scale = base * this.zoom * this.camZ * (1 + this.camPunch * 0.05)
     this.ox = this.W / 2 - this.camX * this.scale
-    this.oy = this.H * 0.86 - (GROUND + 44) * this.scale
+    this.oy = this.H * GROUND_FRAC - GROUND * this.scale
   }
 
   /**
@@ -238,13 +254,13 @@ export class StagePixel implements GameRenderer {
       if (this.off(s)) continue
       see(px[s], py[s] - BLOBBY_UPPER_SPHERE, BLOBBY_LOWER_RADIUS + CAM_PAD)
     }
-    if (this.intro < 0 && ballOn) see(bx, by, BALL_RADIUS + CAM_PAD)
+    if (this.intro < 0 && ballOn) see(bx, Math.max(by, CAM_BALL_TOP), BALL_RADIUS + CAM_PAD)
     if (!isFinite(x0)) { x0 = LEFT_PLANE; x1 = RIGHT_PLANE; top = GROUND - 200 }
     // a rede inteira, ponteira incluida, nunca sai do quadro
     x0 = Math.min(x0, NET_POSITION_X - CAM_NET); x1 = Math.max(x1, NET_POSITION_X + CAM_NET)
     top = Math.min(top, NET_SPHERE_POSITION - CAM_NET_TOP)
 
-    const fitH = (this.H * 0.84) / Math.max(120, GROUND + 10 - top)
+    const fitH = (this.H * 0.9) / Math.max(120, GROUND + 12 - top)
     const fitW = this.W / Math.max(200, x1 - x0)
     const want = clamp(Math.min(fitH, fitW) / base, CAM_MIN, CAM_MAX)
     const kz = want < this.camZ ? 9 : 2.4
@@ -333,8 +349,12 @@ export class StagePixel implements GameRenderer {
       if (wasG && !isG && c.py[s] < p.py[s]) {
         this.burst(c.px[s], GROUND + 4, 16, 140, shade(this.px.pal.sand1, 1.25), 0.9, 2)
         this.blobKick[s] = Math.max(this.blobKick[s], 0.3)
+        this.deformV[s] = Math.max(this.deformV[s], 7)
       } else if (!wasG && isG) {
         const power = clamp((c.py[s] - p.py[s]) / 14, 0.15, 1)
+        this.deformV[s] = Math.min(this.deformV[s], -(6 + 9 * power))
+        this.landFace[s] = 0.22 + 0.15 * power
+        this.camPunch = Math.max(this.camPunch, 0.4 * power)
         this.burst(c.px[s], GROUND + 4, Math.floor(18 + 30 * power), 130 + 170 * power, shade(this.px.pal.sand1, 1.25), 0.6, 2)
         this.burst(c.px[s], GROUND + 2, Math.floor(8 + 12 * power), 100 + 140 * power, this.px.pal.sandDk, 0.3, 1)
         this.blobKick[s] = Math.max(this.blobKick[s], 0.35 + 0.45 * power)
@@ -374,6 +394,9 @@ export class StagePixel implements GameRenderer {
         case Ev.BALL_HIT_BLOB: {
           const inten = 0.35 + e.intensity * 0.65
           this.trauma = Math.min(1, this.trauma + 0.16 * inten)
+          this.deformV[e.side as Side] = Math.min(this.deformV[e.side as Side], -4 - 6 * inten)
+          this.hitFace[e.side as Side] = 0.28 + 0.12 * inten
+          this.camPunch = Math.max(this.camPunch, 0.35 + 0.45 * inten)
           this.burst(w.ballX, w.ballY, Math.floor(14 + 22 * inten), 190 * inten, this.fill(e.side as Side), 0.4)
           this.squashBall(w, 0.10 + 0.07 * inten)
           break
@@ -390,6 +413,7 @@ export class StagePixel implements GameRenderer {
         case Ev.BALL_HIT_NET:
         case Ev.BALL_HIT_NET_TOP:
           this.trauma = Math.min(1, this.trauma + 0.09)
+          this.netShake = 1
           this.burst(w.ballX, w.ballY, 10, 110, '#c8d2e2', 0.5)
           this.squashBall(w, 0.09)
           break
@@ -526,6 +550,9 @@ export class StagePixel implements GameRenderer {
           this.trauma = Math.min(1, this.trauma + 0.3 * inten)
           this.hitstop = Math.max(this.hitstop, e.intensity >= 0.99 ? 0.07 : 0.03)
           this.blobKick[p] = Math.max(this.blobKick[p], 0.6)
+          this.deformV[p] = Math.min(this.deformV[p], -9)
+          this.hitFace[p] = 0.4
+          this.camPunch = 1
           this.burst(w.ballX, w.ballY, Math.floor(20 + 30 * inten), 260 * inten, '#ffffff', 0.4)
           this.burst(w.ballX, w.ballY, 16, 200 * inten, this.light(p), 0.5)
           this.rings.push({ x: w.ballX, y: w.ballY, r: 8, max: 90 + 110 * inten, life: 0, color: '#ffffff', w: 2 })
@@ -702,6 +729,8 @@ export class StagePixel implements GameRenderer {
     if (this.pops.length) this.pops = this.pops.filter(e => { e.life += dt; return e.life < e.max })
     if (this.sparks.length) this.sparks = this.sparks.filter(e => { e.life += dt; return e.life < 0.3 })
     this.trauma = Math.max(0, this.trauma - dt * 2.2)
+    this.camPunch = Math.max(0, this.camPunch - dt * 4)
+    this.netShake = Math.max(0, this.netShake - dt * 2.4)
     this.aber = Math.max(0, this.aber - dt * 4)
     this.cut = Math.max(0, this.cut - dt * 5)
     for (const i of [0, 1]) {
@@ -717,6 +746,16 @@ export class StagePixel implements GameRenderer {
       this.hairX[i] += this.hairVX[i] * dt
       this.hairY[i] += this.hairVY[i] * dt
       this.blobFlash[i] = Math.max(0, this.blobFlash[i] - dt * 3.5)
+      const vy = wv ? wv.blobVY[i] : 0
+      const want = air ? 1 + clamp(vy < 0 ? -vy * 0.03 : vy * 0.018, 0, 0.32) : 1
+      this.deformV[i] += ((want - this.deform[i]) * 230 - this.deformV[i] * 9.5) * dt
+      this.deform[i] += this.deformV[i] * dt
+      this.deform[i] = clamp(this.deform[i], 0.58, 1.65)
+      this.airK[i] += ((air ? 1 : 0) - this.airK[i]) * Math.min(1, dt * (air ? 12 : 18))
+      const leanWant = wv ? clamp(wv.blobVX[i] * 0.9, -4, 4) : 0
+      this.lean[i] += (leanWant - this.lean[i]) * Math.min(1, dt * 8)
+      this.hitFace[i] = Math.max(0, this.hitFace[i] - dt)
+      this.landFace[i] = Math.max(0, this.landFace[i] - dt)
       this.blobKick[i] = Math.max(0, this.blobKick[i] - dt * 3)
       this.parryTint[i] = Math.max(0, this.parryTint[i] - dt)
       this.doubleTint[i] = Math.max(0, this.doubleTint[i] - dt)
@@ -805,25 +844,31 @@ export class StagePixel implements GameRenderer {
     if (alt > 0) pxText(g, String(alt), x + 12, ty + 3, '#ffd257', 1, '#1a1620')
   }
 
-  /** elipse de contato no chao: da a altura do corpo que a projeta */
+  /** elipse de contato no chão, igual pros dois lados: só encolhe com a altura */
   private shadow(x: number, y: number, r: number) {
     const g = this.g
     const h = clamp((GROUND - y) / 330, 0, 1)
-    const k = 1 - 0.5 * h
-    const cx = this.X(x), gy = this.Y(GROUND) + 1
-    const rx = Math.max(2, Math.round(this.S(r) * 1.05 * k))
-    const ry = Math.max(2, Math.round(this.S(r) * 0.4 * k))
-    const ring = (sx: number, sy: number, alpha: number, color: string) => {
-      g.fillStyle = color
-      g.globalAlpha = alpha
-      for (let yy = -sy; yy <= sy; yy++) {
-        const w = Math.round(sx * Math.sqrt(Math.max(0, 1 - (yy / (sy + 0.5)) ** 2)))
-        if (w > 0) g.fillRect(cx - w, gy + yy, w * 2, 1)
-      }
-      g.globalAlpha = 1
+    const k = 1 - 0.45 * h
+    const [lx] = this.lightAt(this.X(x), this.Y(y))
+    const cx = this.X(x) - Math.round(lx * this.S(r) * 0.3), gy = this.Y(GROUND) + 2
+    const rx = Math.max(3, Math.round(this.S(r) * 1.3 * k))
+    const ry = Math.max(2, Math.round(this.S(r) * 0.42 * k))
+    g.fillStyle = this.px.pal.shadow
+    g.globalAlpha = 0.34 - 0.14 * h
+    for (let yy = -ry; yy <= ry; yy++) {
+      const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (yy / (ry + 0.5)) ** 2)))
+      if (w <= 0) continue
+      const edge = Math.abs(yy) === ry || w < rx * 0.35
+      if (edge) { for (let xx = -w; xx < w; xx++) if (((xx + yy + cx) & 1) === 0) g.fillRect(cx + xx, gy + yy, 1, 1) }
+      else g.fillRect(cx - w, gy + yy, w * 2, 1)
     }
-    ring(rx, ry, 0.3 - 0.16 * h, this.px.pal.shadow)
-    ring(Math.round(rx * 0.62), Math.max(1, Math.round(ry * 0.62)), 0.34 - 0.18 * h, this.px.pal.shadow)
+    g.globalAlpha = 0.22 - 0.1 * h
+    const ix = Math.round(rx * 0.6), iy = Math.max(1, Math.round(ry * 0.6))
+    for (let yy = -iy; yy <= iy; yy++) {
+      const w = Math.round(ix * Math.sqrt(Math.max(0, 1 - (yy / (iy + 0.5)) ** 2)))
+      if (w > 0) g.fillRect(cx - w, gy + yy, w * 2, 1)
+    }
+    g.globalAlpha = 1
   }
 
   private blob(p: Side, wx: number, wy: number, state: number, ball: { x: number; y: number },
@@ -834,20 +879,30 @@ export class StagePixel implements GameRenderer {
     const c = this.doubleTint[p] > 0 ? DOUBLE_COLS : tint ? PARRY_COLS : this.cols[p]
     const kick = this.blobKick[p]
     const squash = (1 + Math.sin(state * 1.6) * 0.045 + Math.sin(kick * 9) * kick * 0.12) * (1 - cr * 0.12)
-    const ru = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
-    const rl = this.S(BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) / squash
+    const ru0 = this.S(BLOBBY_UPPER_RADIUS - cr * CROUCH_SLIM) * squash
+    const rl0 = this.S(BLOBBY_LOWER_RADIUS + cr * CROUCH_SPREAD) / squash
     const x = this.ox + wx * this.scale
     const y = this.oy + wy * this.scale
-    const uy = y - this.S(BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
-    const ly = y + this.S(BLOBBY_LOWER_SPHERE)
+    const uy0 = y - this.S(BLOBBY_UPPER_SPHERE - cr * CROUCH_DUCK) * squash
+    const ly0 = y + this.S(BLOBBY_LOWER_SPHERE)
     const d = dvDir, dk = dive
+    const dfm = clamp(this.deform[p], 0.58, 1.65)
+    const sy = dfm, sx = 1 / Math.sqrt(dfm)
+    const foot = ly0 + rl0
+    const ly = foot + (ly0 - foot) * sy
+    const uy = foot + (uy0 - foot) * sy
+    const rl = rl0
+    const ru = ru0
+    const lean = this.lean[p]
     const bkx = x - d * this.S(20) * dk
-    const bky = ly + this.S(13) * dk
-    const brx = rl * (1 + 0.42 * dk)
-    const bry = rl * (1 - 0.3 * dk)
-    const hx = x + d * this.S(30) * dk
-    const hy = uy + this.S(22) * dk
+    const bky = ly + this.S(13) * dk * sy
+    const brx = rl * (1 + 0.42 * dk) * sx
+    const bry = rl * (1 - 0.3 * dk) * sy
+    const hx = x + d * this.S(30) * dk + lean
+    const hy = uy + this.S(22) * dk * sy
+    const rux = ru * sx, ruy = ru * sy
     const fac = p === LEFT ? 1 : -1
+    const ol = shade(c.base, 0.2)
 
     g.save()
     if (stunned) {
@@ -866,44 +921,72 @@ export class StagePixel implements GameRenderer {
     }
     const [sunX, sunY] = this.lightAt(hx, hy)
     const rim = shade(c.hi, 1.45)
-    ellipseP(g, bkx, bky, brx, bry, c, sunX, sunY, rim)
-    // tronco: corpo e cabeça são uma massa só
-    const nw = Math.round(ru * 1.3)
+    const nw = Math.round(rux * 1.3)
+    const nx0 = Math.round((x + hx) / 2 - nw / 2)
     const ny0 = Math.round(hy), ny1 = Math.round(bky - bry * 0.4)
+    const armLen = ru * (0.5 + 1.5 * dk)
+    const ax = hx + d * ru * 0.55, ay = hy + ru * 0.5
+
+    const olc: Cols = { base: ol, hi: ol, dk: ol, dk2: ol }
+    ellipseP(g, bkx, bky, brx + 1, bry + 1, olc)
+    if (ny1 > ny0) g.fillStyle = ol, g.fillRect(nx0 - 2, ny0 - 1, nw + 4, ny1 - ny0 + 2)
+    ellipseP(g, hx, hy, rux + 1, ruy + 1, olc)
+    if (dk > 0.01) {
+      ellipseP(g, ax + d * armLen * 0.5, ay + armLen * 0.2, armLen * 0.62 + 1, Math.max(1.5, ru * 0.34) + 1, olc)
+      discP(g, ax + d * armLen, ay + armLen * 0.35, ru * 0.3 + 1, ol)
+    }
+
+    ellipseP(g, bkx, bky, brx, bry, c, sunX, sunY, rim)
     if (ny1 > ny0) {
       g.fillStyle = c.base
-      g.fillRect(Math.round((x + hx) / 2 - nw / 2), ny0, nw, ny1 - ny0)
+      g.fillRect(nx0, ny0, nw, ny1 - ny0)
       g.fillStyle = c.dk2
-      g.fillRect(Math.round((x + hx) / 2 - nw / 2) - 1, ny0, 1, ny1 - ny0)
-      g.fillRect(Math.round((x + hx) / 2 + nw / 2), ny0, 1, ny1 - ny0)
+      g.fillRect(nx0 - 1, ny0, 1, ny1 - ny0)
+      g.fillRect(nx0 + nw, ny0, 1, ny1 - ny0)
     }
     if (dk > 0.01) {
-      const len = ru * (0.5 + 1.5 * dk)
-      const ax = hx + d * ru * 0.55, ay = hy + ru * 0.5
-      ellipseP(g, ax + d * len * 0.5, ay + len * 0.2, len * 0.62, Math.max(1.5, ru * 0.34), c)
-      discP(g, ax + d * len, ay + len * 0.35, ru * 0.3, c.dk)
+      ellipseP(g, ax + d * armLen * 0.5, ay + armLen * 0.2, armLen * 0.62, Math.max(1.5, ru * 0.34), c)
+      discP(g, ax + d * armLen, ay + armLen * 0.35, ru * 0.3, c.dk)
     }
     this.hair(p, hx, hy, ru, fac, true)
-    ellipseP(g, hx, hy, ru, ru, c, sunX, sunY, rim)
+    ellipseP(g, hx, hy, rux, ruy, c, sunX, sunY, rim)
     g.fillStyle = c.hi
-    g.fillRect(Math.round(hx + sunX * ru * 0.45), Math.round(hy + sunY * ru * 0.55), 2, 1)
-    g.fillRect(Math.round(hx + sunX * ru * 0.55), Math.round(hy + sunY * ru * 0.35), 1, 2)
-    this.face(p, hx, hy, ru, fac, ball, stunned)
-    this.hair(p, hx, hy, ru, fac, false)
+    g.fillRect(Math.round(hx + sunX * rux * 0.45), Math.round(hy + sunY * ruy * 0.55), 2, 1)
+    g.fillRect(Math.round(hx + sunX * rux * 0.55), Math.round(hy + sunY * ruy * 0.35), 1, 2)
+    this.face(p, hx, hy, ru, fac, ball, stunned, sx, sy)
+    this.hair(p, hx, hy - (ruy - ru), ru, fac, false)
     if (this.blobFlash[p] > 0.05) {
       g.globalAlpha = this.blobFlash[p] * 0.7
       const fl = { base: '#fff2c8', hi: '#fff2c8', dk: '#fff2c8', dk2: '#fff2c8' }
       ellipseP(g, bkx, bky, brx, bry, fl)
-      ellipseP(g, hx, hy, ru, ru, fl)
+      ellipseP(g, hx, hy, rux, ruy, fl)
       g.globalAlpha = 1
     }
     g.restore()
   }
 
-  private face(p: Side, hx: number, hy: number, ru: number, fac: number, ball: { x: number; y: number }, stunned: boolean) {
+  private face(p: Side, hx: number, hy: number, ru: number, fac: number, ball: { x: number; y: number }, stunned: boolean, sx = 1, sy = 1) {
     const g = this.g
     const rig = this.faces[p]
-    const f = rig.cur
+    const f = { ...rig.cur }
+    const air = this.airK[p], hit = this.hitFace[p], land = this.landFace[p]
+    if (air > 0.05) {
+      f.lid = Math.max(f.lid, 1 + 0.55 * air)
+      f.brow = Math.max(f.brow, 0.6 * air)
+      f.open = Math.max(f.open, 0.25 * air)
+    }
+    if (land > 0) {
+      const k = Math.min(1, land / 0.12)
+      f.open = Math.max(f.open, 0.55 * k)
+      f.lid = Math.min(f.lid, 0.75)
+      f.curve = Math.min(f.curve, -0.3)
+    }
+    if (hit > 0) {
+      const k = Math.min(1, hit / 0.1)
+      f.open = Math.max(f.open, 1.0 * k)
+      f.lid = Math.max(f.lid, 1.5 * k)
+      f.brow = Math.max(f.brow, 0.8 * k)
+    }
     const ink = '#1a1620'
     const lid = clamp(f.lid * (0.08 + rig.blink * 0.92), 0, 1.6)
     const jit = rig.jitter > 0.05 ? Math.round(Math.sin(this.time * 40) * rig.jitter) : 0
@@ -912,11 +995,11 @@ export class StagePixel implements GameRenderer {
     ax = (ax / alen) * Math.min(1, alen / 80)
     ay = (ay / alen) * Math.min(1, alen / 80)
     if (this.intro >= 0) { ax = fac * 0.3; ay = 0.2 }
-    const eh = Math.round(clamp(ru * 0.5 * lid, 0, ru * 0.75))
-    const ew = ru > 6 ? 3 : 2
+    const eh = Math.round(clamp(ru * 0.5 * lid * sy, 0, ru * 0.9))
+    const ew = (ru > 6 ? 3 : 2) + (lid > 1.3 ? 1 : 0)
     for (const s of [-1, 1]) {
-      const ex = Math.round(hx + ru * (fac * 0.09 + s * 0.38)) + jit
-      const ey = Math.round(hy - ru * 0.24)
+      const ex = Math.round(hx + ru * sx * (fac * 0.09 + s * 0.38)) + jit
+      const ey = Math.round(hy - ru * sy * 0.24)
       if (stunned) {
         g.fillStyle = ink
         for (let k = -1; k <= 1; k++) { g.fillRect(ex + k, ey + k, 1, 1); g.fillRect(ex + k, ey - k, 1, 1) }
@@ -959,10 +1042,10 @@ export class StagePixel implements GameRenderer {
       }
     }
     // boca
-    const mcx = Math.round(hx + ru * fac * 0.09) + jit
-    const mcy = Math.round(hy + ru * 0.34)
-    const wid = Math.max(3, Math.round((0.28 + f.open * 0.06) * ru * 2))
-    const open = Math.round(f.open * ru * 0.5)
+    const mcx = Math.round(hx + ru * sx * fac * 0.09) + jit
+    const mcy = Math.round(hy + ru * sy * 0.34)
+    const wid = Math.max(3, Math.round((0.28 + f.open * 0.1) * ru * sx * 2))
+    const open = Math.round(f.open * ru * sy * 0.55)
     const half = Math.floor(wid / 2)
     g.fillStyle = ink
     if (open >= 2) {
@@ -1120,7 +1203,7 @@ export class StagePixel implements GameRenderer {
   private walls() {
     if (!this.wallsOn) return
     const g = this.g
-    const gy = this.Y(GROUND + 44)
+    const gy = this.Y(GROUND + APRON)
     const top = this.Y(GROUND - 520)
     for (const wx of [LEFT_PLANE, RIGHT_PLANE]) {
       const x = this.X(wx) + (wx === LEFT_PLANE ? -1 : 0)
@@ -1173,7 +1256,7 @@ export class StagePixel implements GameRenderer {
     if (t) {
       const rgb = t.state === 0 ? '#ffd257' : t.state > 0 ? '#5cf08a' : '#ff5a4a'
       const x0 = this.X(t.x0), x1 = this.X(t.x1)
-      const y0 = gy - 1, y1 = this.Y(GROUND + 44)
+      const y0 = gy - 1, y1 = this.Y(GROUND + APRON)
       g.globalAlpha = 0.3 + this.targetFlash * 0.4
       g.fillStyle = rgb
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (((x + y + Math.floor(this.time * 10)) & 3) === 0) g.fillRect(x, y, 1, 1)
@@ -1183,55 +1266,75 @@ export class StagePixel implements GameRenderer {
       g.globalAlpha = 1
     }
     g.fillStyle = this.scene.night ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.65)'
-    g.fillRect(this.X(20), this.Y(GROUND + 44), this.X(RIGHT_PLANE - 20) - this.X(20), 1)
+    g.fillRect(this.X(20), this.Y(GROUND + APRON), this.X(RIGHT_PLANE - 20) - this.X(20), 1)
   }
 
   private net() {
     const g = this.g
     const pal = this.px.pal
     const nx = this.X(NET_POSITION_X)
-    const top = this.Y(NET_SPHERE_POSITION), bot = this.Y(GROUND + 30)
-    const w = Math.max(3, Math.round(this.S(NET_RADIUS * 2)))
-    const flare = Math.max(1, Math.round(this.S(5)))
-    const mesh0 = nx - Math.floor(w / 2) - flare
-    const meshW = w + flare * 2
-    const tape = Math.max(2, Math.round(this.S(8)))
-    const cell = Math.max(2, Math.round(this.S(5)))
+    const top = this.Y(NET_SPHERE_POSITION), bot = this.Y(GROUND + 2)
+    const meshW = Math.max(9, Math.round(this.S(NET_RADIUS * 2 + 22)))
+    const mesh0 = nx - Math.floor(meshW / 2)
+    const tape = Math.max(2, Math.round(this.S(7)))
+    const cell = Math.max(4, Math.round(this.S(11)))
+    const sway = this.netShake > 0.01 ? Math.round(Math.sin(this.time * 34) * 2.5 * this.netShake) : 0
 
-    this.shadow(NET_POSITION_X, GROUND, NET_RADIUS * 2.2)
+    this.shadow(NET_POSITION_X, GROUND, NET_RADIUS * 2 + 22)
 
-    // trama translucida: as cordas filtram o cenario em vez de tapar
-    const mTop = top + tape
-    g.globalAlpha = 0.5
-    g.fillStyle = '#e8e8e0'
-    for (let x = mesh0; x <= mesh0 + meshW; x += cell) g.fillRect(x, mTop, 1, bot - mTop)
-    g.globalAlpha = 0.3
-    for (let y = mTop; y < bot; y += cell) g.fillRect(mesh0, y, meshW + 1, 1)
-    g.globalAlpha = 1
-
-    // mastro metalico: sombra de um lado, brilho fino do outro
-    const pw = Math.max(2, Math.round(w * 0.5))
+    const pw = Math.max(2, Math.round(this.S(NET_RADIUS * 1.2)))
     const px0 = nx - Math.floor(pw / 2)
-    g.fillStyle = shade(pal.pole, 0.55)
-    g.fillRect(px0, top, pw, bot - top + 2)
-    g.fillStyle = shade(pal.pole, 0.88)
-    g.fillRect(px0, top, Math.max(1, pw - 1), bot - top + 2)
-    g.fillStyle = shade(pal.pole, 1.14)
-    g.fillRect(px0, top + 1, 1, bot - top)
+    g.fillStyle = shade(pal.pole, 0.5)
+    g.fillRect(px0, top - 2, pw, bot - top + 4)
+    g.fillStyle = shade(pal.pole, 0.95)
+    g.fillRect(px0, top - 2, Math.max(1, pw - 1), bot - top + 4)
 
-    // fita da borda superior
-    g.fillStyle = '#eeeee8'
-    g.fillRect(mesh0, top, meshW + 1, tape)
+    const mTop = top + tape
+    const thread = this.scene.night ? '#c4c8d6' : '#e6e2d4'
+    const dark = this.scene.night ? '#3a3f52' : '#6a5a48'
+    g.globalAlpha = 0.14
+    g.fillStyle = dark
+    g.fillRect(mesh0 + sway, mTop, meshW, bot - mTop)
+    g.globalAlpha = 0.7
+    for (let y = mTop; y < bot; y++) {
+      const k = (y - mTop) / Math.max(1, bot - mTop)
+      const bow = Math.round(Math.sin(k * Math.PI) * 1.5) * Math.sign(sway || 1) * (sway ? 1 : 0)
+      const row = (y - mTop) % cell === 0
+      const x0 = mesh0 + sway + bow
+      for (let x = x0; x < x0 + meshW; x++) {
+        const col = (x - x0) % cell === 0 || x === x0 + meshW - 1
+        if (row || col) {
+          g.fillStyle = thread
+          g.fillRect(x, y, 1, 1)
+        } else if ((x - x0 + 1) % cell === 0 || (y - mTop + 1) % cell === 0) {
+          g.fillStyle = dark
+          g.globalAlpha = 0.3
+          g.fillRect(x, y, 1, 1)
+          g.globalAlpha = 0.7
+        }
+      }
+    }
+    g.globalAlpha = 1
+    g.fillStyle = shade(thread, 0.7)
+    g.fillRect(mesh0 + sway, bot - 1, meshW, 1)
+    g.fillStyle = dark
+    g.fillRect(mesh0 + sway, bot, meshW, 1)
+
+    g.fillStyle = '#f7f7f2'
+    g.fillRect(mesh0 + sway, top, meshW, tape)
     g.fillStyle = '#ffffff'
-    g.fillRect(mesh0, top, meshW + 1, 1)
-    g.fillStyle = shade('#eeeee8', 0.72)
-    g.fillRect(mesh0, top + tape - 1, meshW + 1, 1)
+    g.fillRect(mesh0 + sway, top, meshW, 1)
+    g.fillStyle = shade('#f7f7f2', 0.62)
+    g.fillRect(mesh0 + sway, top + tape - 1, meshW, 1)
+    g.fillStyle = '#d63b2f'
+    g.fillRect(mesh0 + sway, top + 1, 2, tape - 2)
+    g.fillRect(mesh0 + sway + meshW - 2, top + 1, 2, tape - 2)
 
-    // ponteira do mastro
     const kn = Math.max(1, Math.round(this.S(5)))
-    discP(g, nx, top - kn, kn, shade(pal.pole, 0.8))
+    discP(g, nx, top - kn, kn, shade(pal.pole, 0.7))
     discP(g, nx, top - kn, Math.max(0, kn - 1), shade(pal.pole, 1.1))
-
+    g.fillStyle = '#ffffff'
+    g.fillRect(nx - 1, top - kn - 1, 1, 1)
   }
 
   private fx() {
