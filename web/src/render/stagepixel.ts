@@ -1274,50 +1274,48 @@ export class StagePixel implements GameRenderer {
     const pal = this.px.pal
     const nx = this.X(NET_POSITION_X)
     const top = this.Y(NET_SPHERE_POSITION), bot = this.Y(GROUND + 2)
-    const meshW = Math.max(9, Math.round(this.S(NET_RADIUS * 2 + 22)))
+    const meshW = Math.max(11, Math.round(this.S(NET_RADIUS * 2 + 30)))
     const mesh0 = nx - Math.floor(meshW / 2)
-    const tape = Math.max(2, Math.round(this.S(7)))
-    const cell = Math.max(4, Math.round(this.S(11)))
+    const tape = Math.max(2, Math.round(this.S(6)))
+    const cell = Math.max(5, Math.round(this.S(15)))
     const sway = this.netShake > 0.01 ? Math.round(Math.sin(this.time * 34) * 2.5 * this.netShake) : 0
 
-    this.shadow(NET_POSITION_X, GROUND, NET_RADIUS * 2 + 22)
+    this.shadow(NET_POSITION_X, GROUND, NET_RADIUS * 2 + 30)
 
-    const pw = Math.max(2, Math.round(this.S(NET_RADIUS * 1.2)))
+    const pw = Math.max(2, Math.round(this.S(NET_RADIUS * 0.75)))
     const px0 = nx - Math.floor(pw / 2)
-    g.fillStyle = shade(pal.pole, 0.5)
+    g.fillStyle = shade(pal.pole, 0.45)
     g.fillRect(px0, top - 2, pw, bot - top + 4)
-    g.fillStyle = shade(pal.pole, 0.95)
-    g.fillRect(px0, top - 2, Math.max(1, pw - 1), bot - top + 4)
+    g.fillStyle = shade(pal.pole, 0.85)
+    g.fillRect(px0, top - 2, 1, bot - top + 4)
 
     const mTop = top + tape
-    const thread = this.scene.night ? '#c4c8d6' : '#e6e2d4'
-    const dark = this.scene.night ? '#3a3f52' : '#6a5a48'
-    g.globalAlpha = 0.14
-    g.fillStyle = dark
+    const cord = this.scene.night ? '#1c2030' : '#3b2f24'
+    const lite = this.scene.night ? '#8b91a8' : '#d8cdb6'
+    g.globalAlpha = 0.07
+    g.fillStyle = lite
     g.fillRect(mesh0 + sway, mTop, meshW, bot - mTop)
-    g.globalAlpha = 0.7
     for (let y = mTop; y < bot; y++) {
       const k = (y - mTop) / Math.max(1, bot - mTop)
-      const bow = Math.round(Math.sin(k * Math.PI) * 1.5) * Math.sign(sway || 1) * (sway ? 1 : 0)
+      const bow = sway ? Math.round(Math.sin(k * Math.PI) * 1.5) * Math.sign(sway) : 0
       const row = (y - mTop) % cell === 0
       const x0 = mesh0 + sway + bow
       for (let x = x0; x < x0 + meshW; x++) {
-        const col = (x - x0) % cell === 0 || x === x0 + meshW - 1
-        if (row || col) {
-          g.fillStyle = thread
+        const edge = x === x0 || x === x0 + meshW - 1
+        const col = (x - x0) % cell === 0
+        if (edge) {
+          g.globalAlpha = 0.85
+          g.fillStyle = cord
           g.fillRect(x, y, 1, 1)
-        } else if ((x - x0 + 1) % cell === 0 || (y - mTop + 1) % cell === 0) {
-          g.fillStyle = dark
-          g.globalAlpha = 0.3
+        } else if (row || col) {
+          g.globalAlpha = ((x + y) & 1) ? 0.62 : 0.42
+          g.fillStyle = cord
           g.fillRect(x, y, 1, 1)
-          g.globalAlpha = 0.7
         }
       }
     }
     g.globalAlpha = 1
-    g.fillStyle = shade(thread, 0.7)
-    g.fillRect(mesh0 + sway, bot - 1, meshW, 1)
-    g.fillStyle = dark
+    g.fillStyle = cord
     g.fillRect(mesh0 + sway, bot, meshW, 1)
 
     g.fillStyle = '#f7f7f2'
