@@ -6,19 +6,19 @@ extends Node3D
 
 const CAM_FOV := 26.0
 const CAM_Z := 12.8
-const CAM_Z_MAX := 24.0
+const CAM_Z_MAX := 32.0
 const CAM_TOP_MIN := 5.1
 const CAM_TOP_PAD := 0.9
 const CAM_TOP_MAX := 9.2
 const CAM_BALL_TOP := 8.0
 const CAM_BOTTOM := 0.55
-const CAM_MARGIN := 0.4
+const CAM_MARGIN := 1.6
 const CAM_LOOK := 0.34
 const CAM_EYE_Y := 3.3
 const CAM_LOOK_Y := 2.3
-const CAM_NEED := 0.74
+const CAM_NEED := 1.0
 const CAM_BOX_PAD := 1.35
-const CAM_SIDE := 3.0
+const CAM_SIDE := 1.0
 const OPEN_HALF := BV.OPEN_MARGIN * Map.S
 
 const EMOJI := ["laugh", "cry", "rage", "finger", "taunt"]
