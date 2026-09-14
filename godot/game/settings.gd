@@ -56,9 +56,9 @@ func save() -> void:
 static func detect_quality() -> int:
 	var os_name := OS.get_name()
 	if os_name in ["Android", "iOS"]:
-		return 2
-	if os_name == "Web":
 		return 1
+	if os_name == "Web":
+		return 0 if DisplayServer.is_touchscreen_available() else 1
 	var vram := RenderingServer.get_video_adapter_name().to_lower()
 	if "intel" in vram and not "arc" in vram:
 		return 1

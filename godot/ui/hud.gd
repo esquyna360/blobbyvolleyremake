@@ -38,6 +38,9 @@ var _bub_side := 1
 var _bub_pop := 0.0
 var sub_text := ""
 var _top: Control
+var _panel: PanelContainer
+var _pause_home: Node
+var _pause_out := false
 
 signal pause_pressed
 
@@ -58,6 +61,7 @@ func build(left: Color, right: Color) -> void:
 	_top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_top)
 	var panel := PanelContainer.new()
+	_panel = panel
 	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
@@ -83,6 +87,7 @@ func build(left: Color, right: Color) -> void:
 			pause_btn.focus_mode = Control.FOCUS_NONE
 			pause_btn.pressed.connect(func(): pause_pressed.emit())
 			top.add_child(pause_btn)
+			_pause_home = top
 		var col := VBoxContainer.new()
 		col.custom_minimum_size = Vector2(BAR_W, 0)
 		col.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -267,6 +272,34 @@ func _place_bubble() -> void:
 	_bub.pivot_offset = Vector2(w * (0.2 if _bub_side == 0 else 0.8), _bub.size.y)
 
 ## Placar some na abertura; cartões e balões continuam visíveis.
+## Celular: o placar de 500 px de largura comia um quarto da tela. Encolhe o
+## painel e solta o botão de pausa no canto, onde o dedo alcança.
+func fit(compact: bool) -> void:
+	var k := 0.72 if compact else 1.0
+	_panel.scale = Vector2(k, k)
+	_panel.pivot_offset = Vector2(250.0, 0.0)
+	_info.offset_top = 108.0 * k
+	_rally.offset_top = 136.0 * k
+	if compact == _pause_out or pause_btn == null:
+		return
+	_pause_out = compact
+	pause_btn.get_parent().remove_child(pause_btn)
+	if compact:
+		pause_btn.custom_minimum_size = Vector2(62, 62)
+		pause_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		pause_btn.anchor_left = 1.0
+		pause_btn.anchor_right = 1.0
+		pause_btn.offset_left = -84
+		pause_btn.offset_right = -22
+		pause_btn.offset_top = 16
+		pause_btn.offset_bottom = 78
+		_top.add_child(pause_btn)
+	else:
+		pause_btn.custom_minimum_size = Vector2(58, 58)
+		pause_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_pause_home.add_child(pause_btn)
+		_pause_home.move_child(pause_btn, 0)
+
 func top_alpha(a: float) -> void:
 	_top.modulate.a = a
 

@@ -31,6 +31,9 @@ var _shade: TextureRect
 var _sel_level := 1
 var _detail: VBoxContainer
 var _rule: ColorRect
+var _scroll: ScrollContainer
+var _grid_page := 0
+var _page_pinned := false
 
 func build(s: Settings) -> void:
 	settings = s
@@ -78,10 +81,27 @@ func build(s: Settings) -> void:
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 8)
 	_left.add_child(gap)
+	_scroll = ScrollContainer.new()
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.follow_focus = true
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1, 1, 1, 0.13)
+	sb.set_corner_radius_all(2)
+	sb.content_margin_left = 3
+	sb.content_margin_right = 3
+	var tr := StyleBoxEmpty.new()
+	var vsb := _scroll.get_v_scroll_bar()
+	vsb.add_theme_stylebox_override("grabber", sb)
+	vsb.add_theme_stylebox_override("grabber_highlight", sb)
+	vsb.add_theme_stylebox_override("grabber_pressed", sb)
+	vsb.add_theme_stylebox_override("scroll", tr)
+	vsb.custom_minimum_size = Vector2(6, 0)
+	_left.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 2)
-	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_left.add_child(_list)
+	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(_list)
 
 	_side = MarginContainer.new()
 	_side.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
@@ -115,6 +135,37 @@ func build(s: Settings) -> void:
 
 	show_page("main")
 
+
+## Telas baixas (celular deitado) ganham margens curtas, retrato menor e alvos
+## de toque maiores. Chamado de novo quando a janela muda de tamanho.
+func _compact() -> bool:
+	return is_inside_tree() and get_viewport_rect().size.y < 560.0
+
+func _ready() -> void:
+	relayout()
+
+func _fit() -> void:
+	if not is_inside_tree():
+		return
+	var c := _compact()
+	UiTheme.compact = c
+	var w := get_viewport_rect().size.x
+	var m := 34.0 if c else 64.0
+	_left.offset_left = m
+	_left.offset_top = 14.0 if c else 36.0
+	_left.offset_right = m + (420.0 if c else 470.0)
+	_left.offset_bottom = -26.0 if c else -56.0
+	_side.offset_left = -(w - _left.offset_right - 26.0) if c else -760.0
+	_side.offset_right = -22.0 if c else -48.0
+	_side.offset_top = _left.offset_top
+	_side.offset_bottom = _left.offset_bottom
+	_foot_l.offset_left = m
+	_foot_r.offset_right = -(22.0 if c else 48.0)
+
+func relayout() -> void:
+	_fit()
+	show_page(_page)
+
 static func _gradient(cols: Array, offs: Array, from: Vector2, to: Vector2) -> GradientTexture2D:
 	var gr := Gradient.new()
 	gr.offsets = PackedFloat32Array(offs)
@@ -142,11 +193,15 @@ func show_page(p: String) -> void:
 	_left.visible = true
 	_heading.visible = true
 	_rule.visible = true
+	_eyebrow.visible = true
+	_sub.visible = true
 	_shade.modulate.a = 1.0
 	_sub.text = ""
-	_heading.add_theme_font_size_override("font_size", 52)
-	var touch := DisplayServer.is_touchscreen_available()
+	_heading.add_theme_font_size_override("font_size", 38 if _compact() else 52)
+	var touch := DisplayServer.is_touchscreen_available() or _compact()
 	_foot_l.text = "" if touch else ("Enter · select      Esc · back" if p != "main" else "Enter · select")
+	if p != "campaign":
+		_page_pinned = false
 	match p:
 		"main": _main()
 		"campaign": _campaign()
@@ -155,6 +210,8 @@ func show_page(p: String) -> void:
 		"look": _look()
 		"options": _options()
 	_animate()
+	if _scroll != null:
+		_scroll.set_deferred("scroll_vertical", 0)
 	if _first != null and not touch and is_inside_tree():
 		_first.grab_focus()
 
@@ -186,7 +243,7 @@ func _btn(text: String, cb: Callable, sub := "", col := UiTheme.GOLD) -> Button:
 		Aud.play("ui", 0.6)
 		cb.call())
 	_list.add_child(b)
-	if sub != "":
+	if sub != "" and not _compact():
 		var l := UiTheme.label(sub, 13, MUTED)
 		l.add_theme_constant_override("outline_size", 3)
 		var m := MarginContainer.new()
@@ -201,7 +258,7 @@ func _btn(text: String, cb: Callable, sub := "", col := UiTheme.GOLD) -> Button:
 
 func _spacer(h := 12) -> void:
 	var c := Control.new()
-	c.custom_minimum_size = Vector2(0, h)
+	c.custom_minimum_size = Vector2(0, h * (0.5 if _compact() else 1.0))
 	_list.add_child(c)
 
 func _back(to := "main") -> void:
@@ -213,6 +270,9 @@ func _main() -> void:
 	_eyebrow.text = ""
 	_heading.visible = false
 	_rule.visible = false
+	if _compact():
+		_eyebrow.visible = false
+		_sub.visible = false
 	_logo()
 	var lvl := settings.campaign_level
 	_btn("The Hundred", func(): show_page("campaign"),
@@ -228,18 +288,23 @@ func _main() -> void:
 
 ## Logo: o nome em fonte de cartaz e o seu blob espiando por cima.
 func _logo() -> void:
+	var c := _compact()
 	var box := HBoxContainer.new()
 	box.add_theme_constant_override("separation", -6)
-	var pr := Portrait.new(settings.look, "laugh", 104, BV.LEFT)
+	var pr := Portrait.new(settings.look, "laugh", 58 if c else 104, BV.LEFT)
 	pr.size_flags_vertical = Control.SIZE_SHRINK_END
 	box.add_child(pr)
-	var l := UiTheme.display("BLORP", 110, UiTheme.GOLD)
+	var l := UiTheme.display("BLORP", 62 if c else 110, UiTheme.GOLD)
 	l.size_flags_vertical = Control.SIZE_SHRINK_END
 	box.add_child(l)
+	var top_gap := Control.new()
+	top_gap.custom_minimum_size = Vector2(0, 6 if c else 0)
+	_list.add_child(top_gap)
+	_list.move_child(top_gap, 0)
 	_list.add_child(box)
 	var tag := UiTheme.eyebrow("Volleyball, but goo.", MUTED, 12)
 	var tm := MarginContainer.new()
-	tm.add_theme_constant_override("margin_left", 112)
+	tm.add_theme_constant_override("margin_left", 64 if c else 112)
 	tm.add_theme_constant_override("margin_top", -10)
 	tm.add_theme_constant_override("margin_bottom", 10)
 	tm.add_child(tag)
@@ -249,7 +314,7 @@ func _side_hero() -> void:
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_theme_constant_override("separation", 2)
-	var pr := Portrait.new(settings.look, "smug", 300, BV.LEFT)
+	var pr := Portrait.new(settings.look, "smug", 170 if _compact() else 300, BV.LEFT)
 	v.add_child(pr)
 	var n := UiTheme.eyebrow(settings.player_name if settings.player_name != "" else "YOU",
 		Looks.body_color(settings.look).lightened(0.35), 16)
@@ -262,35 +327,88 @@ func _side_hero() -> void:
 	_side_box.add_child(v)
 
 func _campaign() -> void:
-	_heading.add_theme_font_size_override("font_size", 46)
-	_title("The\nHundred", "world championship", "one nation per level. Brazil waits at 100.")
+	var c := _compact()
+	_heading.add_theme_font_size_override("font_size", 36 if c else 46)
+	_title("The Hundred" if c else "The\nHundred", "world championship",
+		"" if c else "one nation per level. Brazil waits at 100.")
 	_sel_level = clampi(settings.campaign_level, 1, Campaign.LAST)
+	if not _page_pinned:
+		_grid_page = (_sel_level - 1) / PER_PAGE
 	_detail = VBoxContainer.new()
 	_detail.add_theme_constant_override("separation", 4)
 	_list.add_child(_detail)
 	_spacer()
 	_back()
-	var grid := GridContainer.new()
-	grid.columns = 10
-	grid.add_theme_constant_override("h_separation", 5)
-	grid.add_theme_constant_override("v_separation", 5)
-	var unlocked := settings.campaign_level
-	for n in range(1, Campaign.LAST + 1):
-		grid.add_child(_level_cell(n, n <= unlocked))
-	_side_box.add_child(grid)
-	_first = grid.get_child(_sel_level - 1)
+	_side_box.add_child(_grid_block())
 	_fill_detail()
+
+const PER_PAGE := 20
+
+## No celular a grade de 100 vira alvo de alfinete. Vinte por página, células
+## grandes e setas pra virar a folha.
+func _grid_block() -> Control:
+	var c := _compact()
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	var grid := GridContainer.new()
+	grid.columns = 5 if c else 10
+	grid.add_theme_constant_override("h_separation", 7 if c else 5)
+	grid.add_theme_constant_override("v_separation", 7 if c else 5)
+	var unlocked: int = settings.campaign_level
+	if c:
+		var last := (Campaign.LAST - 1) / PER_PAGE
+		_grid_page = clampi(_grid_page, 0, last)
+		var from := _grid_page * PER_PAGE + 1
+		for n in range(from, mini(from + PER_PAGE, Campaign.LAST + 1)):
+			grid.add_child(_level_cell(n, n <= unlocked))
+		box.add_child(grid)
+		box.add_child(_pager(last))
+		_first = grid.get_child(0)
+	else:
+		for n in range(1, Campaign.LAST + 1):
+			grid.add_child(_level_cell(n, n <= unlocked))
+		box.add_child(grid)
+		_first = grid.get_child(_sel_level - 1)
+	return box
+
+func _pager(last: int) -> Control:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 12)
+	for d in [-1, 1]:
+		var b := UiTheme.chip(Button.new(), false, 20)
+		b.text = "‹" if d < 0 else "›"
+		b.disabled = (_grid_page + d) < 0 or (_grid_page + d) > last
+		b.focus_mode = Control.FOCUS_NONE
+		b.pressed.connect(func():
+			_grid_page = clampi(_grid_page + d, 0, last)
+			_page_pinned = true
+			Aud.play("ui", 0.5)
+			show_page("campaign"))
+		if d < 0:
+			row.add_child(b)
+			var l := UiTheme.eyebrow("%d – %d" % [_grid_page * PER_PAGE + 1,
+				mini((_grid_page + 1) * PER_PAGE, Campaign.LAST)], MUTED, 14)
+			l.custom_minimum_size = Vector2(120, 0)
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(l)
+		else:
+			row.add_child(b)
+	return row
 
 func _level_cell(n: int, open: bool) -> Button:
 	var b := Button.new()
 	var boss := Campaign.is_boss(n)
 	var nat := Campaign.nation(n)
 	var col := Color(nat.b) if open else Color(0.3, 0.32, 0.34)
-	b.custom_minimum_size = Vector2(54, 44)
+	b.custom_minimum_size = Vector2(74, 56) if _compact() else Vector2(54, 44)
 	b.text = str(n)
 	b.focus_mode = Control.FOCUS_ALL
 	b.add_theme_font_override("font", UiTheme.display_font(0))
-	b.add_theme_font_size_override("font_size", 22 if boss else 19)
+	var fs := (26 if boss else 23) if _compact() else (22 if boss else 19)
+	b.add_theme_font_size_override("font_size", fs)
 	for k in 3:
 		var s := StyleBoxFlat.new()
 		s.bg_color = col.darkened(0.55 - k * 0.12) if open else Color(0.05, 0.06, 0.07, 0.7)
@@ -330,13 +448,13 @@ func _fill_detail() -> void:
 	var open: bool = n <= settings.campaign_level
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	var pr := Portrait.new(Campaign.look_of(nat), "smug" if open else "calm", 120, BV.RIGHT)
+	var pr := Portrait.new(Campaign.look_of(nat), "smug" if open else "calm", 84 if _compact() else 120, BV.RIGHT)
 	row.add_child(pr)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	v.add_child(UiTheme.eyebrow(("BOSS · " if info.boss else "") + "LEVEL %d" % n, Color(nat.h).lightened(0.2), 12))
-	v.add_child(UiTheme.display(nat.n, 40, Color(nat.b).lightened(0.35)))
+	v.add_child(UiTheme.display(nat.n, 30 if _compact() else 40, Color(nat.b).lightened(0.35)))
 	v.add_child(UiTheme.label(info.rule, 14, Color(1, 1, 1, 0.8)))
 	row.add_child(v)
 	_detail.add_child(row)
@@ -396,9 +514,10 @@ func _versus() -> void:
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 20)
-	h.add_child(Portrait.new(settings.look, "smug", 220, BV.LEFT))
-	h.add_child(UiTheme.display("VS", 72, UiTheme.GOLD))
-	h.add_child(Portrait.new(Looks.roll_look(settings.look[0]), "focus", 220, BV.RIGHT))
+	var ps := 130 if _compact() else 220
+	h.add_child(Portrait.new(settings.look, "smug", ps, BV.LEFT))
+	h.add_child(UiTheme.display("VS", 48 if _compact() else 72, UiTheme.GOLD))
+	h.add_child(Portrait.new(Looks.roll_look(settings.look[0]), "focus", ps, BV.RIGHT))
 	v.add_child(h)
 	_side_box.add_child(v)
 
@@ -407,8 +526,8 @@ func _online() -> void:
 	_back()
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_child(Portrait.new(Looks.roll_look(-1), "sad", 260, BV.RIGHT))
-	var l := UiTheme.display("COMING SOON", 54, Color(0.36, 0.72, 1.0))
+	v.add_child(Portrait.new(Looks.roll_look(-1), "sad", 150 if _compact() else 260, BV.RIGHT))
+	var l := UiTheme.display("COMING SOON", 36 if _compact() else 54, Color(0.36, 0.72, 1.0))
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(l)
 	_side_box.add_child(v)
@@ -433,7 +552,7 @@ func _look_editor() -> void:
 	nm.add_theme_constant_override("margin_bottom", 10)
 	nm.add_child(ne)
 	_list.add_child(nm)
-	var pr := Portrait.new(settings.look, "smug", 320, BV.LEFT)
+	var pr := Portrait.new(settings.look, "smug", 180 if _compact() else 320, BV.LEFT)
 	var look: Array = settings.look.duplicate()
 	var names := ["Body", "Hair", "Color"]
 	var sizes := [Looks.BODY_COLORS.size(), Looks.HAIR_STYLES.size(), Looks.HAIR_COLORS.size()]
@@ -529,7 +648,7 @@ func _options() -> void:
 	g3.custom_minimum_size = Vector2(0, 8)
 	v.add_child(g3)
 	v.add_child(UiTheme.eyebrow("Keys", MUTED, 12))
-	v.add_child(UiTheme.label("Move: A/D or arrows · Jump: W / Up / Space · Action: E, Shift, Ctrl, Enter or mouse click\nGamepad: stick + A jump + X/B action · Esc pauses", 13, MUTED))
+	v.add_child(UiTheme.label("Move: A/D or arrows · Jump: W / Up / Space · Action: E, Shift, Ctrl, Enter or mouse click\nGamepad: stick + A jump + X/B action · Esc pauses\nTouch: drag anywhere on the left half to move · JUMP and ACTION on the right", 13, MUTED))
 	m.add_child(v)
 	_list.add_child(m)
 	_spacer()

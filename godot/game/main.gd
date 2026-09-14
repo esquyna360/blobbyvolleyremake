@@ -79,10 +79,31 @@ func _ready() -> void:
 	link.hello.connect(_on_hello)
 
 	_setup_touch()
+	get_viewport().size_changed.connect(_refit_ui)
+	_refit_ui()
 	game.match_over.connect(_on_match_over)
 	game.arena.goo.connect(hud.splat)
 	_dev_net()
 	_dev_shot()
+
+## Celular: a tela é pequena em centímetros, não em pixels. Sem isto a interface
+## desenhada para 1280x720 vira letra de bula e alvo de toque de 3 mm.
+func _refit_ui() -> void:
+	var win := get_window()
+	var want := 1.0
+	if _want_touch():
+		var sc := maxf(1.0, DisplayServer.screen_get_scale())
+		var css_h := float(DisplayServer.window_get_size().y) / sc
+		if "--touch" in OS.get_cmdline_user_args():
+			css_h = float(DisplayServer.window_get_size().y)
+		want = clampf(720.0 / maxf(340.0, css_h * 1.15), 1.0, 2.0)
+	if absf(win.content_scale_factor - want) > 0.02:
+		win.content_scale_factor = want
+		if menu != null:
+			menu.relayout.call_deferred()
+	if hud != null:
+		hud.fit(want > 1.02 or get_viewport().get_visible_rect().size.y < 560.0)
+
 
 func _want_touch() -> bool:
 	if settings.touch >= 0:
@@ -103,6 +124,7 @@ func _setup_touch() -> void:
 	touch.emote.connect(func(id):
 		game.emote(game.net_side if game.net_side != BV.NO_PLAYER else BV.LEFT, id))
 	_ui.add_child(touch)
+	_refit_ui()
 
 func _demo() -> void:
 	mode = Mode.NONE

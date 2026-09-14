@@ -1,104 +1,131 @@
 class_name TouchPad
 extends Control
 
-## Controle de toque: esquerda/direita/baixo à esquerda, pular (que também é o
-## especial com a barra cheia) e se jogar à direita. Cada dedo é rastreado por índice, então dois dedos de uma vez
-## funcionam, e o dedo pode deslizar de um botão pro outro sem soltar.
+## Controle de toque em duas mãos. A mão esquerda usa um analógico que nasce
+## onde o dedo encosta: arrastar pro lado anda, arrastar pra baixo mergulha o
+## peso. A direita tem só dois botões grandes, PULAR e AÇÃO. Nada de setinha.
 
 var slot := 0
 var charge := 0.0
-var _btn_touch := {}
-var _buttons: Array = []
+
 var _font: Font
-var _emotes: Array = []
-var _emote_flash := {}
+var _stick := -1
+var _home := Vector2.ZERO
+var _at := Vector2.ZERO
+var _btn := {}
+var _flash := {}
 
 signal emote(id: int)
+
+const DEAD := 18.0
+const SWING := 78.0
+const DOWN_A := 0.62
 
 func build(slot_index := 0) -> void:
 	slot = slot_index
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_font = get_theme_default_font()
-	_buttons = [
-		{"act": "left", "icon": "◀", "label": "", "pos": Vector2(96, -200), "r": 64.0,
-			"col": Color(0.92, 0.86, 0.66), "side": 0},
-		{"act": "right", "icon": "▶", "label": "", "pos": Vector2(240, -200), "r": 64.0,
-			"col": Color(0.92, 0.86, 0.66), "side": 0},
-		{"act": "down", "icon": "▼", "label": "", "pos": Vector2(168, -92), "r": 50.0,
-			"col": Color(0.92, 0.86, 0.66), "side": 0},
-		{"act": "up", "icon": "↥", "label": "JUMP", "pos": Vector2(-108, -128), "r": 74.0,
-			"col": Color(0.55, 0.90, 0.45), "side": 1},
-		{"act": "dive", "icon": "★", "label": "ACTION", "pos": Vector2(-272, -104),
-			"r": 66.0, "col": Color(0.55, 0.82, 1.0), "side": 1},
-	]
-	_emotes = [
-		{"id": 0, "tex": "laugh", "col": Color(1.0, 0.82, 0.34)},
-		{"id": 1, "tex": "cry", "col": Color(0.44, 0.79, 1.0)},
-		{"id": 2, "tex": "rage", "col": Color(1.0, 0.42, 0.24)},
-		{"id": 3, "tex": "finger", "col": Color(1.0, 0.37, 0.82)},
-		{"id": 4, "tex": "taunt", "col": Color(0.62, 1.0, 0.56)},
-	]
-	for e in _emotes:
-		e["img"] = load("res://assets/emoji/%s.png" % e.tex)
+	_font = UiTheme.font(0.7, 1)
 	queue_redraw()
 
-const EMO_R := 26.0
 
-func _emote_pos(k: int) -> Vector2:
-	return Vector2(size.x - 44.0, 150.0 + k * 62.0)
+## Raio dos botões: acompanha a altura da tela pra caber igual em qualquer
+## celular, com piso e teto pra não virar alvo minúsculo nem tampar a quadra.
+func _r() -> float:
+	return clampf(size.y * 0.135, 52.0, 80.0)
 
-func _btn_pos(b: Dictionary) -> Vector2:
-	return Vector2(b.pos.x if b.side == 0 else size.x + b.pos.x, size.y + b.pos.y)
+func _safe() -> Vector2:
+	var r := DisplayServer.get_display_safe_area()
+	var w := DisplayServer.window_get_size()
+	if r.size.x <= 0 or r.size == w:
+		return Vector2(26.0, 22.0)
+	var sc: float = float(size.x) / maxf(1.0, float(w.x))
+	return Vector2(maxf(26.0, r.position.x * sc + 16.0), maxf(22.0, 22.0))
+
+func _jump_pos() -> Vector2:
+	var r := _r()
+	var s := _safe()
+	return Vector2(size.x - r - s.x, size.y - r - s.y)
+
+func _act_pos() -> Vector2:
+	var r := _r()
+	return _jump_pos() - Vector2(r * 2.35, r * 0.30)
+
+func _stick_home() -> Vector2:
+	var s := _safe()
+	return Vector2(s.x + SWING + 24.0, size.y - SWING - s.y - 10.0)
+
+func _in_stick_zone(p: Vector2) -> bool:
+	return p.x < size.x * 0.46 and p.y > size.y * 0.24
 
 func _process(_dt: float) -> void:
 	if visible:
 		queue_redraw()
 
+
+# ------------------------------------------------------------------ desenho
+
 func _draw() -> void:
-	for k in _emotes.size():
-		var e: Dictionary = _emotes[k]
-		var p := _emote_pos(k)
-		var fl: float = _emote_flash.get(k, 0.0)
-		var c: Color = e.col
-		draw_circle(p, EMO_R + fl * 6.0, Color(0.1, 0.07, 0.05, 0.42 + fl * 0.3))
-		draw_arc(p, EMO_R - 1.0 + fl * 6.0, 0, TAU, 32, Color(c.r, c.g, c.b, 0.6 + fl * 0.4), 2.0, true)
-		var tex: Texture2D = e.img
-		if tex != null:
-			var s := EMO_R * 1.3
-			draw_texture_rect(tex, Rect2(p - Vector2(s, s) * 0.5, Vector2(s, s)), false, Color(1, 1, 1, 0.9))
-		_emote_flash[k] = maxf(0.0, fl - 0.05)
-	for b in _buttons:
-		var p := _btn_pos(b)
-		var on := _btn_touch.values().has(b.act)
-		var c: Color = b.col
-		var r: float = b.r
-		var ready: bool = b.act == "dive" and charge >= 1.0
-		if ready:
-			r += 3.0 + 3.0 * sin(Time.get_ticks_msec() * 0.008)
-			c = Color(1.0, 0.80, 0.25)
-		draw_circle(p + Vector2(0, 4), r, Color(0, 0, 0, 0.28))
-		draw_circle(p, r, Color(0.16, 0.10, 0.05, 0.62 if on else 0.48))
-		draw_circle(p, r - 5.0, Color(c.r, c.g, c.b, 0.50 if on else 0.22))
-		draw_arc(p, r - 2.0, 0, TAU, 48, Color(c.r, c.g, c.b, 0.9), 3.0, true)
-		if b.act == "dive" and charge < 1.0:
-			draw_arc(p, r - 9.0, -PI * 0.5, -PI * 0.5 + TAU * charge, 40,
-				Color(1, 1, 1, 0.55), 4.0, true)
-		var fs: int = int(r * 0.9)
-		var w := _font.get_string_size(b.icon, HORIZONTAL_ALIGNMENT_CENTER, -1, fs).x
-		draw_string_outline(_font, p + Vector2(-w * 0.5, fs * 0.36), b.icon,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, Color(0, 0, 0, 0.6))
-		draw_string(_font, p + Vector2(-w * 0.5, fs * 0.36), b.icon,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.95))
-		var label: String = b.label
-		if b.act == "dive" and ready:
-			label = "SPECIAL!"
-		if label != "":
-			var lw := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, 16).x
-			var lp := p + Vector2(-lw * 0.5, r + 20.0)
-			draw_string_outline(_font, lp, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, 4,
-				Color(0, 0, 0, 0.7))
-			draw_string(_font, lp, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, c)
+	var r := _r()
+	_draw_stick()
+	_draw_btn(_act_pos(), r * 0.86, "★", "ACTION", Color(0.55, 0.82, 1.0), "dive")
+	_draw_btn(_jump_pos(), r, "▲", "JUMP", Color(0.55, 0.90, 0.45), "up")
+
+func _draw_stick() -> void:
+	var home := _home if _stick >= 0 else _stick_home()
+	var live := _stick >= 0
+	var base := Color(0.92, 0.86, 0.66)
+	draw_circle(home, SWING, Color(0.08, 0.06, 0.04, 0.30 if live else 0.20))
+	draw_arc(home, SWING - 2.0, 0, TAU, 56, Color(base.r, base.g, base.b, 0.5 if live else 0.26), 3.0, true)
+	var knob := home
+	if live:
+		var d := _at - home
+		if d.length() > SWING:
+			d = d.normalized() * SWING
+		knob = home + d
+	var kr := SWING * 0.46
+	draw_circle(knob + Vector2(0, 3), kr, Color(0, 0, 0, 0.30))
+	draw_circle(knob, kr, Color(0.18, 0.12, 0.06, 0.70 if live else 0.50))
+	draw_circle(knob, kr - 4.0, Color(base.r, base.g, base.b, 0.42 if live else 0.20))
+	draw_arc(knob, kr - 2.0, 0, TAU, 40, Color(base.r, base.g, base.b, 0.95), 3.0, true)
+	if not live:
+		var fs := int(SWING * 0.42)
+		var t := "MOVE"
+		var w := _font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		draw_string_outline(_font, home + Vector2(-w * 0.5, SWING + 26.0), t,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 16, 4, Color(0, 0, 0, 0.7))
+		draw_string(_font, home + Vector2(-w * 0.5, SWING + 26.0), t,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(base.r, base.g, base.b, 0.75))
+		fs = fs
+
+func _draw_btn(p: Vector2, r: float, icon: String, label: String, col: Color, act: String) -> void:
+	var on := _btn.values().has(act)
+	var ready: bool = act == "dive" and charge >= 1.0
+	var c := col
+	if ready:
+		r += 3.0 + 3.0 * sin(Time.get_ticks_msec() * 0.008)
+		c = Color(1.0, 0.80, 0.25)
+	draw_circle(p + Vector2(0, 5), r, Color(0, 0, 0, 0.30))
+	draw_circle(p, r, Color(0.16, 0.10, 0.05, 0.66 if on else 0.50))
+	draw_circle(p, r - 6.0, Color(c.r, c.g, c.b, 0.52 if on else 0.24))
+	draw_arc(p, r - 3.0, 0, TAU, 56, Color(c.r, c.g, c.b, 0.92), 4.0, true)
+	if act == "dive" and charge < 1.0:
+		draw_arc(p, r - 11.0, -PI * 0.5, -PI * 0.5 + TAU * charge, 48,
+			Color(1, 1, 1, 0.55), 5.0, true)
+	var fs := int(r * 0.74)
+	var w := _font.get_string_size(icon, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	draw_string_outline(_font, p + Vector2(-w * 0.5, fs * 0.36), icon,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, Color(0, 0, 0, 0.6))
+	draw_string(_font, p + Vector2(-w * 0.5, fs * 0.36), icon,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.96))
+	var t := "SPECIAL!" if ready else label
+	var lw := _font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+	var lp := p + Vector2(-lw * 0.5, -r - 12.0)
+	draw_string_outline(_font, lp, t, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, 4, Color(0, 0, 0, 0.7))
+	draw_string(_font, lp, t, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, c)
+
+
+# ------------------------------------------------------------------ entrada
 
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventScreenTouch:
@@ -109,43 +136,53 @@ func _unhandled_input(e: InputEvent) -> void:
 	elif e is InputEventScreenDrag:
 		_drag(e.index, e.position)
 
-func _hit(pos: Vector2, slack: float) -> Dictionary:
-	var best := {}
-	var bd := INF
-	for b in _buttons:
-		var d := pos.distance_to(_btn_pos(b))
-		if d <= b.r * slack and d < bd:
-			bd = d
-			best = b
-	return best
+func _hit(pos: Vector2) -> String:
+	var r := _r()
+	if pos.distance_to(_jump_pos()) <= r * 1.35:
+		return "up"
+	if pos.distance_to(_act_pos()) <= r * 0.86 * 1.45:
+		return "dive"
+	return ""
 
 func _press(idx: int, pos: Vector2) -> void:
-	for k in _emotes.size():
-		if pos.distance_to(_emote_pos(k)) <= EMO_R * 1.25:
-			_emote_flash[k] = 1.0
-			emote.emit(_emotes[k].id)
-			return
-	var b := _hit(pos, 1.3)
-	if b.is_empty():
+	var a := _hit(pos)
+	if a != "":
+		_btn[idx] = a
+		_apply()
 		return
-	_btn_touch[idx] = b.act
-	_apply()
+	if _stick < 0 and _in_stick_zone(pos):
+		_stick = idx
+		_home = pos
+		_at = pos
+		_apply()
 
 func _drag(idx: int, pos: Vector2) -> void:
-	if not _btn_touch.has(idx):
+	if idx == _stick:
+		_at = pos
+		_apply()
 		return
-	var b := _hit(pos, 1.6)
-	if not b.is_empty() and b.act != _btn_touch[idx]:
-		_btn_touch[idx] = b.act
+	if not _btn.has(idx):
+		return
+	var a := _hit(pos)
+	if a != "" and a != _btn[idx]:
+		_btn[idx] = a
 		_apply()
 
 func _release(idx: int) -> void:
-	_btn_touch.erase(idx)
+	if idx == _stick:
+		_stick = -1
+	_btn.erase(idx)
 	_apply()
 
 func _apply() -> void:
 	var t: Dictionary = Controls.touch[slot]
 	for k in t:
 		t[k] = false
-	for a in _btn_touch.values():
+	for a in _btn.values():
 		t[a] = true
+	if _stick >= 0:
+		var d := _at - _home
+		if absf(d.x) > DEAD:
+			t["left" if d.x < 0.0 else "right"] = true
+		if d.y > SWING * DOWN_A:
+			t["down"] = true

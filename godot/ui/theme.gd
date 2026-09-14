@@ -10,6 +10,12 @@ const DISPLAY := preload("res://assets/font/Bangers.ttf")
 const BODY := preload("res://assets/font/Nunito.ttf")
 const INK_DARK := Color(0.06, 0.05, 0.03)
 
+## Ligado no celular: engorda o miolo dos botões pra o dedo ter onde cair.
+static var compact := false
+
+static func pad(v: float) -> int:
+	return int(v * (1.45 if compact else 1.0))
+
 ## A fonte padrão do Godot não tem ● ▲ ★ ✓ e companhia. No desktop o motor
 ## completa com fonte do sistema; no navegador não existe fonte de sistema e
 ## sobravam quadradinhos. Esta fonte mínima entra como reserva.
@@ -63,8 +69,8 @@ static func button(base: Color) -> Array:
 		s.set_corner_radius_all(12)
 		s.content_margin_left = 22
 		s.content_margin_right = 22
-		s.content_margin_top = 13
-		s.content_margin_bottom = 13
+		s.content_margin_top = pad(13)
+		s.content_margin_bottom = pad(13)
 		out.append(s)
 	return out
 
@@ -162,8 +168,8 @@ static func item(b: Button, accent := GOLD, size := 22) -> Button:
 		s.set_corner_radius_all(3)
 		s.content_margin_left = 22
 		s.content_margin_right = 22
-		s.content_margin_top = 8
-		s.content_margin_bottom = 8
+		s.content_margin_top = pad(8)
+		s.content_margin_bottom = pad(8)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
 			b.add_theme_stylebox_override("focus", s)
@@ -187,8 +193,8 @@ static func solid(b: Button, base := GOLD, size := 18) -> Button:
 		s.set_corner_radius_all(4)
 		s.content_margin_left = 22
 		s.content_margin_right = 22
-		s.content_margin_top = 10
-		s.content_margin_bottom = 10
+		s.content_margin_top = pad(10)
+		s.content_margin_bottom = pad(10)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
 			b.add_theme_stylebox_override("focus", s)
@@ -208,10 +214,10 @@ static func chip(b: Button, on: bool, size := 15) -> Button:
 		s.border_color = Color(1, 1, 1, 0.12)
 		s.set_border_width_all(0 if on else 1)
 		s.set_corner_radius_all(4)
-		s.content_margin_left = 16
-		s.content_margin_right = 16
-		s.content_margin_top = 8
-		s.content_margin_bottom = 8
+		s.content_margin_left = pad(16)
+		s.content_margin_right = pad(16)
+		s.content_margin_top = pad(8)
+		s.content_margin_bottom = pad(8)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
 			b.add_theme_stylebox_override("focus", s)
