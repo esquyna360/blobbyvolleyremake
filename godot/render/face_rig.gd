@@ -29,6 +29,7 @@ var brow := 0.0
 var lid := 1.0
 var tear := 0.0
 var blink := 1.0
+var wide := 0.0
 
 var _target: Dictionary = POSES.calm
 var _mood := "calm"
@@ -96,6 +97,8 @@ func update(dt: float, tension: float, ball_near: bool) -> void:
 	brow += (_target.brow - brow) * k
 	lid += (_target.lid - lid) * k
 	tear += (_target.tear - tear) * minf(1.0, dt * 4.0)
+	var want_wide := 1.0 if (_mood == "shock" or _mood == "panic" or _mood == "dumb") else 0.0
+	wide += (want_wide - wide) * minf(1.0, dt * 12.0)
 
 	_shake = maxf(0.0, _shake - dt * 3.5)
 

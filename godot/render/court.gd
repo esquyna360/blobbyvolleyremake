@@ -6,8 +6,8 @@ extends Node3D
 
 const NET_TOP := (500.0 - BV.NET_SPHERE_POSITION) * Map.S
 const NET_R := BV.NET_RADIUS * Map.S
-const DEPTH := Map.COURT_DEPTH + 1.0
-const CELL := 17.0
+const DEPTH := Map.COURT_DEPTH - 1.0
+const CELL := 12.0
 
 var _mat: ShaderMaterial
 var _impacts := PackedVector3Array([Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO])
@@ -48,65 +48,82 @@ func _cloth(quality: int) -> void:
 	_mat.shader = load("res://render/net.gdshader")
 	_mat.set_shader_parameter("cell", CELL)
 	_mat.set_shader_parameter("net_top", NET_TOP)
-	_mat.set_shader_parameter("cord_color", Color(0.06, 0.07, 0.09))
+	_mat.set_shader_parameter("cord_color", Color(0.10, 0.11, 0.13))
 	_mat.set_shader_parameter("sun_color", Color(1.0, 0.93, 0.8))
 	_push_uniforms()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = _mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.custom_aabb = AABB(Vector3(-0.6, -0.1, -DEPTH), Vector3(1.2, NET_TOP + 0.4, DEPTH * 2.0))
+	mi.custom_aabb = AABB(Vector3(-1.0, -0.1, -DEPTH), Vector3(2.0, NET_TOP + 0.4, DEPTH * 2.0))
 	add_child(mi)
 
-## Só o poste da frente: a câmera olha a rede de lado e o de trás encobre
-## exatamente o da frente — vira poste duplicado, não profundidade.
+## Postes nos dois lados: a câmera agora olha a rede de viés e os dois lêem
+## como um par, com a fita branca esticada entre eles.
 func _post(quality: int) -> void:
 	var metal := StandardMaterial3D.new()
-	metal.albedo_color = Color(0.60, 0.64, 0.68)
-	metal.roughness = 0.35
-	metal.metallic = 0.85
-
-	var z := DEPTH * 0.5
-	var pole := CylinderMesh.new()
-	pole.top_radius = NET_R
-	pole.bottom_radius = NET_R * 1.35
-	pole.height = NET_TOP + 0.35
-	pole.radial_segments = 20 if quality >= 2 else 10
-	pole.rings = 1
-	var p := MeshInstance3D.new()
-	p.mesh = pole
-	p.material_override = metal
-	p.position = Vector3(0, (NET_TOP + 0.35) * 0.5 - 0.15, z)
-	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if quality >= 2 \
-		else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(p)
-
-	var cap := SphereMesh.new()
-	cap.radius = NET_R * 1.15
-	cap.height = NET_R * 2.3
-	cap.radial_segments = 16 if quality >= 2 else 8
-	cap.rings = 8 if quality >= 2 else 4
-	var cm := MeshInstance3D.new()
-	cm.mesh = cap
-	cm.material_override = metal
-	cm.position = Vector3(0, NET_TOP + 0.2, z)
-	add_child(cm)
-
-	var pad := CylinderMesh.new()
-	pad.top_radius = NET_R * 1.75
-	pad.bottom_radius = NET_R * 1.75
-	pad.height = 1.25
-	pad.radial_segments = 18 if quality >= 2 else 9
-	pad.rings = 1
+	metal.albedo_color = Color(0.82, 0.84, 0.86)
+	metal.roughness = 0.42
+	metal.metallic = 0.6
 	var pmat := StandardMaterial3D.new()
-	pmat.albedo_color = Color(0.11, 0.31, 0.85)
-	pmat.roughness = 0.72
-	var pd := MeshInstance3D.new()
-	pd.mesh = pad
-	pd.material_override = pmat
-	pd.position = Vector3(0, 0.60, z)
-	pd.cast_shadow = p.cast_shadow
-	add_child(pd)
+	pmat.albedo_color = Color(0.93, 0.36, 0.20)
+	pmat.roughness = 0.75
+	for k in 2:
+		var z := DEPTH * 0.5 * (1.0 if k == 0 else -1.0)
+		var pole := CylinderMesh.new()
+		pole.top_radius = NET_R * 1.1
+		pole.bottom_radius = NET_R * 1.35
+		pole.height = NET_TOP + 0.45
+		pole.radial_segments = 20 if quality >= 2 else 10
+		pole.rings = 1
+		var p := MeshInstance3D.new()
+		p.mesh = pole
+		p.material_override = metal
+		p.position = Vector3(0, (NET_TOP + 0.45) * 0.5 - 0.15, z)
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if quality >= 2 \
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(p)
+
+		var cap := SphereMesh.new()
+		cap.radius = NET_R * 1.3
+		cap.height = NET_R * 2.6
+		cap.radial_segments = 16 if quality >= 2 else 8
+		cap.rings = 8 if quality >= 2 else 4
+		var cm := MeshInstance3D.new()
+		cm.mesh = cap
+		cm.material_override = metal
+		cm.position = Vector3(0, NET_TOP + 0.3, z)
+		add_child(cm)
+
+		var pad := CylinderMesh.new()
+		pad.top_radius = NET_R * 1.9
+		pad.bottom_radius = NET_R * 1.9
+		pad.height = 1.35
+		pad.radial_segments = 18 if quality >= 2 else 9
+		pad.rings = 1
+		var pd := MeshInstance3D.new()
+		pd.mesh = pad
+		pd.material_override = pmat
+		pd.position = Vector3(0, 0.65, z)
+		pd.cast_shadow = p.cast_shadow
+		add_child(pd)
+
+	var cable := CylinderMesh.new()
+	cable.top_radius = 0.035
+	cable.bottom_radius = 0.035
+	cable.height = DEPTH
+	cable.radial_segments = 8
+	cable.rings = 1
+	var cb := MeshInstance3D.new()
+	cb.mesh = cable
+	var cmat := StandardMaterial3D.new()
+	cmat.albedo_color = Color(0.96, 0.96, 0.97)
+	cmat.roughness = 0.6
+	cb.material_override = cmat
+	cb.rotation_degrees = Vector3(90, 0, 0)
+	cb.position = Vector3(0, NET_TOP + 0.02, 0)
+	cb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(cb)
 
 ## Fita de marcação na areia, como em quadra de praia.
 func _lines() -> void:
@@ -153,55 +170,10 @@ func _walls_build() -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		_walls.append(mi)
-		for j in 2:
-			var z := (Map.COURT_DEPTH * 0.5 + 0.9) * (1.0 if j == 0 else -1.0)
-			var post := _wall_post(h)
-			post.position = Vector3(mi.position.x, 0.0, z)
-			post.set_meta("wall_post", true)
-			mi.add_sibling(post)
-
-## Poste de canto da parede: um pilar de metal com a ponta acesa, pra parede
-## ter onde começar e terminar.
-func _wall_post(h: float) -> Node3D:
-	var root := Node3D.new()
-	var metal := StandardMaterial3D.new()
-	metal.albedo_color = Color(0.55, 0.60, 0.66)
-	metal.roughness = 0.35
-	metal.metallic = 0.8
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.09
-	cm.bottom_radius = 0.14
-	cm.height = h
-	cm.radial_segments = 10
-	cm.rings = 1
-	var mi := MeshInstance3D.new()
-	mi.mesh = cm
-	mi.material_override = metal
-	mi.position = Vector3(0, h * 0.5, 0)
-	root.add_child(mi)
-	var glow := StandardMaterial3D.new()
-	glow.albedo_color = Color(0.7, 0.95, 1.0)
-	glow.emission_enabled = true
-	glow.emission = Color(0.45, 0.85, 1.0)
-	glow.emission_energy_multiplier = 2.2
-	var sm := SphereMesh.new()
-	sm.radius = 0.2
-	sm.height = 0.4
-	sm.radial_segments = 12
-	sm.rings = 6
-	var tip := MeshInstance3D.new()
-	tip.mesh = sm
-	tip.material_override = glow
-	tip.position = Vector3(0, h + 0.1, 0)
-	root.add_child(tip)
-	return root
 
 func set_walls_visible(on: bool) -> void:
 	for mi in _walls:
 		mi.visible = on
-		for s in mi.get_parent().get_children():
-			if s.has_meta("wall_post"):
-				s.visible = on
 
 func wall_hit(side: int, world_y: float) -> void:
 	if side < 0 or side >= _walls.size():

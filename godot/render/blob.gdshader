@@ -17,6 +17,7 @@ uniform float mouth = 0.0;
 uniform float curve = 0.2;
 uniform float brow = 0.0;
 uniform float lid = 1.0;
+uniform float eye_scale = 1.0;
 uniform float tear = 0.0;
 uniform float hit_flash = 0.0;
 uniform float ru = 0.5;
@@ -60,15 +61,17 @@ vec4 face_layer(vec3 p, out float face_zone) {
 
 	for (int i = 0; i < 2; i++) {
 		float side = i == 0 ? -1.0 : 1.0;
-		vec2 ec = vec2(facing * 0.09 + side * 0.38, 0.24);
+		vec2 ec = vec2(facing * 0.09 + side * (0.36 + 0.04 * eye_scale), 0.24 + 0.03 * (eye_scale - 1.0));
+		float es = eye_scale;
 
-		float de = ell(uv - ec, vec2(0.25, 0.25 * li));
-		float rim = ink(de - 0.18, soft);
+		float de = ell(uv - ec, vec2(0.25 * es, 0.25 * li * es));
+		float rim = ink(de - 0.18 / es, soft);
 		float me = ink(de, soft);
 		vec3 eye_col = mix(vec3(0.06, 0.06, 0.08), vec3(0.97, 0.97, 1.0), smoothstep(0.30, 0.58, li));
-		vec2 pc = ec + aim * 0.095;
-		float mp = ink(ell(uv - pc, vec2(0.115, 0.115 * min(1.0, li))), soft) * step(0.42, li);
-		float mg = ink(ell(uv - pc - vec2(0.045, 0.05), vec2(0.038, 0.042)), soft) * step(0.50, li);
+		vec2 pc = ec + aim * 0.095 * es;
+		float pr = 0.115 * mix(1.0, 0.72, clamp(es - 1.0, 0.0, 1.0) * 1.6);
+		float mp = ink(ell(uv - pc, vec2(pr, pr * min(1.0, li))), soft) * step(0.42, li);
+		float mg = ink(ell(uv - pc - vec2(0.045, 0.05) * es, vec2(0.038, 0.042)), soft) * step(0.50, li);
 
 		vec2 bp = uv - vec2(ec.x, ec.y + 0.37 + brow * 0.05);
 		float ang = -side * brow * 0.52;

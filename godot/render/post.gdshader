@@ -4,7 +4,6 @@ render_mode unshaded;
 uniform sampler2D screen : hint_screen_texture, filter_linear;
 uniform float aberration = 0.0;
 uniform float flash = 0.0;
-uniform float vignette = 0.32;
 
 void fragment() {
 	vec2 uv = SCREEN_UV;
@@ -23,6 +22,5 @@ void fragment() {
 	}
 
 	col += vec3(flash);
-	col *= 1.0 - vignette * smoothstep(0.12, 0.75, r2);
 	COLOR = vec4(col, 1.0);
 }

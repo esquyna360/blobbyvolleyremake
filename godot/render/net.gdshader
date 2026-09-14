@@ -3,10 +3,11 @@ render_mode cull_disabled, diffuse_lambert;
 
 uniform vec3 impacts[4];
 uniform float impact_t[4];
-uniform vec3 cord_color : source_color = vec3(0.06, 0.07, 0.09);
+uniform vec3 cord_color : source_color = vec3(0.10, 0.11, 0.13);
 uniform vec3 sun_color : source_color = vec3(1.0, 0.93, 0.8);
-uniform float cell = 17.0;
+uniform float cell = 12.0;
 uniform float net_top = 4.32;
+uniform float bulge = 0.30;
 
 varying float v_ripple;
 
@@ -19,26 +20,32 @@ void vertex() {
 		float d = distance(p.yz, impacts[i].yz);
 		r += exp(-d * 1.6) * exp(-age * 3.2) * sin(d * 9.0 - age * 22.0) * 0.30;
 	}
-	float sway = sin(p.y * 2.2 + TIME * 1.4) * 0.012 * (1.0 - p.y / net_top);
+	// a malha nunca fica esticada como vidro: barriga no meio, presa nos
+	// postes e no cabo, mais solta embaixo
+	float slack = sin(UV.x * PI) * pow(1.0 - UV.y, 0.55);
+	float sway = (sin(p.y * 2.2 + TIME * 1.4) + 0.4 * sin(p.z * 1.7 + TIME * 0.9)) * 0.03 * slack;
 	v_ripple = r;
-	VERTEX.x = p.x + r + sway;
+	VERTEX.x = p.x + r + sway + bulge * slack;
 }
 
 void fragment() {
-	vec2 g = fract(UV * cell);
-	float lw = 0.30;
-	float cord = max(
-		1.0 - smoothstep(lw * 0.5, lw, abs(g.x - 0.5)),
-		1.0 - smoothstep(lw * 0.5, lw, abs(g.y - 0.5)));
-	float band = 1.0 - smoothstep(0.955, 0.985, UV.y);
+	vec2 g = fract(UV * vec2(cell * 2.2, cell));
+	float lw = 0.34;
+	float cx = 1.0 - smoothstep(lw * 0.45, lw, abs(g.x - 0.5));
+	float cy = 1.0 - smoothstep(lw * 0.45, lw, abs(g.y - 0.5));
+	float cord = max(cx, cy);
+	float band = 1.0 - smoothstep(0.93, 0.95, UV.y);
 	float a = max(cord, 1.0 - band);
 	if (a < 0.35) { discard; }
 
 	vec3 col = cord_color;
-	if (UV.y > 0.955) { col = vec3(0.92, 0.92, 0.95); }
-	col *= 0.75 + 0.45 * abs(v_ripple) * 6.0;
-	col += sun_color * 0.08;
+	// o nó onde as cordas cruzam é mais grosso e mais claro
+	float knot = cx * cy;
+	col = mix(col, col * 1.6 + 0.08, knot);
+	if (UV.y > 0.93) { col = vec3(0.95, 0.95, 0.97) * (0.85 + 0.15 * step(0.5, fract(UV.y * 40.0))); }
+	col *= 0.85 + 0.45 * abs(v_ripple) * 6.0;
+	col += sun_color * 0.06;
 	ALBEDO = col;
-	ROUGHNESS = 0.7;
-	SPECULAR = 0.3;
+	ROUGHNESS = 0.75;
+	SPECULAR = 0.25;
 }

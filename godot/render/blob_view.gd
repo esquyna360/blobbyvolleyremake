@@ -19,6 +19,10 @@ var dive := 0.0
 var last_vy := 0.0
 var was_grounded := true
 var body_color := Color(0.95, 0.22, 0.28)
+var spread := 1.0
+var _eye := 1.0
+var _air_t := 0.0
+var _land_face := 0.0
 
 var _mesh := MeshInstance3D.new()
 var _mat := ShaderMaterial.new()
@@ -76,7 +80,20 @@ func pose(dt: float, time: float, tension := 0.0) -> void:
 
 func kick(w: float, sv: float) -> void:
 	wobble = maxf(wobble, w)
-	squash_vel -= sv
+	squash_vel -= sv * 1.5
+
+## Pouso: achata forte e a mola devolve com sobra. A cara sente o baque.
+func land(impact: float) -> void:
+	squash_vel -= 5.2 + 6.5 * impact
+	wobble = minf(1.1, wobble + impact * 0.8)
+	_land_face = 0.35 + impact * 0.6
+	if impact > 0.5:
+		mouth = maxf(mouth, 0.4 + impact * 0.5)
+
+## Impulso: estica pra cima antes de sair do chão.
+func takeoff() -> void:
+	squash_vel += 4.6
+	_air_t = 0.0
 
 ## `bx`/`by` são a bola já em coordenadas de mundo: o olho segue ela.
 func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: float,
@@ -92,9 +109,9 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	was_grounded = grounded
 	last_vy = vy
 
-	squash_vel += -squash_spring * 46.0 * dt - squash_vel * 7.2 * dt
+	squash_vel += -squash_spring * 120.0 * dt - squash_vel * 9.0 * dt
 	squash_spring += squash_vel * dt
-	squash_spring = clampf(squash_spring, -0.26, 0.26)
+	squash_spring = clampf(squash_spring, -0.48, 0.42)
 
 	var anim := sin((st / 5.0) * PI) * 0.16
 	var still := grounded and absf(vx) < 0.05 and cr < 0.05 and w.dive_frames[i] == 0
@@ -102,7 +119,10 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	var ph := time * 2.1 + i * 1.9
 	var breath := (sin(ph) * 0.028 + sin(ph * 0.53 + 1.0) * 0.012) * _idle
 	anim -= breath * 2.0
-	var air_stretch := clampf(-vy / 34.0, -0.16, 0.22)
+	_air_t = 0.0 if grounded else _air_t + dt
+	var air_stretch := clampf(-vy / 20.0, -0.30, 0.34) * minf(1.0, _air_t * 9.0 + 0.3)
+	if not grounded and vy > 0.0:
+		air_stretch = clampf(-vy / 20.0, -0.30, 0.0) * 1.15
 
 	# mergulho é bote, não tombo: entra rápido, sai devagar
 	var air := w.dive_frames[i] > 0
@@ -112,9 +132,11 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	if dive < 0.002:
 		dive = 0.0
 
-	var sy := 1.0 + squash_spring + air_stretch - anim * 0.5 - cr * 0.34 - dive * 0.32 + breath
-	var sxz := 1.0 - (squash_spring + air_stretch) * 0.55 + anim * 0.45 + cr * 0.26 - breath * 0.6
+	var deform := squash_spring + air_stretch
+	var sy := 1.0 + deform - anim * 0.5 - cr * 0.34 - dive * 0.32 + breath
+	var sxz := 1.0 / sqrt(maxf(0.45, 1.0 + deform)) + anim * 0.45 + cr * 0.26 - breath * 0.6
 	var sq := Vector3(sxz + dive * 0.46, sy, sxz - dive * 0.1)
+	spread = sxz
 	_mat.set_shader_parameter("squash", sq)
 
 	_hair.position.y = HEAD_OFF * sy
@@ -149,14 +171,19 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 
 	var ball_near := Vector2(bx - wx, by - wy).length() < 1.6
 	face.update(dt, tension, ball_near)
+	_land_face = maxf(0.0, _land_face - dt * 2.6)
+	var eye_want := 1.0 + (0.0 if grounded else 0.32 + clampf(-vy / 30.0, 0.0, 0.18)) \
+		+ face.wide * 0.3 - _land_face * 0.25
+	_eye += (eye_want - _eye) * (1.0 - exp(-dt * 14.0))
+	_mat.set_shader_parameter("eye_scale", _eye)
 	_mat.set_shader_parameter("blink", 0.08 + face.blink * 0.92)
-	_mat.set_shader_parameter("lid", face.lid)
+	_mat.set_shader_parameter("lid", face.lid * (1.0 - _land_face * 0.55))
 	_mat.set_shader_parameter("curve", face.curve)
 	_mat.set_shader_parameter("brow", face.brow)
 	_mat.set_shader_parameter("tear", face.tear)
 
 	mouth = maxf(0.0, mouth - dt * 3.2)
-	_mat.set_shader_parameter("mouth", maxf(mouth, face.open))
+	_mat.set_shader_parameter("mouth", maxf(maxf(mouth, face.open), _land_face * 0.7))
 
 	flash = maxf(0.0, flash - dt * 3.5)
 	_mat.set_shader_parameter("hit_flash", flash)

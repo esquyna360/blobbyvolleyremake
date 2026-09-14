@@ -10,6 +10,7 @@ uniform float amp = 0.02;
 uniform float speed = 1.2;
 uniform int anchor = 0; // 0 raiz em cima, 1 embaixo, 2 esquerda, 3 direita
 uniform float phase = 0.0;
+uniform vec4 haze : source_color = vec4(0.8, 0.9, 0.85, 0.0);
 
 void vertex() {
 	float w = anchor == 0 ? UV.y : anchor == 1 ? 1.0 - UV.y : anchor == 2 ? UV.x : 1.0 - UV.x;
@@ -21,6 +22,6 @@ void vertex() {
 
 void fragment() {
 	vec4 c = texture(tex, UV * uv_scale + uv_offset) * tint;
-	ALBEDO = c.rgb;
+	ALBEDO = mix(c.rgb, haze.rgb * tint.rgb, haze.a);
 	ALPHA = c.a;
 }

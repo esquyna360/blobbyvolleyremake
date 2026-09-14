@@ -4,17 +4,19 @@ extends Node3D
 ## O palco. Mantém a câmera, o cenário e a reação visual a cada evento da
 ## partida. A simulação roda a 60Hz fixos; aqui tudo é interpolado por `alpha`.
 
-const CAM_FOV := 27.5
-const CAM_FOV_MIN := 26.7
-const CAM_Z := 28.2
-const CAM_Z_MAX := 40.0
-const CAM_TOP_MIN := 8.8
-const CAM_TOP_PAD := 1.2
-const CAM_TOP_MAX := 13.0
-const CAM_MARGIN := 0.5
-const CAM_LOOK := 0.10
-const CAM_EYE_Y := 7.6
-const CAM_LOOK_Y := 3.3
+const CAM_FOV := 26.0
+const CAM_Z := 12.8
+const CAM_Z_MAX := 19.5
+const CAM_TOP_MIN := 5.1
+const CAM_TOP_PAD := 0.9
+const CAM_TOP_MAX := 8.1
+const CAM_BALL_TOP := 6.8
+const CAM_BOTTOM := 0.55
+const CAM_MARGIN := 0.4
+const CAM_LOOK := 0.34
+const CAM_EYE_Y := 3.3
+const CAM_LOOK_Y := 2.3
+const CAM_NEED := 0.74
 const OPEN_HALF := BV.OPEN_MARGIN * Map.S
 
 const EMOJI := ["laugh", "cry", "rage", "finger", "taunt"]
@@ -53,6 +55,7 @@ var _cam_target_x := 0.0
 var _cam_z := CAM_Z
 var _cam_span := 0.0
 var _cam_top := CAM_TOP_MIN
+var _cam_ly := CAM_LOOK_Y
 var intro_t := -1.0
 const INTRO_LEN := 5.6
 
@@ -112,7 +115,7 @@ func _intro_cam(dt: float, w: PhysicWorld) -> bool:
 		var k := _ease(clampf((t - 4.7) / (INTRO_LEN - 4.7), 0.0, 1.0))
 		var gp := Vector3(_cam_target_x, CAM_EYE_Y, _cam_z)
 		pos = Vector3(rx - 0.4, hy + 0.1, 3.05).lerp(gp, k)
-		look = Vector3(rx, hy, 0.0).lerp(Vector3(0.0, CAM_LOOK_Y, 0.0), k)
+		look = Vector3(rx, hy, 0.0).lerp(Vector3(0.0, _cam_ly, 0.0), k)
 		fov = lerpf(30.0, CAM_FOV, k)
 	camera.position = pos
 	camera.look_at(look, Vector3.UP)
@@ -203,7 +206,7 @@ func _outro_cam(dt: float, w: PhysicWorld) -> bool:
 	var pos := Vector3(wx + d * 0.5 + orbit, hy + 0.15, 3.4 - (t - 2.0) * 0.06)
 	var look := Vector3(wx, hy, 0.0)
 	camera.position = gp.lerp(pos, k)
-	camera.look_at(Vector3(_cam_target_x * CAM_LOOK, CAM_LOOK_Y, 0.0).lerp(look, k), Vector3.UP)
+	camera.look_at(Vector3(_cam_target_x * CAM_LOOK, _cam_ly, 0.0).lerp(look, k), Vector3.UP)
 	camera.fov = lerpf(CAM_FOV, 29.0, k)
 	if outro_t >= OUTRO_LEN:
 		outro_t = OUTRO_LEN
@@ -339,17 +342,37 @@ func build(q: int) -> void:
 
 ## Sombra de contato pintada. A sombra da direcional some no ambiente forte da
 ## clareira, e sem mancha embaixo o blob parece flutuar.
+static var _shadow_tex: ImageTexture
+
+static func _shadow_texture() -> ImageTexture:
+	if _shadow_tex != null:
+		return _shadow_tex
+	var n := 128
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for yy in n:
+		for xx in n:
+			var dx := (xx + 0.5) / n * 2.0 - 1.0
+			var dy := (yy + 0.5) / n * 2.0 - 1.0
+			var r := sqrt(dx * dx + dy * dy)
+			var a := 1.0 - smoothstep(0.62, 1.0, r)
+			var core := 1.0 - smoothstep(0.0, 0.7, r)
+			img.set_pixel(xx, yy, Color(1, 1, 1, minf(1.0, a * 0.75 + core * 0.35)))
+	img.generate_mipmaps()
+	_shadow_tex = ImageTexture.create_from_image(img)
+	return _shadow_tex
+
 func _make_shadow() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var qm := QuadMesh.new()
 	qm.size = Vector2(1, 1)
 	mi.mesh = qm
 	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load("res://assets/stage/puff.png")
+	mat.albedo_texture = _shadow_texture()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.02, 0.05, 0.03, 0.5)
+	mat.albedo_color = Color(0.05, 0.07, 0.05, 0.8)
 	mat.disable_fog = true
+	mat.disable_receive_shadows = true
 	mi.material_override = mat
 	mi.rotation_degrees = Vector3(-90, 0, 0)
 	mi.position = Vector3(0, 0.02, 0)
@@ -358,13 +381,13 @@ func _make_shadow() -> MeshInstance3D:
 	return mi
 
 
-func _blob_shadow(mi: MeshInstance3D, x: float, y: float, base: float) -> void:
-	var k := clampf(1.0 - y / 11.0, 0.15, 1.0)
-	var s: float = base * (1.0 + (1.0 - k) * 1.5)
-	mi.scale = Vector3(s, s * 0.62, 1)
-	mi.position = Vector3(x, 0.02, 0.35)
+func _blob_shadow(mi: MeshInstance3D, x: float, y: float, base: float, spread := 1.0) -> void:
+	var k := clampf(1.0 - y / 9.0, 0.12, 1.0)
+	var s: float = base * (0.55 + 0.45 * k) * spread
+	mi.scale = Vector3(s, s * 0.85, 1)
+	mi.position = Vector3(x, 0.02, 0.45)
 	var mat: StandardMaterial3D = mi.material_override
-	mat.albedo_color = Color(0.02, 0.05, 0.03, 0.62 * k * k)
+	mat.albedo_color = Color(0.03, 0.05, 0.03, 0.95 * k * k)
 
 
 func set_looks(left: Array, right: Array) -> void:
@@ -504,7 +527,7 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			trauma = minf(1.0, trauma + 0.09)
 			fx.burst(Vector3(px - d * 0.3, 0.06, 0), 160, 4.6, 1.5, 1.4, 1.0,
 				0.02, Color(0.84, 0.72, 0.53), 2.2, 0.22, false)
-			blobs[p].squash_vel -= 1.6
+			blobs[p].squash_vel -= 3.2
 
 		Ev.DIVE_HIT:
 			var p := side
@@ -640,16 +663,18 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			blobs[p].mouth = 1.0
 			blobs[p].flash = 1.0
 
-## A arena aberta não cabe no enquadramento fixo: afasta a câmera até as duas
-## paredes entrarem. O que sobrar de folga é o quanto ela ainda anda de lado.
-func _fit_arena(aspect: float) -> void:
-	var need := Map.court_half_w() * (1.0 + CAM_LOOK) + CAM_MARGIN + _open_extra
-	var vt := tan(CAM_FOV_MIN * PI / 360.0)
+## A câmera fica perto e persegue a bola: precisa ver um pedaço da quadra
+## (CAM_NEED), não ela inteira. A folga entre a janela e a lateral da quadra
+## é o quanto ela anda de lado. Na vertical o quadro vai de um palmo abaixo
+## do chão até `_cam_top`; a distância e a altura do olhar saem daí.
+func _fit_arena(aspect: float, vt: float) -> void:
+	var half := Map.court_half_w() + CAM_MARGIN + _open_extra
+	var need := Map.court_half_w() * CAM_NEED + CAM_MARGIN
 	var ht := vt * maxf(0.5, aspect)
-	# a bola alta puxa a câmera pra trás em vez de sair pelo teto da tela
-	var zv := (_cam_top - CAM_LOOK_Y) / vt
+	var zv := (_cam_top + CAM_BOTTOM) / (2.0 * vt)
 	_cam_z = minf(CAM_Z_MAX, maxf(maxf(CAM_Z, need / ht), zv))
-	_cam_span = maxf(0.0, _cam_z * ht - need)
+	_cam_span = maxf(0.0, half - _cam_z * ht)
+	_cam_ly = vt * _cam_z - CAM_BOTTOM
 
 func render(m: BVMatch, alpha: float, dt: float) -> void:
 	time += dt
@@ -676,13 +701,17 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var want_open := maxf(0.0, minf(OPEN_HALF, far + 0.5))
 	var open_rate := 5.5 if want_open > _open_extra else 1.4
 	_open_extra += (want_open - _open_extra) * (1.0 - exp(-dt * open_rate))
-	var want_top := clampf(by + CAM_TOP_PAD, CAM_TOP_MIN, CAM_TOP_MAX)
+	var heads := maxf(Map.gy(w.blob_y[BV.LEFT]), Map.gy(w.blob_y[BV.RIGHT])) + 1.5
+	var want_top := clampf(maxf(heads, minf(by + CAM_TOP_PAD, CAM_BALL_TOP)),
+		CAM_TOP_MIN, CAM_TOP_MAX)
 	_cam_top += (want_top - _cam_top) * (1.0 - exp(-dt * (7.0 if want_top > _cam_top else 1.1)))
-	_fit_arena(aspect)
+	var fov := CAM_FOV - minf(ball_speed, 22.0) * 0.03 - tension * 0.8
+	_fit_arena(aspect, tan(deg_to_rad(fov) * 0.5))
 
-	_cam_target_x = lerpf(_cam_target_x, bx * 0.42, 1.0 - exp(-dt * 3.2))
-	var sway := sin(time * 0.31) * 0.20 + sin(time * 0.17) * 0.11
-	var sway_y := sin(time * 0.23 + 1.7) * 0.10
+	var mid := (Map.gx(w.blob_x[BV.LEFT]) + Map.gx(w.blob_x[BV.RIGHT])) * 0.5
+	_cam_target_x = lerpf(_cam_target_x, bx * 0.5 + mid * 0.3, 1.0 - exp(-dt * 3.4))
+	var sway := sin(time * 0.31) * 0.09 + sin(time * 0.17) * 0.05
+	var sway_y := sin(time * 0.23 + 1.7) * 0.05
 
 	trauma = maxf(0.0, trauma - dt * 1.5)
 	var sh := trauma * trauma
@@ -694,10 +723,10 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var px := clampf(_cam_target_x, -_cam_span, _cam_span)
 	if not _intro_cam(dt, w):
 		camera.position = Vector3(px + sway + shx, CAM_EYE_Y + sway_y + shy,
-			_cam_z - trauma * 0.5)
-		camera.look_at(Vector3(bx * CAM_LOOK, CAM_LOOK_Y + by * 0.07, 0.0), Vector3.UP)
-		camera.rotate_object_local(Vector3.FORWARD, shr)
-		camera.fov = CAM_FOV - minf(ball_speed, 22.0) * 0.036 - tension * 1.4
+			_cam_z - trauma * 0.9)
+		camera.look_at(Vector3(px + (bx - px) * CAM_LOOK, _cam_ly, 0.0), Vector3.UP)
+		camera.rotate_object_local(Vector3.FORWARD, shr - px * 0.004)
+		camera.fov = fov
 		_outro_cam(dt, w)
 	_cut = maxf(0.0, _cut - dt * 6.0)
 	_step_chunks(dt)
@@ -782,20 +811,20 @@ func _update_blob(i: int, alpha: float, dt: float, w: PhysicWorld,
 
 	# pouso e impulso levantam areia; ler o estado antes do update, que o zera
 	if grounded and not b.was_grounded:
-		var impact := minf(1.0, absf(b.last_vy) / 16.0)
-		b.squash_vel -= 2.6 * impact
-		b.wobble = minf(1.5, b.wobble + impact)
+		var impact := minf(1.0, absf(b.last_vy) / 14.0)
+		b.land(impact)
 		if impact > 0.15:
 			fx.burst(Vector3(wx, 0.04, 0), int(50 + 220 * impact),
 				1.6 + 3.4 * impact, 2.6, 0.7, 1.1, 0.017,
 				Color(0.80, 0.69, 0.52), 2.0, 0.2, false)
 			trauma = minf(1.0, trauma + 0.09 * impact)
 	elif not grounded and b.was_grounded:
+		b.takeoff()
 		fx.burst(Vector3(wx, 0.05, 0), 70, 1.8, 2.4, 0.55, 0.9, 0.016,
 			Color(0.82, 0.71, 0.54), 2.4, 0.0, false)
 
 	b.update(w, gxp, gyp, st, bx, by, time, dt, tension)
-	_blob_shadow(_shadow[i], wx, Map.gy(gyp), 3.2)
+	_blob_shadow(_shadow[i], wx, Map.gy(gyp), 3.0, b.spread)
 
 	# areia do mergulho: no ar é rastro, no chão é arrasto
 	if b.dive > 0.01 and randf() < dt * 60.0:

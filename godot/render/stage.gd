@@ -268,13 +268,19 @@ const THEMES := {
 }
 
 ## z, altura em metros, y da base (negativo = enterrado, o chão esconde),
-## multiplicador de cor (acima de 1 estoura pro bloom) e parallax manual.
+## multiplicador de cor (acima de 1 estoura pro bloom), parallax manual,
+## desfoque (fator de redução da textura), saturação e névoa.
 const LAYERS := [
-	{"tex": "l5_canopy.png", "z": -150.0, "h": 40.0, "y": -3.0, "k": 1.04, "px": 0.06, "sw": 0.0},
-	{"tex": "l4_far.png", "z": -112.0, "h": 30.0, "y": -2.4, "k": 1.0, "px": 0.12, "sw": 0.004},
-	{"tex": "l3_mid.png", "z": -88.0, "h": 22.0, "y": -1.8, "k": 0.96, "px": 0.20, "sw": 0.006},
-	{"tex": "l2_near.png", "z": -72.0, "h": 16.0, "y": -1.2, "k": 0.92, "px": 0.30, "sw": 0.008},
-	{"tex": "l1_back.png", "z": -61.0, "h": 11.0, "y": -0.8, "k": 0.92, "px": 0.44, "sw": 0.010},
+	{"tex": "l5_canopy.png", "z": -150.0, "h": 40.0, "y": -3.0, "k": 1.04, "px": 0.06, "sw": 0.002,
+		"blur": 7.0, "sat": 0.42, "haze": 0.46},
+	{"tex": "l4_far.png", "z": -112.0, "h": 30.0, "y": -2.4, "k": 1.0, "px": 0.12, "sw": 0.004,
+		"blur": 6.0, "sat": 0.50, "haze": 0.38},
+	{"tex": "l3_mid.png", "z": -88.0, "h": 22.0, "y": -1.8, "k": 0.96, "px": 0.20, "sw": 0.006,
+		"blur": 5.0, "sat": 0.58, "haze": 0.30},
+	{"tex": "l2_near.png", "z": -72.0, "h": 16.0, "y": -1.2, "k": 0.92, "px": 0.30, "sw": 0.008,
+		"blur": 4.0, "sat": 0.66, "haze": 0.22},
+	{"tex": "l1_back.png", "z": -61.0, "h": 11.0, "y": -0.8, "k": 0.92, "px": 0.44, "sw": 0.010,
+		"blur": 3.0, "sat": 0.74, "haze": 0.15},
 ]
 
 const SKY_Z := -320.0
@@ -312,6 +318,36 @@ static func tex(name: String) -> Texture2D:
 		var path := key if ResourceLoader.exists(key) else DIR + name
 		_tex_cache[key] = load(path)
 	return _tex_cache[key]
+
+
+## Fundo desfocado e lavado: reduz e amplia a imagem (vira blur barato que
+## roda igual nos dois renderers) e tira saturação. Quem manda é o primeiro
+## plano; a mata só sustenta.
+static func soft_tex(name: String, blur: float, sat: float) -> Texture2D:
+	var key := "%s|%s|%.1f|%.2f" % [THEMES[theme].dir, name, blur, sat]
+	if _tex_cache.has(key):
+		return _tex_cache[key]
+	var src := tex(name)
+	var img := src.get_image()
+	if img == null:
+		_tex_cache[key] = src
+		return src
+	img = img.duplicate()
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	var w := img.get_width()
+	var h := img.get_height()
+	if blur > 1.0:
+		var sw := maxi(8, int(w / blur))
+		var sh := maxi(8, int(h / blur))
+		img.resize(sw, sh, Image.INTERPOLATE_LANCZOS)
+		img.resize(w, h, Image.INTERPOLATE_CUBIC)
+	img.adjust_bcs(1.0, 0.9, sat)
+	img.generate_mipmaps()
+	var out := ImageTexture.create_from_image(img)
+	_tex_cache[key] = out
+	return out
 
 
 func build(q: int) -> void:
@@ -489,7 +525,11 @@ func _backdrop() -> void:
 	if not _t.get("layers", true):
 		return
 	for spec in LAYERS:
-		var mi := _quad(tex(spec.tex), spec.k, true, true, float(spec.sw), 1)
+		var t := soft_tex(spec.tex, float(spec.blur), float(spec.sat))
+		var mi := _quad(t, spec.k, true, true, float(spec.sw), 1)
+		var hz: Color = _t.fog
+		hz.a = float(spec.haze)
+		mi.material_override.set_shader_parameter("haze", hz)
 		mi.set_meta("spec", spec)
 		_layers.append(mi)
 
@@ -578,18 +618,18 @@ func _water() -> void:
 func _falls() -> void:
 	var h := 14.0
 	var w := 11.0
-	var cliff := _quad(tex("cliff.png"), 1.0)
+	var cliff := _quad(soft_tex("cliff.png", 3.0, 0.7), 0.94)
 	cliff.scale = Vector3(w * 2.1, h * 0.92, 1)
 	cliff.position = Vector3(0.6, h * 0.46 - 0.6, WATER_FAR - 1.4)
-	var body := _quad(tex("falls.png"), 1.15)
+	var body := _quad(soft_tex("falls.png", 3.0, 0.6), 0.86)
 	body.scale = Vector3(w, h, 1)
 	body.position = Vector3(0.6, h * 0.5 - 0.4, WATER_FAR - 0.6)
-	var anim := _quad(tex("falls_anim.png"), 1.0)
+	var anim := _quad(soft_tex("falls_anim.png", 3.0, 0.5), 0.45)
 	anim.scale = Vector3(w * 0.7, h, 1)
 	anim.position = Vector3(0.6, h * 0.5 - 0.4, WATER_FAR - 0.4)
 	_falls_anim = anim.material_override
 	_falls_anim.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	_falls_anim.albedo_color = Color(0.85, 0.92, 0.95, 1.0)
+	_falls_anim.albedo_color = Color(0.55, 0.60, 0.64, 1.0)
 	_falls_anim.texture_repeat = true
 	_falls_anim.uv1_scale = Vector3(1, 2.5, 1)
 	_falls_anim.uv1_offset = Vector3.ZERO
@@ -635,10 +675,14 @@ func _glow() -> void:
 
 # ---------------------------------------------------------------- objetos
 
-## Cenário de verdade é objeto no lugar certo: tronco atravessando o canto da
-## tela, pedra no pé, árvore ao lado da quadra. Nada de moldura.
+## Cenário de verdade é objeto no lugar certo: pedra no pé, árvore ao lado da
+## quadra. Nada de moldura: o que ficaria entre a câmera e a quadra não entra.
+const PROP_NEAR_Z := 8.0
+
 func _props() -> void:
 	for spec in _t.props:
+		if float(spec.z) > PROP_NEAR_Z:
+			continue
 		Props.place(self, spec, quality)
 
 
