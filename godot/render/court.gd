@@ -4,7 +4,7 @@ extends Node3D
 ## Rede e marcação da quadra. A rede é uma malha em YZ com a ondulação do
 ## impacto no vértice, igual à versão web.
 
-const NET_TOP := (500.0 - BV.NET_SPHERE_POSITION) * Map.S
+var NET_TOP := Map.net_top_w()
 const NET_R := BV.NET_RADIUS * Map.S
 const DEPTH := Map.COURT_DEPTH - 1.0
 const CELL := 12.0
@@ -17,11 +17,23 @@ var _walls: Array = []
 var _wall_t := PackedFloat32Array([10.0, 10.0])
 var _wall_time := 0.0
 
+var _q := 2
+
 func build(quality: int) -> void:
+	_q = quality
+	NET_TOP = Map.net_top_w()
 	_cloth(quality)
 	_post(quality)
 	_lines()
 	_walls_build()
+
+## Quadra de outra largura ou rede de outra altura: refaz tudo.
+func rebuild() -> void:
+	for c in get_children():
+		c.queue_free()
+	_walls.clear()
+	_wall_t = PackedFloat32Array([10.0, 10.0])
+	build(_q)
 
 func _cloth(quality: int) -> void:
 	var cols := 60 if quality >= 2 else 26

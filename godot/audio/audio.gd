@@ -44,6 +44,8 @@ func _ready() -> void:
 	_full = _music_player()
 	_load_vol()
 	_apply_vol()
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("(function(){document.addEventListener('visibilitychange',function(){if(!document.hidden){try{var c=(typeof GodotAudio!=='undefined'&&GodotAudio.ctx)||null;if(c&&c.state!=='running'){c.resume();}}catch(e){}}});})();", true)
 
 
 ## Web sem threads toca em modo "samples": stream criado em runtime só sai
@@ -148,6 +150,24 @@ func stop_music() -> void:
 	_full.stop()
 
 
+## Voltar pra aba: o navegador pode ter suspendido o contexto de áudio e as
+## duas camadas da trilha podem ter se descolado. Retoma e realinha.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN or what == NOTIFICATION_WM_WINDOW_FOCUS_IN:
+		resync()
+
+func resync() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("(function(){try{var c=(typeof GodotAudio!=='undefined'&&GodotAudio.ctx)||null;if(c&&c.state!=='running'){c.resume();}}catch(e){}})();", true)
+	if _song == "" or _paused:
+		return
+	if not _base.playing:
+		_base.play()
+		_full.play()
+	var pos := _base.get_playback_position()
+	if absf(_full.get_playback_position() - pos) > 0.05:
+		_full.play(pos)
+
 func set_paused(on: bool) -> void:
 	_paused = on
 	_base.stream_paused = on
@@ -222,8 +242,10 @@ func on_event(kind: int, side: int, intensity: float, w: PhysicWorld,
 		Ev.RESET_BALL:
 			play("serve", 0.8)
 		Ev.SPECIAL_READY:
-			if local_side == side:
+			if local_side == w.side_of(side):
 				play("special_ready")
+		Ev.SMASH:
+			play("dive_hit", 0.9, 1.15 if intensity >= 1.0 else 0.95)
 		Ev.SPECIAL_FIRED:
 			play("special_fired")
 		Ev.SPECIAL_HIT:
@@ -258,8 +280,14 @@ func on_event(kind: int, side: int, intensity: float, w: PhysicWorld,
 
 ## Pouso não é evento das regras: sai da própria leitura do mundo.
 func step_world(w: PhysicWorld) -> void:
-	for s in 2:
-		var down: bool = w.blob_y[s] >= BV.GROUND_PLANE_HEIGHT
+	if _land_down.size() != w.nb:
+		_land_down.resize(w.nb)
+		_land_vel.resize(w.nb)
+		for s in w.nb:
+			_land_down[s] = true
+			_land_vel[s] = 0.0
+	for s in w.nb:
+		var down: bool = w.blob_hit_ground(s)
 		if down and not _land_down[s]:
 			var i := clampf(_land_vel[s] / 14.0, 0.0, 1.0)
 			if i > 0.12:

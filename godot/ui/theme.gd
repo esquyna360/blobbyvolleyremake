@@ -6,19 +6,27 @@ const INK := Color(0.05, 0.08, 0.06)
 const LEAF := Color(0.32, 0.62, 0.30)
 
 const GLYPHS := preload("res://assets/font/glyphs.ttf")
+const DISPLAY := preload("res://assets/font/Bangers.ttf")
+const BODY := preload("res://assets/font/Nunito.ttf")
+const INK_DARK := Color(0.06, 0.05, 0.03)
 
 ## A fonte padrão do Godot não tem ● ▲ ★ ✓ e companhia. No desktop o motor
 ## completa com fonte do sistema; no navegador não existe fonte de sistema e
 ## sobravam quadradinhos. Esta fonte mínima entra como reserva.
 static func install_glyphs() -> void:
-	var f := ThemeDB.fallback_font
-	if f == null:
-		return
-	var fb := f.fallbacks
-	if GLYPHS in fb:
-		return
-	fb.append(GLYPHS)
-	f.fallbacks = fb
+	for f in [ThemeDB.fallback_font, DISPLAY, BODY]:
+		if f == null:
+			continue
+		var fb: Array = f.fallbacks
+		var changed := false
+		if not (GLYPHS in fb):
+			fb.append(GLYPHS)
+			changed = true
+		if f != ThemeDB.fallback_font and not (ThemeDB.fallback_font in fb):
+			fb.append(ThemeDB.fallback_font)
+			changed = true
+		if changed:
+			f.fallbacks = fb
 
 static func panel(bg := Color(0.04, 0.07, 0.05, 0.80), border := Color(1, 1, 1, 0.10)) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -86,10 +94,29 @@ static func label(text: String, size := 18, col := Color(1, 1, 1, 0.85)) -> Labe
 
 static func font(bold := 0.0, spacing := 0) -> FontVariation:
 	var f := FontVariation.new()
-	f.base_font = ThemeDB.fallback_font
+	f.base_font = BODY
 	f.variation_embolden = bold
 	f.spacing_glyph = spacing
 	return f
+
+static func display_font(spacing := 1) -> FontVariation:
+	var f := FontVariation.new()
+	f.base_font = DISPLAY
+	f.spacing_glyph = spacing
+	return f
+
+## Título grande na fonte de cartaz.
+static func display(text: String, size := 64, col := Color(1, 1, 1, 0.97)) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_override("font", display_font(2))
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", col)
+	l.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.9))
+	l.add_theme_constant_override("outline_size", int(size * 0.12))
+	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
+	l.add_theme_constant_override("shadow_offset_y", int(size * 0.06))
+	return l
 
 static func glass(alpha := 0.82) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -105,12 +132,13 @@ static func glass(alpha := 0.82) -> StyleBoxFlat:
 static func heading(text: String, size := 52, col := Color(1, 1, 1, 0.97)) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_override("font", font(0.9, 2))
+	l.add_theme_font_override("font", display_font(2))
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", col)
+	l.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.85))
+	l.add_theme_constant_override("outline_size", 6)
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
 	l.add_theme_constant_override("shadow_offset_y", 3)
-	l.add_theme_constant_override("shadow_outline_size", 6)
 	return l
 
 static func eyebrow(text: String, col := GOLD, size := 14) -> Label:

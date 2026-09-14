@@ -161,6 +161,11 @@ static func bank() -> Dictionary:
 	thump(b, 0, 880, 0.8, 0.045, 0.035, "sine")
 	out["ui"] = _wav(b)
 
+	b = Buf.new(0.07)
+	thump(b, 0, 520, 0.5, 0.02, 0.05, "square")
+	burst(b, 0, 0.02, 0.03, "bandpass", 1800, 1.4)
+	out["blip"] = _wav(b)
+
 	b = Buf.new(0.30)
 	thump(b, 0, 205, 0.42, 0.14, 0.40, "triangle")
 	burst(b, 0, 0.05, 0.11, "bandpass", 1250, 1.1)

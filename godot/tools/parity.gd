@@ -21,15 +21,15 @@ func _initialize() -> void:
 			_walls = false
 		elif a.begins_with("--rules="):
 			_rules = a.substr(8)
-	var m := BVMatch.new(_rules, 99, BV.LEFT, _walls)
+	var m := BVMatch.new(MatchParams.classic(_rules, 99, _walls))
 	var li := PlayerInput.new()
 	var ri := PlayerInput.new()
 	var lbits := 0
 	var rbits := 0
 	var f := PackedFloat64Array()
-	f.resize(BVMatch.STATE_FLOATS)
+	f.resize(m.float_count())
 	var i := PackedInt32Array()
-	i.resize(BVMatch.STATE_INTS)
+	i.resize(m.int_count())
 	var out := PackedStringArray()
 	for n in FRAMES:
 		if (_next() & 7) == 0:
@@ -38,7 +38,7 @@ func _initialize() -> void:
 			rbits = (_next() >> 3) & 63
 		li.unpack(lbits)
 		ri.unpack(rbits)
-		m.step(li, ri)
+		m.step([li, ri])
 		m.save(f, i)
 		var b := f.to_byte_array()
 		b.append_array(i.to_byte_array())

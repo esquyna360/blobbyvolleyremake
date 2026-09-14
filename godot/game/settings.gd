@@ -12,7 +12,9 @@ var walls := true
 var difficulty := "normal"
 var scene := "anoitecer"
 var player_name := ""
-var towers: Array = [0, 0, 0]
+var campaign_level := 1
+var campaign_best := 0
+var touch := -1
 
 func load_all() -> void:
 	var c := ConfigFile.new()
@@ -26,7 +28,9 @@ func load_all() -> void:
 		difficulty = c.get_value("v", "diff", "normal")
 		scene = c.get_value("v", "scene", "anoitecer")
 		player_name = c.get_value("v", "name", "")
-		towers = c.get_value("v", "towers", [0, 0, 0])
+		campaign_level = c.get_value("v", "clevel", 1)
+		campaign_best = c.get_value("v", "cbest", 0)
+		touch = c.get_value("v", "touch", -1)
 	if quality < 0:
 		quality = detect_quality()
 
@@ -41,7 +45,9 @@ func save() -> void:
 	c.set_value("v", "diff", difficulty)
 	c.set_value("v", "scene", scene)
 	c.set_value("v", "name", player_name)
-	c.set_value("v", "towers", towers)
+	c.set_value("v", "clevel", campaign_level)
+	c.set_value("v", "cbest", campaign_best)
+	c.set_value("v", "touch", touch)
 	c.save(PATH)
 
 ## Primeiro palpite de preset. Celular entra no baixo e sobe se o jogador

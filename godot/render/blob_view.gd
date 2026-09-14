@@ -9,6 +9,8 @@ const HEAD_R := BV.BLOBBY_UPPER_RADIUS * Map.S
 const HEAD_OFF := BV.BLOBBY_UPPER_SPHERE * Map.S
 
 var side := BV.LEFT
+var index := 0
+var body_scale := 1.0
 var face := FaceRig.new()
 var wobble := 0.0
 var squash_spring := 0.0
@@ -40,8 +42,10 @@ var dive_face := 0.0
 
 static var _shared_mesh: ArrayMesh
 
-func _init(s: int, shadows := true) -> void:
+func _init(s: int, shadows := true, idx := -1, bscale := 1.0) -> void:
 	side = s
+	index = idx if idx >= 0 else s
+	body_scale = bscale
 	if _shared_mesh == null:
 		_shared_mesh = BlobMesh.build()
 	_mat.shader = load("res://render/blob.gdshader")
@@ -110,13 +114,14 @@ func takeoff() -> void:
 ## `bx`/`by` são a bola já em coordenadas de mundo: o olho segue ela.
 func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: float,
 		time: float, dt: float, tension: float) -> void:
-	var i := side
+	var i := index
 	var cr := w.crouch[i]
 	var wx := Map.gx(gxp)
 	var wy := Map.gy(gyp)
 	var vy := w.blob_vy[i]
 	var vx := w.blob_vx[i]
-	var grounded := w.blob_y[i] >= BV.GROUND_PLANE_HEIGHT - 0.001
+	var grounded := w.blob_hit_ground(i)
+	var bsc := body_scale
 
 	was_grounded = grounded
 	last_vy = vy
@@ -165,9 +170,10 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	# descola do chão em vez de afundar nele
 	recoil = maxf(0.0, recoil - dt * 4.0)
 	position = Vector3(
-		wx + w.dive_dir[i] * dive * 0.16 - (1.0 if i == BV.LEFT else -1.0) * recoil * 0.35,
-		wy - cr * BV.CROUCH_DUCK * Map.S * (1.05 if grounded else 0.4) - dive * 0.22,
+		wx + (w.dive_dir[i] * dive * 0.16 - (1.0 if side == BV.LEFT else -1.0) * recoil * 0.35) * bsc,
+		wy - (cr * BV.CROUCH_DUCK * Map.S * (1.05 if grounded else 0.4) + dive * 0.22) * bsc,
 		0.0)
+	scale = Vector3.ONE * bsc
 
 	wobble = maxf(0.0, wobble - dt * 2.4)
 	_phase += dt * 26.0
@@ -193,11 +199,11 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	_mat.set_shader_parameter("wobble_amp", wobble)
 	_mat.set_shader_parameter("wobble_phase", _phase)
 
-	var upper_y := wy + 0.38
-	var aim := Vector3(bx - wx, by - upper_y, 5.5).normalized()
+	var upper_y := wy + 0.38 * bsc
+	var aim := Vector3(bx - wx, by - upper_y, 5.5 * bsc).normalized()
 	_mat.set_shader_parameter("eye_aim", aim)
 
-	var ball_near := Vector2(bx - wx, by - wy).length() < 1.6
+	var ball_near := Vector2(bx - wx, by - wy).length() < 1.6 * bsc
 	face.update(dt, tension, ball_near)
 	_land_face = maxf(0.0, _land_face - dt * 2.6)
 	var eye_want := 1.0 + (0.0 if grounded else 0.32 + clampf(-vy / 30.0, 0.0, 0.18)) \

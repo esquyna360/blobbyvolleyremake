@@ -311,6 +311,34 @@ const GROUND_NEAR := 64.0
 
 var quality := 2
 var env: Environment
+var _back: DirectionalLight3D
+var _key: DirectionalLight3D
+var spot: OmniLight3D
+var dark := false
+
+## "Lights out": as luzes do cenário quase apagam e um foco segue a bola.
+func set_dark(on: bool) -> void:
+	if on == dark:
+		return
+	dark = on
+	if _key == null:
+		return
+	_key.light_energy = 0.10 if on else float(_t.key_e)
+	_back.light_energy = 0.04 if on else float(_t.back_e)
+	env.ambient_light_energy = 0.12 if on else 1.0
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 0.28 if on else 1.0
+	env.adjustment_saturation = 0.7 if on else 1.0
+	if on and spot == null:
+		spot = OmniLight3D.new()
+		spot.light_color = Color(1.0, 0.92, 0.75)
+		spot.light_energy = 14.0
+		spot.omni_range = 10.0
+		spot.omni_attenuation = 1.4
+		spot.shadow_enabled = false
+		add_child(spot)
+	if spot != null:
+		spot.visible = on
 var _t: Dictionary
 var _torch_fx: Array = []
 var _lava: MeshInstance3D
@@ -464,6 +492,7 @@ func _env() -> void:
 func _light() -> void:
 	# contraluz: o sol está atrás da mata, como nas referências
 	var back := DirectionalLight3D.new()
+	_back = back
 	back.rotation_degrees = _t.back_rot
 	back.light_color = _t.back_col
 	back.light_energy = _t.back_e
@@ -473,6 +502,7 @@ func _light() -> void:
 
 	# chave frontal fraca: sem ela o blob vira silhueta e some a cara dele
 	var key := DirectionalLight3D.new()
+	_key = key
 	key.rotation_degrees = _t.key_rot
 	key.light_color = _t.key_col
 	key.light_energy = _t.key_e

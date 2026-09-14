@@ -112,13 +112,32 @@ static func rally_tension(rally: int) -> float:
 	return clampf((rally - 3) / 14.0, 0.0, 1.0)
 
 ## Mesmas reações da versão web: quem desenha só lê os campos.
-static func apply_events(rigs: Array, events: EventBuf, scores: PackedInt32Array, stw: int) -> void:
+static func apply_events(rigs: Array, events: EventBuf, scores: PackedInt32Array, stw: int,
+		w: PhysicWorld) -> void:
 	for k in events.n:
 		var s: int = events.side[k]
 		if s < 0:
 			continue
-		var o := BV.other(s)
-		match events.kind[k]:
+		var kind: int = events.kind[k]
+		if kind == Ev.PLAYER_ERROR or kind == Ev.FATALITY:
+			var sd := s
+			var od := BV.other(sd)
+			for p in w.nb:
+				var mine := w.side_of(p) == sd
+				if kind == Ev.FATALITY:
+					rigs[p].set_mood("laugh" if mine else "hurt", 2.6, 5)
+				else:
+					var gap := scores[od] - scores[sd]
+					var bitter := gap >= 3 or scores[od] >= stw - 1 or randf() < 0.3
+					if mine:
+						rigs[p].set_mood("angry" if bitter else "sad", 2.0, 3)
+					else:
+						rigs[p].set_mood("smug" if gap >= 3 else "laugh", 2.0, 3)
+			continue
+		if s >= w.nb:
+			continue
+		var o := w.lead(BV.other(w.side_of(s)))
+		match kind:
 			Ev.PARRY:
 				rigs[s].set_mood("smug", 1.0, 3)
 				rigs[o].set_mood("shock", 1.0, 3)
@@ -144,18 +163,12 @@ static func apply_events(rigs: Array, events: EventBuf, scores: PackedInt32Array
 			Ev.SPECIAL_WASTED:
 				rigs[s].set_mood("dumb", 1.7, 4)
 				rigs[o].set_mood("laugh", 1.3, 3)
-			Ev.FATALITY:
-				rigs[s].set_mood("laugh", 2.6, 5)
-				rigs[o].set_mood("hurt", 2.6, 5)
-			Ev.PLAYER_ERROR:
-				var gap := scores[o] - scores[s]
-				var bitter := gap >= 3 or scores[o] >= stw - 1 or randf() < 0.3
-				rigs[s].set_mood("angry" if bitter else "sad", 2.0, 3)
-				rigs[o].set_mood("smug" if gap >= 3 else "laugh", 2.0, 3)
+			Ev.SMASH:
+				rigs[s].set_mood("angry", 0.5, 2)
 
 ## Agachar não é evento, é estado: a cara tem que acompanhar o frame inteiro.
 static func crouch_moods(rigs: Array, crouch: PackedFloat64Array) -> void:
-	for s in 2:
+	for s in rigs.size():
 		if crouch[s] < 0.45:
 			continue
 		rigs[s].set_mood("focus", 0.06, 1)
@@ -164,10 +177,11 @@ static func crouch_moods(rigs: Array, crouch: PackedFloat64Array) -> void:
 static func reach_moods(rigs: Array, w: PhysicWorld, valid: bool) -> void:
 	if not valid:
 		return
-	for s in 2:
+	for s in rigs.size():
 		if w.charge[s] < BV.SPECIAL_FULL:
 			continue
 		var dx := w.ball_x - w.blob_x[s]
-		var dy := w.ball_y - (w.blob_y[s] - BV.BLOBBY_UPPER_SPHERE)
-		if dx * dx + dy * dy < BV.SPECIAL_REACH * BV.SPECIAL_REACH:
+		var dy := w.ball_y - w.upper_y(s)
+		var r := BV.SPECIAL_REACH * w.bs[s]
+		if dx * dx + dy * dy < r * r:
 			rigs[s].set_mood("aim", 0.06, 1)

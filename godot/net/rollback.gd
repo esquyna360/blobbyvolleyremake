@@ -35,8 +35,6 @@ func _init() -> void:
 	for i in STATES:
 		_sf.append(PackedFloat64Array())
 		_si.append(PackedInt32Array())
-		_sf[i].resize(BVMatch.STATE_FLOATS)
-		_si[i].resize(BVMatch.STATE_INTS)
 		_sframe[i] = -1
 	for i in INPUTS:
 		_remote_at[i] = -1
@@ -56,6 +54,9 @@ func reset() -> void:
 
 func save(m: BVMatch) -> void:
 	var k := frame % STATES
+	if _sf[k].size() < m.float_count():
+		_sf[k].resize(m.float_count())
+		_si[k].resize(m.int_count())
 	m.save(_sf[k], _si[k])
 	_sframe[k] = frame
 

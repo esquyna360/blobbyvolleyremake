@@ -6,7 +6,7 @@ general/default_playback_type.web=0
 
 [application]
 
-config/name="Blobby Volley Selva"
+config/name="BLORP"
 config/description="Remake do Blobby Volley 2. Mesma física do original, cenário de selva."
 config/version="0.1.0"
 run/main_scene="res://scenes/main.tscn"
@@ -23,8 +23,8 @@ Aud="*res://audio/audio.gd"
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
-window/handheld/orientation=0
+window/stretch/aspect="expand"
+window/handheld/orientation=6
 window/vsync/vsync_mode=1
 
 [physics]

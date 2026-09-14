@@ -22,13 +22,14 @@ var bots: Array = [null, null]
 var moods: Array = [null, null]
 var _emote_at := [-1e9, -1e9]
 var touch_slot := [-1, -1]
+var params := MatchParams.new()
 
 var script_input: Callable
 var link: NetLink
 var net_side := BV.NO_PLAYER
 var rb: Rollback
 
-var _in := [PlayerInput.new(), PlayerInput.new()]
+var _in: Array = [PlayerInput.new(), PlayerInput.new()]
 var _remote_bits := [0, 0]
 var _acc := 0.0
 var _paused := false
@@ -53,9 +54,9 @@ func rebuild_arena(q: int) -> void:
 	arena.build(q)
 	arena.set_walls(walls)
 	arena.local_side = ls
-	if _looks.size() == 2:
-		arena.set_looks(_looks[0], _looks[1])
 	if bv != null:
+		arena.setup_blobs(bv.world)
+		arena.set_looks(_looks)
 		arena.capture(bv)
 		arena.capture(bv)
 
@@ -75,7 +76,7 @@ func _slowmo() -> float:
 		return 1.0
 	var g := bv.logic
 	var leader := BV.LEFT if g.scores[BV.LEFT] >= g.scores[BV.RIGHT] else BV.RIGHT
-	var ball_side := BV.LEFT if w.ball_x < BV.NET_POSITION_X else BV.RIGHT
+	var ball_side := w.ball_side()
 	if ball_side == leader or w.ball_vy <= 0.0:
 		return 1.0
 	var h := Map.gy(w.ball_y)
@@ -86,25 +87,44 @@ func _slowmo() -> float:
 func slow_factor() -> float:
 	return _slow
 
-func start(rules: String, score_to_win: int, walls: bool, q: int,
-		left_src: int, right_src: int, difficulty := "normal",
-		looks: Array = []) -> void:
+func start(p: MatchParams, q: int, left_src: int, right_src: int,
+		difficulty := "normal", looks: Array = [], bot_seed := -1) -> void:
 	quality = q
 	Controls.setup()
-	bv = BVMatch.new(rules, score_to_win, BV.LEFT, walls)
+	params = p
+	bv = BVMatch.new(p, BV.LEFT)
+	var w := bv.world
+	Map.configure(w)
 	src = [left_src, right_src]
-	for i in 2:
-		bots[i] = Bot.new(i, difficulty, randi()) if src[i] == Source.BOT else null
-		moods[i] = BotMood.new(i, difficulty) if src[i] == Source.BOT else null
+	var nb := w.nb
+	_in.resize(nb)
+	bots.resize(nb)
+	for i in nb:
+		_in[i] = PlayerInput.new()
+		var s := w.side_of(i)
+		var is_bot: bool = src[s] == Source.BOT or i != w.lead(s)
+		var seed := randi() if bot_seed < 0 else bot_seed + i * 7919
+		bots[i] = Bot.new(s, difficulty, seed, i) if is_bot else null
+	for s in 2:
+		moods[s] = BotMood.new(s, difficulty) if src[s] == Source.BOT else null
 	if arena.get_parent() == null:
 		add_child(arena)
 		arena.build(q)
-	arena.set_walls(walls)
+	arena.set_walls(w.walls)
 	arena.local_side = net_side if net_side != BV.NO_PLAYER else BV.LEFT
-	var lk: Array = looks if looks.size() == 2 \
-		else [Looks.default_look(BV.LEFT), Looks.default_look(BV.RIGHT)]
+	var lk: Array = []
+	for i in nb:
+		var s := w.side_of(i)
+		var base: Array = looks[s] if looks.size() >= 2 else Looks.default_look(s)
+		if looks.size() == nb:
+			base = looks[i]
+		elif i != w.lead(s):
+			var hc = base[2] if base[2] is Color else (int(base[2]) + 3) % 10
+			base = [base[0], (int(base[1]) + 5 + i) % 16, hc]
+		lk.append(base)
 	_looks = lk
-	arena.set_looks(lk[0], lk[1])
+	arena.setup_blobs(w)
+	arena.set_looks(lk)
 	arena.capture(bv)
 	arena.capture(bv)
 	_acc = 0.0
@@ -155,12 +175,12 @@ func _tick() -> void:
 	if rb != null:
 		_net_tick()
 		return
-	for i in 2:
+	for i in bv.world.nb:
 		_read_side(i)
 	_step()
 
 func _step() -> void:
-	bv.step(_in[BV.LEFT], _in[BV.RIGHT])
+	bv.step(_in)
 	arena.capture(bv)
 	if not _resim:
 		arena.on_events(bv)
@@ -194,8 +214,8 @@ func _pump(dt: float) -> void:
 ## Um quadro em rede: manda a entrada local, prevê a do outro e segue. A
 ## correção vem depois, quando a entrada de verdade chegar.
 func _net_tick() -> void:
-	var me := net_side
-	var other := BV.other(me)
+	var me := bv.world.lead(net_side)
+	var other := bv.world.lead(BV.other(net_side))
 	_read_side(me)
 	rb.set_local(rb.frame, _in[me].pack())
 	_in[other].unpack(rb.remote_at(rb.frame))
@@ -217,8 +237,8 @@ func _net_catchup() -> void:
 		return
 	_resim = true
 	while rb.frame < target:
-		_in[net_side].unpack(rb.local_at(rb.frame))
-		_in[BV.other(net_side)].unpack(rb.remote_at(rb.frame))
+		_in[bv.world.lead(net_side)].unpack(rb.local_at(rb.frame))
+		_in[bv.world.lead(BV.other(net_side))].unpack(rb.remote_at(rb.frame))
 		_step()
 		rb.frame += 1
 		rb.save(bv)
@@ -226,19 +246,21 @@ func _net_catchup() -> void:
 
 func _read_side(i: int) -> void:
 	var o: PlayerInput = _in[i]
-	match src[i]:
+	var s := bv.world.side_of(i)
+	if bots[i] != null:
+		o.copy_from(bots[i].think(bv))
+		return
+	match src[s]:
 		Source.LOCAL_P1:
-			Controls.read("p1", o, touch_slot[i])
+			Controls.read("p1", o, touch_slot[s])
 		Source.LOCAL_P2:
-			Controls.read("p2", o, touch_slot[i])
+			Controls.read("p2", o, touch_slot[s])
 		Source.LOCAL_SOLO:
-			Controls.read("solo", o, touch_slot[i])
-		Source.BOT:
-			o.copy_from(bots[i].think(bv))
+			Controls.read("solo", o, touch_slot[s])
 		Source.REMOTE:
-			o.unpack(_remote_bits[i])
+			o.unpack(_remote_bits[s])
 		Source.SCRIPT:
-			o.unpack(script_input.call(rb.frame if rb != null else bv.frame, i))
+			o.unpack(script_input.call(rb.frame if rb != null else bv.frame, s))
 
 func emote(side: int, id: int) -> void:
 	if bv == null or id < 0:
@@ -252,7 +274,7 @@ func emote(side: int, id: int) -> void:
 	if link != null and link.online() and side == net_side:
 		link.send_emote(side, id)
 	var o := BV.other(side)
-	if moods[o] != null and bots[side] == null:
+	if moods[o] != null and bots[bv.world.lead(side)] == null:
 		var back: int = moods[o].answer(id)
 		if back >= 0:
 			_emote_later(o, back, 0.52 + randf() * 0.38)

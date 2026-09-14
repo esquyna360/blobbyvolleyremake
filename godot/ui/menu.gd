@@ -1,28 +1,18 @@
 class_name Menu
 extends Control
 
-## Menu em cima da partida de demonstração: o cenário continua rodando atrás,
-## que é o melhor cartão de visita que esse jogo tem. Layout de tela cheia:
-## título e lista à esquerda, painel de conteúdo à direita quando a página
-## precisa (cenários, torres, avatar).
+## Menu em cima da partida de demonstração. Título e lista à esquerda, painel
+## de conteúdo à direita. Funciona com mouse, teclado, gamepad (foco) e toque.
 
-signal play_bot(difficulty: String, scene: String)
-signal play_local(scene: String)
-signal play_arcade(tower: int)
-signal host_room()
-signal join_room(address: String)
+signal play_campaign(level: int)
+signal play_versus(stw: int)
 signal quality_changed(q: int)
 signal look_changed(look: Array)
 signal quit_game()
 
-const DIFFS := [["easy", "Fácil", "bola lenta, bot distraído"], ["normal", "Normal", "o bot joga direito"],
-	["hard", "Difícil", "prevê a bola e usa especial"], ["insane", "Insano", "simula a física igual a você"]]
-const QUALS := ["Baixo", "Médio", "Alto", "Máximo"]
-const SCENES := [
-	["anoitecer", "Praia ao anoitecer"], ["selva", "Selva"], ["praia", "Praia ao pôr do sol"], ["galpao", "Galpão"],
-	["acampamento", "Acampamento"], ["neve", "Pinhal nevado"], ["telhado", "Telhado"],
-	["ruinas", "Ruínas"], ["caverna", "Caverna de lava"]]
+const QUALS := ["Low", "Medium", "High", "Ultra"]
 const MUTED := Color(1, 1, 1, 0.55)
+const VERSION := "0.3"
 
 var settings: Settings
 
@@ -36,23 +26,15 @@ var _sub: Label
 var _foot_l: Label
 var _foot_r: Label
 var _page := "main"
-var _status: Label
-var _ip_edit: LineEdit
-var _pending: Callable
-var _stage_cb: Callable
 var _first: Control
-var _tower: TowerView
-var _bottom: HBoxContainer
 var _shade: TextureRect
+var _sel_level := 1
+var _detail: VBoxContainer
+var _rule: ColorRect
 
 func build(s: Settings) -> void:
 	settings = s
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-
-	_tower = TowerView.new()
-	_tower.visible = false
-	add_child(_tower)
-	_tower.build(settings.towers, self)
 
 	var shade := TextureRect.new()
 	_shade = shade
@@ -74,10 +56,10 @@ func build(s: Settings) -> void:
 
 	_left = VBoxContainer.new()
 	_left.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	_left.offset_left = 72
-	_left.offset_top = 48
-	_left.offset_right = 72 + 470
-	_left.offset_bottom = -64
+	_left.offset_left = 64
+	_left.offset_top = 36
+	_left.offset_right = 64 + 470
+	_left.offset_bottom = -56
 	_left.add_theme_constant_override("separation", 6)
 	add_child(_left)
 
@@ -85,11 +67,11 @@ func build(s: Settings) -> void:
 	_left.add_child(_eyebrow)
 	_heading = UiTheme.heading("")
 	_left.add_child(_heading)
-	var rule := ColorRect.new()
-	rule.color = UiTheme.GOLD
-	rule.custom_minimum_size = Vector2(56, 3)
-	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	_left.add_child(rule)
+	_rule = ColorRect.new()
+	_rule.color = UiTheme.GOLD
+	_rule.custom_minimum_size = Vector2(56, 3)
+	_rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_left.add_child(_rule)
 	_sub = UiTheme.label("", 15, MUTED)
 	_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_left.add_child(_sub)
@@ -103,10 +85,10 @@ func build(s: Settings) -> void:
 
 	_side = MarginContainer.new()
 	_side.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	_side.offset_left = -790
-	_side.offset_right = -56
-	_side.offset_top = 48
-	_side.offset_bottom = -64
+	_side.offset_left = -760
+	_side.offset_right = -48
+	_side.offset_top = 36
+	_side.offset_bottom = -56
 	_side.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_side)
 	_side_box = VBoxContainer.new()
@@ -117,32 +99,19 @@ func build(s: Settings) -> void:
 
 	_foot_l = UiTheme.eyebrow("", MUTED, 12)
 	_foot_l.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_foot_l.offset_left = 72
-	_foot_l.offset_top = -40
+	_foot_l.offset_left = 64
+	_foot_l.offset_top = -36
 	_foot_l.offset_right = 700
-	_foot_l.offset_bottom = -22
+	_foot_l.offset_bottom = -18
 	add_child(_foot_l)
-	_foot_r = UiTheme.eyebrow("Blobby Selva  ·  0.2", MUTED, 12)
+	_foot_r = UiTheme.eyebrow("BLORP  ·  " + VERSION, MUTED, 12)
 	_foot_r.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_foot_r.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_foot_r.offset_left = -600
-	_foot_r.offset_right = -56
-	_foot_r.offset_top = -40
-	_foot_r.offset_bottom = -22
+	_foot_r.offset_right = -48
+	_foot_r.offset_top = -36
+	_foot_r.offset_bottom = -18
 	add_child(_foot_r)
-
-	_bottom = HBoxContainer.new()
-	_bottom.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_bottom.alignment = BoxContainer.ALIGNMENT_CENTER
-	_bottom.add_theme_constant_override("separation", 26)
-	_bottom.offset_left = -480
-	_bottom.offset_right = 480
-	_bottom.offset_top = -150
-	_bottom.offset_bottom = -52
-	add_child(_bottom)
-
-	_status = UiTheme.label("", 15, MUTED)
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	show_page("main")
 
@@ -158,50 +127,54 @@ static func _gradient(cols: Array, offs: Array, from: Vector2, to: Vector2) -> G
 	g.fill_to = to
 	return g
 
+func page() -> String:
+	return _page
+
 func show_page(p: String) -> void:
 	_page = p
 	_first = null
 	for c in _list.get_children():
 		_list.remove_child(c)
-		if c != _status:
-			c.queue_free()
+		c.queue_free()
 	for c in _side_box.get_children():
 		_side_box.remove_child(c)
 		c.queue_free()
-	for c in _bottom.get_children():
-		_bottom.remove_child(c)
-		c.queue_free()
-	_tower.visible = false
 	_left.visible = true
+	_heading.visible = true
+	_rule.visible = true
 	_shade.modulate.a = 1.0
 	_sub.text = ""
-	_side.offset_left = -790
-	_foot_l.text = "Enter confirma   ·   Esc volta" if p != "main" else "Enter confirma"
+	_heading.add_theme_font_size_override("font_size", 52)
+	var touch := DisplayServer.is_touchscreen_available()
+	_foot_l.text = "" if touch else ("Enter · select      Esc · back" if p != "main" else "Enter · select")
 	match p:
 		"main": _main()
-		"single": _single()
-		"bot": _bot()
-		"stage": _stage()
-		"arcade": _arcade()
-		"register": _register()
-		"net": _net()
+		"campaign": _campaign()
+		"versus": _versus()
+		"online": _online()
 		"look": _look()
 		"options": _options()
-		"climb": pass
 	_animate()
-	if _first != null:
+	if _first != null and not touch and is_inside_tree():
 		_first.grab_focus()
+
+func _unhandled_input(e: InputEvent) -> void:
+	if not visible:
+		return
+	if e.is_action_pressed("ui_back") and _page != "main":
+		show_page("main")
+		get_viewport().set_input_as_handled()
 
 func _animate() -> void:
 	for n in [_left, _side]:
 		n.modulate.a = 0.0
-		var base: float = 72.0 if n == _left else size.x + _side.offset_left
+		var base: float = 64.0 if n == _left else size.x + _side.offset_left
 		n.position.x = base + (-28.0 if n == _left else 28.0)
 		var tw := create_tween().set_parallel(true).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 		tw.tween_property(n, "modulate:a", 1.0, 0.22)
 		tw.tween_property(n, "position:x", base, 0.3)
 
-func _title(text: String, eyebrow := "Blobby Selva", sub := "") -> void:
+func _title(text: String, eyebrow := "BLORP", sub := "") -> void:
 	_heading.text = text.to_upper()
 	_eyebrow.text = eyebrow.to_upper()
 	_sub.text = sub
@@ -209,7 +182,9 @@ func _title(text: String, eyebrow := "Blobby Selva", sub := "") -> void:
 func _btn(text: String, cb: Callable, sub := "", col := UiTheme.GOLD) -> Button:
 	var b := UiTheme.item(Button.new(), col)
 	b.text = text
-	b.pressed.connect(cb)
+	b.pressed.connect(func():
+		Aud.play("ui", 0.6)
+		cb.call())
 	_list.add_child(b)
 	if sub != "":
 		var l := UiTheme.label(sub, 13, MUTED)
@@ -229,213 +204,238 @@ func _spacer(h := 12) -> void:
 	c.custom_minimum_size = Vector2(0, h)
 	_list.add_child(c)
 
-## Tudo que é partida passa por aqui: sem nome e cara registrados, primeiro
-## o cadastro, depois o que a pessoa queria.
-func _gate(then: Callable) -> void:
-	if settings.player_name.strip_edges() == "":
-		_pending = then
-		show_page("register")
-	else:
-		then.call()
+func _back(to := "main") -> void:
+	_btn("Back", func(): show_page(to), "", Color(0.6, 0.65, 0.62))
+
+# ------------------------------------------------------------------ páginas
 
 func _main() -> void:
-	_title("Blobby\nSelva", "vôlei de praia no meio do mato")
-	_heading.add_theme_font_size_override("font_size", 58)
-	if settings.player_name != "":
-		_sub.text = "olá, %s" % settings.player_name
-	_btn("Um jogador", func(): _gate(func(): show_page("single")), "arcade ou uma partida contra o bot")
-	_btn("Dois jogadores", func(): _gate(func():
-		_stage_cb = func(sc): play_local.emit(sc)
-		show_page("stage")), "no mesmo teclado", UiTheme.LEAF)
-	if OS.get_name() != "Web":
-		_btn("Online", func(): _gate(func(): show_page("net")), "IP direto, sem conta", Color(0.36, 0.72, 1.0))
+	_eyebrow.text = ""
+	_heading.visible = false
+	_rule.visible = false
+	_logo()
+	var lvl := settings.campaign_level
+	_btn("The Hundred", func(): show_page("campaign"),
+		"world championship · level %d of 100" % mini(lvl, 100) if settings.campaign_best > 0 else "world championship · 100 levels")
+	_btn("Versus", func(): show_page("versus"), "two players, one keyboard or two pads", UiTheme.LEAF)
+	_btn("Online", func(): show_page("online"), "coming soon", Color(0.36, 0.72, 1.0))
 	_spacer()
-	_btn("Nome e aparência", func(): show_page("look"), "", Color(0.9, 0.45, 0.8))
-	_btn("Gráficos e som", func(): show_page("options"), "", Color(0.7, 0.75, 0.8))
+	_btn("You", func(): show_page("look"), "", Color(0.9, 0.45, 0.8))
+	_btn("Settings", func(): show_page("options"), "", Color(0.7, 0.75, 0.8))
 	if OS.get_name() != "Web":
-		_btn("Sair", func(): quit_game.emit(), "", Color(0.8, 0.35, 0.3))
+		_btn("Quit", func(): quit_game.emit(), "", Color(0.8, 0.35, 0.3))
 	_side_hero()
 
-## Página inicial: o seu blob grande à direita, como capa.
+## Logo: o nome em fonte de cartaz e o seu blob espiando por cima.
+func _logo() -> void:
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", -6)
+	var pr := Portrait.new(settings.look, "laugh", 104, BV.LEFT)
+	pr.size_flags_vertical = Control.SIZE_SHRINK_END
+	box.add_child(pr)
+	var l := UiTheme.display("BLORP", 110, UiTheme.GOLD)
+	l.size_flags_vertical = Control.SIZE_SHRINK_END
+	box.add_child(l)
+	_list.add_child(box)
+	var tag := UiTheme.eyebrow("Volleyball, but goo.", MUTED, 12)
+	var tm := MarginContainer.new()
+	tm.add_theme_constant_override("margin_left", 112)
+	tm.add_theme_constant_override("margin_top", -10)
+	tm.add_theme_constant_override("margin_bottom", 10)
+	tm.add_child(tag)
+	_list.add_child(tm)
+
 func _side_hero() -> void:
-	if settings.player_name == "":
-		return
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_theme_constant_override("separation", 2)
 	var pr := Portrait.new(settings.look, "smug", 300, BV.LEFT)
 	v.add_child(pr)
-	var n := UiTheme.eyebrow(settings.player_name, Looks.body_color(settings.look).lightened(0.35), 16)
+	var n := UiTheme.eyebrow(settings.player_name if settings.player_name != "" else "YOU",
+		Looks.body_color(settings.look).lightened(0.35), 16)
 	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(n)
-	var done := 0
-	for t in Roster.TOWERS.size():
-		if settings.towers[t] >= Roster.TOWERS[t].steps.size():
-			done += 1
-	var s := UiTheme.label("%d de %d torres" % [done, Roster.TOWERS.size()], 13, MUTED)
-	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(s)
+	if settings.campaign_best > 0:
+		var s := UiTheme.label("best: level %d" % settings.campaign_best, 13, MUTED)
+		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(s)
 	_side_box.add_child(v)
 
-func _single() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Um jogador")
-	_btn("Arcade", func(): show_page("arcade"),
-		"suba a torre: oito personagens, cada um no seu cenário", Color(1.0, 0.55, 0.25))
-	_btn("Versus o bot", func(): show_page("bot"), "uma partida só, no cenário que você escolher")
+func _campaign() -> void:
+	_heading.add_theme_font_size_override("font_size", 46)
+	_title("The\nHundred", "world championship", "one nation per level. Brazil waits at 100.")
+	_sel_level = clampi(settings.campaign_level, 1, Campaign.LAST)
+	_detail = VBoxContainer.new()
+	_detail.add_theme_constant_override("separation", 4)
+	_list.add_child(_detail)
 	_spacer()
 	_back()
-
-func _bot() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Versus o bot", "um jogador")
-	for d in DIFFS:
-		_btn(d[1], func():
-			_stage_cb = func(sc): play_bot.emit(d[0], sc)
-			show_page("stage"), d[2])
-	_spacer()
-	_back("single")
-
-func _stage() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Cenário", "escolha", "cada cenário é a casa de alguém")
-	_btn("Aleatório", func():
-		var sc: Array = SCENES[randi() % SCENES.size()]
-		_pick_scene(sc[0]), "", Color(0.7, 0.75, 0.8))
-	_spacer()
-	_back("single")
 	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	for sc in SCENES:
-		grid.add_child(_scene_card(sc))
+	grid.columns = 10
+	grid.add_theme_constant_override("h_separation", 5)
+	grid.add_theme_constant_override("v_separation", 5)
+	var unlocked := settings.campaign_level
+	for n in range(1, Campaign.LAST + 1):
+		grid.add_child(_level_cell(n, n <= unlocked))
 	_side_box.add_child(grid)
-	_first = grid.get_child(0)
-	for k in SCENES.size():
-		if SCENES[k][0] == settings.scene:
-			_first = grid.get_child(k)
+	_first = grid.get_child(_sel_level - 1)
+	_fill_detail()
 
-func _pick_scene(id: String) -> void:
-	settings.scene = id
-	settings.save()
-	_stage_cb.call(id)
-
-## Cartão de cenário: faixa na cor do dono, retrato e nome.
-func _scene_card(sc: Array) -> Button:
-	var ch := Roster.scene_char(sc[0])
-	var col := Looks.body_color(ch.look) if not ch.is_empty() else UiTheme.GOLD
+func _level_cell(n: int, open: bool) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(172, 210)
+	var boss := Campaign.is_boss(n)
+	var nat := Campaign.nation(n)
+	var col := Color(nat.b) if open else Color(0.3, 0.32, 0.34)
+	b.custom_minimum_size = Vector2(54, 44)
+	b.text = str(n)
 	b.focus_mode = Control.FOCUS_ALL
+	b.add_theme_font_override("font", UiTheme.display_font(0))
+	b.add_theme_font_size_override("font_size", 22 if boss else 19)
 	for k in 3:
 		var s := StyleBoxFlat.new()
-		s.bg_color = Color(0.03, 0.05, 0.05, [0.78, 0.9, 0.95][k])
-		s.border_color = col if k > 0 else Color(1, 1, 1, 0.10)
-		s.set_border_width_all(2 if k > 0 else 1)
-		s.set_corner_radius_all(6)
-		s.set_content_margin_all(0)
+		s.bg_color = col.darkened(0.55 - k * 0.12) if open else Color(0.05, 0.06, 0.07, 0.7)
+		s.border_color = Color(nat.h) if (open and (boss or k > 0)) else Color(1, 1, 1, 0.08)
+		s.set_border_width_all(2 if (boss or k > 0) else 1)
+		s.set_corner_radius_all(5)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
 			b.add_theme_stylebox_override("focus", s)
-	b.pressed.connect(func(): _pick_scene(sc[0]))
-	var v := VBoxContainer.new()
-	v.set_anchors_preset(Control.PRESET_FULL_RECT)
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_theme_constant_override("separation", 0)
-	var band := ColorRect.new()
-	band.color = col
-	band.custom_minimum_size = Vector2(0, 6)
-	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(band)
-	if not ch.is_empty():
-		var pr := Portrait.new(ch.look, ch.mood, 124, BV.LEFT)
-		pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		pr.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		v.add_child(pr)
-	var n := UiTheme.label(sc[1], 16, Color(1, 1, 1, 0.95))
-	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	n.add_theme_font_override("font", UiTheme.font(0.6, 0))
-	n.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(n)
-	var o := UiTheme.eyebrow("casa de " + ch.name if not ch.is_empty() else "", col.lightened(0.35), 11)
-	o.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	o.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(o)
-	var pad := Control.new()
-	pad.custom_minimum_size = Vector2(0, 8)
-	v.add_child(pad)
-	b.add_child(v)
+	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.92 if open else 0.28))
+	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	b.add_theme_constant_override("outline_size", 4)
+	b.focus_entered.connect(func():
+		_sel_level = n
+		_fill_detail())
+	b.mouse_entered.connect(func():
+		_sel_level = n
+		_fill_detail())
+	b.pressed.connect(func():
+		_sel_level = n
+		if open:
+			Aud.play("ui", 0.6)
+			play_campaign.emit(n)
+		else:
+			Aud.play("special_wasted", 0.4))
 	return b
 
-## Torres do arcade em 3D (TowerView) atrás; aqui só o título e os três
-## botões embaixo. Passar o mouse num botão leva a câmera pra torre dele.
-func _arcade() -> void:
-	_heading.add_theme_font_size_override("font_size", 46)
-	_title("Choose your\ndestiny", "arcade", "vença cada adversário na casa dele até o topo")
-	_tower.visible = true
-	_tower.enter(settings.towers)
-	_shade.modulate.a = 0.55
-	for t in Roster.TOWERS.size():
-		var tw: Dictionary = Roster.TOWERS[t]
-		var steps: Array = tw.steps
-		var done: int = settings.towers[t]
-		var tcol: Color = [UiTheme.LEAF, UiTheme.GOLD, Color(1.0, 0.45, 0.3)][t]
-		var sub := "%d adversários" % steps.size() if done == 0 else ("torre concluída" if done >= steps.size() else "%d de %d vencidos" % [done, steps.size()])
-		var b := _btn(tw.name.capitalize() + ("  ✓" if done >= steps.size() else ""), func(): play_arcade.emit(t), sub, tcol)
-		b.mouse_entered.connect(func(): _tower.focus_tower(t))
-		b.focus_entered.connect(func(): _tower.focus_tower(t))
+func _fill_detail() -> void:
+	if _detail == null or not is_instance_valid(_detail):
+		return
+	for c in _detail.get_children():
+		_detail.remove_child(c)
+		c.queue_free()
+	var n := _sel_level
+	var info := Campaign.level_info(n)
+	var nat: Dictionary = info.nation
+	var open: bool = n <= settings.campaign_level
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var pr := Portrait.new(Campaign.look_of(nat), "smug" if open else "calm", 120, BV.RIGHT)
+	row.add_child(pr)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	v.add_child(UiTheme.eyebrow(("BOSS · " if info.boss else "") + "LEVEL %d" % n, Color(nat.h).lightened(0.2), 12))
+	v.add_child(UiTheme.display(nat.n, 40, Color(nat.b).lightened(0.35)))
+	v.add_child(UiTheme.label(info.rule, 14, Color(1, 1, 1, 0.8)))
+	row.add_child(v)
+	_detail.add_child(row)
+	if info.mods.size() > 0:
+		var mods := HFlowContainer.new()
+		mods.add_theme_constant_override("h_separation", 6)
+		mods.add_theme_constant_override("v_separation", 4)
+		for m in info.mods:
+			var md: Dictionary = Campaign.MODS[m]
+			var chip := UiTheme.chip(Button.new(), false, 13)
+			chip.text = md.icon + " " + md.name
+			chip.focus_mode = Control.FOCUS_NONE
+			chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			mods.add_child(chip)
+		var mm := MarginContainer.new()
+		mm.add_theme_constant_override("margin_left", 4)
+		mm.add_child(mods)
+		_detail.add_child(mm)
+	var go := UiTheme.solid(Button.new(), Color(nat.b) if open else Color(0.3, 0.32, 0.34), 20)
+	go.text = ("PLAY LEVEL %d" % n) if open else "LOCKED"
+	go.disabled = not open
+	go.focus_mode = Control.FOCUS_NONE
+	go.pressed.connect(func():
+		Aud.play("ui", 0.6)
+		play_campaign.emit(n))
+	var gm := MarginContainer.new()
+	gm.add_theme_constant_override("margin_top", 8)
+	gm.add_child(go)
+	_detail.add_child(gm)
+
+func _versus() -> void:
+	_title("Versus", "two players", "same keyboard (WASD + arrows) or two gamepads")
+	var stw := [settings.score_to_win]
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var chips := []
+	for n in [5, 10, 15]:
+		var b := UiTheme.chip(Button.new(), n == stw[0], 15)
+		b.text = "First to %d" % n
+		b.pressed.connect(func():
+			stw[0] = n
+			settings.score_to_win = n
+			settings.save()
+			for c in chips:
+				UiTheme.chip(c, c.text.ends_with(" %d" % n), 15))
+		chips.append(b)
+		row.add_child(b)
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 22)
+	m.add_theme_constant_override("margin_bottom", 10)
+	m.add_child(row)
+	_list.add_child(m)
+	_btn("Play", func(): play_versus.emit(stw[0]), "", UiTheme.LEAF)
 	_spacer()
-	_back("single")
-
-## Cinemática entre partidas do arcade: só as torres, sem menu por cima.
-func climb(t: int, from: int, to: int) -> void:
-	show_page("climb")
-	_left.visible = false
-	_tower.visible = true
-	_shade.modulate.a = 0.15
-	await _tower.climb(t, from, to)
-
-func _register() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Quem é você?", "cadastro", "nome e cara aparecem na torre e no placar")
-	_look_editor()
-	_btn("Pronto", func():
-		if settings.player_name.strip_edges() == "":
-			settings.player_name = "Blob"
-		settings.save()
-		if _pending.is_valid():
-			var p := _pending
-			_pending = Callable()
-			p.call()
-		else:
-			show_page("main"), "", UiTheme.LEAF)
 	_back()
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 20)
+	h.add_child(Portrait.new(settings.look, "smug", 220, BV.LEFT))
+	h.add_child(UiTheme.display("VS", 72, UiTheme.GOLD))
+	h.add_child(Portrait.new(Looks.roll_look(settings.look[0]), "focus", 220, BV.RIGHT))
+	v.add_child(h)
+	_side_box.add_child(v)
+
+func _online() -> void:
+	_title("Online", "coming soon", "cross-play ranked matches are on the way. Meanwhile: beat the Hundred.")
+	_back()
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(Portrait.new(Looks.roll_look(-1), "sad", 260, BV.RIGHT))
+	var l := UiTheme.display("COMING SOON", 54, Color(0.36, 0.72, 1.0))
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(l)
+	_side_box.add_child(v)
 
 func _look() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Nome e\naparência", "perfil", "corpo, penteado e cor do cabelo")
+	_title("You", "profile", "name, body, hair and color")
 	_look_editor()
 	_spacer()
 	_back()
 
 func _look_editor() -> void:
 	var ne := UiTheme.line_edit(LineEdit.new(), 22)
-	ne.placeholder_text = "seu nome"
+	ne.placeholder_text = "your name"
 	ne.max_length = 12
 	ne.text = settings.player_name
 	ne.custom_minimum_size = Vector2(300, 0)
-	ne.text_changed.connect(func(t): settings.player_name = t.strip_edges())
+	ne.text_changed.connect(func(t):
+		settings.player_name = t.strip_edges()
+		settings.save())
 	var nm := MarginContainer.new()
 	nm.add_theme_constant_override("margin_left", 22)
 	nm.add_theme_constant_override("margin_bottom", 10)
 	nm.add_child(ne)
 	_list.add_child(nm)
-	_first = ne
 	var pr := Portrait.new(settings.look, "smug", 320, BV.LEFT)
 	var look: Array = settings.look.duplicate()
-	var names := ["Corpo", "Penteado", "Cor"]
+	var names := ["Body", "Hair", "Color"]
 	var sizes := [Looks.BODY_COLORS.size(), Looks.HAIR_STYLES.size(), Looks.HAIR_COLORS.size()]
 	for i in 3:
 		var row := HBoxContainer.new()
@@ -443,7 +443,7 @@ func _look_editor() -> void:
 		var m := MarginContainer.new()
 		m.add_theme_constant_override("margin_left", 22)
 		var name_l := UiTheme.eyebrow(names[i], MUTED, 12)
-		name_l.custom_minimum_size = Vector2(96, 0)
+		name_l.custom_minimum_size = Vector2(80, 0)
 		name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(name_l)
 		var value := UiTheme.label(_look_name(i, look[i]), 17, Color(1, 1, 1, 0.95))
@@ -460,8 +460,11 @@ func _look_editor() -> void:
 				settings.look = look.duplicate()
 				settings.save()
 				pr.set_look(look)
+				Aud.play("ui", 0.5)
 				look_changed.emit(look))
 			if d < 0:
+				if _first == null:
+					_first = b
 				row.add_child(b)
 				row.add_child(value)
 			else:
@@ -469,7 +472,7 @@ func _look_editor() -> void:
 		m.add_child(row)
 		_list.add_child(m)
 	var roll := UiTheme.item(Button.new(), Color(0.9, 0.45, 0.8), 18)
-	roll.text = "Sortear"
+	roll.text = "Random"
 	roll.pressed.connect(func():
 		settings.look = Looks.roll_look(-1)
 		settings.save()
@@ -484,63 +487,49 @@ func _look_editor() -> void:
 
 func _look_name(kind: int, v: int) -> String:
 	match kind:
-		1: return Looks.HAIR_STYLES[Looks.widx(v, Looks.HAIR_STYLES.size())].name
-		2: return Looks.HAIR_COLORS[Looks.widx(v, Looks.HAIR_COLORS.size())].name
-		_: return Looks.BODY_COLORS[Looks.widx(v, Looks.BODY_COLORS.size())].name
-
-func _net() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Online", "rede local", "IP direto, sem conta e sem servidor no meio")
-	_btn("Criar sala", func():
-		host_room.emit()
-		set_status("esperando o outro jogador entrar em %s:%d" % [_local_ip(), NetLink.PORT]),
-		"o outro entra pelo seu IP", Color(0.36, 0.72, 1.0))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	var m := MarginContainer.new()
-	m.add_theme_constant_override("margin_left", 22)
-	m.add_theme_constant_override("margin_top", 6)
-	_ip_edit = UiTheme.line_edit(LineEdit.new(), 18)
-	_ip_edit.placeholder_text = "192.168.0.10"
-	_ip_edit.text = settings.last_ip
-	_ip_edit.custom_minimum_size = Vector2(240, 0)
-	row.add_child(_ip_edit)
-	var go := UiTheme.solid(Button.new(), Color(0.36, 0.72, 1.0), 15)
-	go.text = "ENTRAR"
-	go.pressed.connect(func():
-		settings.last_ip = _ip_edit.text.strip_edges()
-		settings.save()
-		join_room.emit(settings.last_ip)
-		set_status("conectando…"))
-	row.add_child(go)
-	m.add_child(row)
-	_list.add_child(m)
-	var sm := MarginContainer.new()
-	sm.add_theme_constant_override("margin_left", 22)
-	sm.add_theme_constant_override("margin_top", 8)
-	sm.add_child(_status)
-	_list.add_child(sm)
-	_spacer()
-	_back()
+		1: return Looks.HAIR_STYLES[Looks.widx(v, Looks.HAIR_STYLES.size())].name.capitalize()
+		2: return Looks.HAIR_COLORS[Looks.widx(v, Looks.HAIR_COLORS.size())].name.capitalize()
+		_: return Looks.BODY_COLORS[Looks.widx(v, Looks.BODY_COLORS.size())].name.capitalize()
 
 func _options() -> void:
-	_heading.add_theme_font_size_override("font_size", 52)
-	_title("Gráficos\ne som", "opções")
+	_title("Settings", "graphics, sound, controls")
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", 22)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
-	v.add_child(UiTheme.eyebrow("Qualidade", MUTED, 12))
+	v.add_child(UiTheme.eyebrow("Quality", MUTED, 12))
 	v.add_child(quality_row(settings, func(q):
 		quality_changed.emit(q)
 		show_page("options")))
-	v.add_child(UiTheme.label("o preset baixo roda em celular fraco sem perder o cenário", 13, MUTED))
+	v.add_child(UiTheme.label("Low keeps the scenery and runs on weak phones and laptops.", 13, MUTED))
 	var g := Control.new()
-	g.custom_minimum_size = Vector2(0, 10)
+	g.custom_minimum_size = Vector2(0, 8)
 	v.add_child(g)
-	v.add_child(UiTheme.eyebrow("Som", MUTED, 12))
-	v.add_child(slider("Música", Aud.music_vol, func(x): Aud.set_volume("music", x)))
-	v.add_child(slider("Efeitos", Aud.sfx_vol, func(x): Aud.set_volume("sfx", x)))
+	v.add_child(UiTheme.eyebrow("Sound", MUTED, 12))
+	v.add_child(slider("Music", Aud.music_vol, func(x): Aud.set_volume("music", x)))
+	v.add_child(slider("Effects", Aud.sfx_vol, func(x): Aud.set_volume("sfx", x)))
+	var g2 := Control.new()
+	g2.custom_minimum_size = Vector2(0, 8)
+	v.add_child(g2)
+	v.add_child(UiTheme.eyebrow("Touch controls", MUTED, 12))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var opts := [[-1, "Auto"], [1, "On"], [0, "Off"]]
+	for o in opts:
+		var b := UiTheme.chip(Button.new(), settings.touch == o[0], 15)
+		b.text = o[1]
+		b.pressed.connect(func():
+			settings.touch = o[0]
+			settings.save()
+			quality_changed.emit(settings.quality)
+			show_page("options"))
+		row.add_child(b)
+	v.add_child(row)
+	var g3 := Control.new()
+	g3.custom_minimum_size = Vector2(0, 8)
+	v.add_child(g3)
+	v.add_child(UiTheme.eyebrow("Keys", MUTED, 12))
+	v.add_child(UiTheme.label("Move: A/D or arrows · Jump: W / Up / Space · Action: E, Shift, Ctrl, Enter or mouse click\nGamepad: stick + A jump + X/B action · Esc pauses", 13, MUTED))
 	m.add_child(v)
 	_list.add_child(m)
 	_spacer()
@@ -578,15 +567,3 @@ static func slider(name: String, value: float, cb: Callable) -> HBoxContainer:
 	sl.value_changed.connect(cb)
 	row.add_child(sl)
 	return row
-
-func _back(to := "main") -> void:
-	_btn("Voltar", func(): show_page(to), "", Color(0.6, 0.65, 0.62))
-
-func set_status(t: String) -> void:
-	_status.text = t
-
-static func _local_ip() -> String:
-	for a in IP.get_local_addresses():
-		if a.begins_with("192.168.") or a.begins_with("10.") or a.begins_with("172."):
-			return a
-	return "127.0.0.1"

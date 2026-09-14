@@ -5,13 +5,13 @@ extends RefCounted
 ## campos: quantos toques o lado tem, quantos pontos ganham e se precisa de dois
 ## de vantagem. Não vale inventar classe pra isso.
 const RULES := [
-	{"id": "default", "name": "Clássico", "desc": "3 toques por lado, 2 de vantagem.",
+	{"id": "default", "name": "Classic", "desc": "3 touches a side, win by 2.",
 		"touches": 3, "stw": BV.DEFAULT_SCORE_TO_WIN, "two_ahead": true},
-	{"id": "tennis", "name": "Tennis", "desc": "Um toque só. Devolve ou perde.",
+	{"id": "tennis", "name": "Tennis", "desc": "One touch. Return it or lose it.",
 		"touches": 1, "stw": BV.DEFAULT_SCORE_TO_WIN, "two_ahead": true},
-	{"id": "blitz", "name": "Blitz", "desc": "Rally curto: 5 pontos.",
+	{"id": "blitz", "name": "Blitz", "desc": "Short rally: first to 5.",
 		"touches": 3, "stw": 5, "two_ahead": false},
-	{"id": "jumpingjack", "name": "Jumping Jack", "desc": "Só pontua quem acerta no ar.",
+	{"id": "jumpingjack", "name": "Jumping Jack", "desc": "Only air hits score.",
 		"touches": 3, "stw": BV.DEFAULT_SCORE_TO_WIN, "two_ahead": true},
 ]
 
@@ -53,7 +53,16 @@ func on_serve() -> void:
 	is_game_running = false
 	rally = 0
 
+func at_match_point() -> bool:
+	var lb := int(rules.get("lead_by", 0))
+	if lb > 0:
+		return absi(scores[0] - scores[1]) >= lb - 1
+	return maxi(scores[0], scores[1]) >= score_to_win - 1
+
 func _is_winning(l: int, r: int) -> bool:
+	var lb := int(rules.get("lead_by", 0))
+	if lb > 0:
+		return absi(l - r) >= lb
 	if rules.two_ahead:
 		return (l >= score_to_win and l >= r + 2) or (r >= score_to_win and r >= l + 2)
 	return l >= score_to_win or r >= score_to_win

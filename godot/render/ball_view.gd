@@ -4,7 +4,8 @@ extends Node3D
 ## A bola é uma esfera com gomos e um brilho que pisca no toque. O achatamento
 ## na direção do impacto é o que faz o contato ter peso.
 
-const R := BV.BALL_RADIUS * Map.S
+var R := BV.BALL_RADIUS * Map.S
+var kind := "normal"
 
 var _mesh := MeshInstance3D.new()
 var _mat := StandardMaterial3D.new()
@@ -20,7 +21,9 @@ var _ring_mat := StandardMaterial3D.new()
 var _e := 0.0
 var _e_on := false
 
-func _init(shadows := true) -> void:
+func _init(shadows := true, radius := BV.BALL_RADIUS * Map.S, k := "normal") -> void:
+	R = radius
+	kind = k
 	var sm := SphereMesh.new()
 	sm.radius = R
 	sm.height = R * 2.0
@@ -31,6 +34,23 @@ func _init(shadows := true) -> void:
 	_mat.albedo_color = Color(1.0, 1.0, 1.0)
 	_mat.roughness = 0.22
 	_mat.metallic = 0.0
+	match kind:
+		"bowling":
+			_mat.albedo_texture = null
+			_mat.albedo_color = Color(0.12, 0.10, 0.16)
+			_mat.roughness = 0.12
+			_mat.metallic = 0.3
+		"balloon":
+			_mat.albedo_texture = null
+			_mat.albedo_color = Color(1.0, 0.45, 0.55)
+			_mat.roughness = 0.35
+		"pea":
+			_mat.albedo_texture = null
+			_mat.albedo_color = Color(0.45, 0.85, 0.30)
+			_mat.roughness = 0.5
+		"beach":
+			_mat.roughness = 0.4
+			_mat.albedo_color = Color(1.0, 0.9, 0.8)
 	_mat.clearcoat_enabled = true
 	_mat.clearcoat = 0.9
 	_mat.clearcoat_roughness = 0.12

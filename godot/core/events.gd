@@ -28,3 +28,4 @@ const DIVE_LAND := 23
 const BONK := 24
 const BLOCK := 25
 const BLOCK_MISS := 26
+const SMASH := 27

@@ -32,6 +32,12 @@ var _rally_pulse := 0.0
 var _rally_t := 0.0
 var _disc := [null, null]
 var pause_btn: Button
+var _bub: Control
+var _bub_t := 0.0
+var _bub_side := 1
+var _bub_pop := 0.0
+var sub_text := ""
+var _top: Control
 
 signal pause_pressed
 
@@ -47,6 +53,10 @@ func build(left: Color, right: Color) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	_top = Control.new()
+	_top.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_top)
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	panel.anchor_left = 0.5
@@ -56,7 +66,7 @@ func build(left: Color, right: Color) -> void:
 	panel.offset_top = 10
 	panel.add_theme_stylebox_override("panel", UiTheme.wood())
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(panel)
+	_top.add_child(panel)
 	var top := HBoxContainer.new()
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
 	top.add_theme_constant_override("separation", 14)
@@ -134,7 +144,7 @@ func build(left: Color, right: Color) -> void:
 	_info.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	_info.add_theme_constant_override("outline_size", 5)
 	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_info)
+	_top.add_child(_info)
 
 	_rally = Label.new()
 	_rally.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -149,7 +159,7 @@ func build(left: Color, right: Color) -> void:
 	_rally.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	_rally.add_theme_constant_override("outline_size", 6)
 	_rally.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_rally)
+	_top.add_child(_rally)
 
 	_big = Label.new()
 	_big.set_anchors_preset(Control.PRESET_CENTER)
@@ -162,7 +172,8 @@ func build(left: Color, right: Color) -> void:
 	_big.offset_top = -56
 	_big.offset_bottom = 56
 	_big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_big.add_theme_font_size_override("font_size", 58)
+	_big.add_theme_font_override("font", UiTheme.display_font(2))
+	_big.add_theme_font_size_override("font_size", 64)
 	_big.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.75))
 	_big.add_theme_constant_override("outline_size", 7)
 	_big.modulate.a = 0.0
@@ -183,14 +194,15 @@ func build(left: Color, right: Color) -> void:
 	_card.set_anchors_preset(Control.PRESET_CENTER)
 	_card.anchor_left = 0.5
 	_card.anchor_right = 0.5
-	_card.anchor_top = 0.76
-	_card.anchor_bottom = 0.76
+	_card.anchor_top = 0.87
+	_card.anchor_bottom = 0.87
 	_card.offset_left = -400
 	_card.offset_right = 400
 	_card.offset_top = -40
 	_card.offset_bottom = 40
 	_card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_card.add_theme_font_size_override("font_size", 46)
+	_card.add_theme_font_override("font", UiTheme.display_font(2))
+	_card.add_theme_font_size_override("font_size", 50)
 	_card.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.8))
 	_card.add_theme_constant_override("outline_size", 8)
 	_card.modulate.a = 0.0
@@ -201,6 +213,62 @@ func build(left: Color, right: Color) -> void:
 	_goo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_goo.draw.connect(_draw_goo)
 	add_child(_goo)
+	_bub = Control.new()
+	_bub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bub.draw.connect(_draw_bubble)
+	_bub.visible = false
+	add_child(_bub)
+
+## Balão de fala do adversário (ou do jogador): fica abaixo do placar, do lado
+## de quem fala. Desenhado à mão pra ter tamanho exato com quebra de linha.
+var _bub_text := ""
+var _bub_col := Color(0.1, 0.1, 0.12)
+var _bub_w := 300.0
+var _bub_font: Font
+const BUB_FS := 24
+const BUB_PAD := Vector2(22, 14)
+
+func bubble(text: String, side: int, col := Color(0.1, 0.1, 0.12), hold := 3.2) -> void:
+	if _bub_font == null:
+		_bub_font = UiTheme.font(0.6, 0)
+	_bub_text = text
+	_bub_col = col.darkened(0.5)
+	_bub_side = side
+	_bub_t = hold
+	_bub_pop = 1.0
+	_bub.visible = text != ""
+	_bub.modulate.a = 0.0
+	var w := clampf(size.x * 0.34, 280.0, 460.0)
+	var ts := _bub_font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, w - BUB_PAD.x * 2.0, BUB_FS)
+	_bub_w = minf(w, ts.x + BUB_PAD.x * 2.0)
+	_bub.size = Vector2(_bub_w, ts.y + BUB_PAD.y * 2.0 + 10.0)
+	_place_bubble()
+	_bub.queue_redraw()
+
+func _draw_bubble() -> void:
+	var sz := _bub.size
+	var body := Rect2(Vector2.ZERO, Vector2(sz.x, sz.y - 10.0))
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1, 1, 1, 0.95)
+	sb.set_corner_radius_all(18)
+	sb.shadow_color = Color(0, 0, 0, 0.3)
+	sb.shadow_size = 8
+	sb.shadow_offset = Vector2(0, 4)
+	_bub.draw_style_box(sb, body)
+	var tx := sz.x * (0.78 if _bub_side == 1 else 0.22)
+	_bub.draw_colored_polygon(PackedVector2Array([Vector2(tx - 10, body.size.y - 1), Vector2(tx + 10, body.size.y - 1), Vector2(tx + (6 if _bub_side == 1 else -6), sz.y)]), Color(1, 1, 1, 0.95))
+	_bub.draw_multiline_string(_bub_font, Vector2(BUB_PAD.x, BUB_PAD.y + BUB_FS * 0.8), _bub_text,
+		HORIZONTAL_ALIGNMENT_CENTER, sz.x - BUB_PAD.x * 2.0, BUB_FS, -1, _bub_col)
+
+func _place_bubble() -> void:
+	var w := _bub.size.x
+	var x := size.x * 0.05 if _bub_side == 0 else size.x * 0.95 - w
+	_bub.position = Vector2(x, 128.0)
+	_bub.pivot_offset = Vector2(w * (0.2 if _bub_side == 0 else 0.8), _bub.size.y)
+
+## Placar some na abertura; cartões e balões continuam visíveis.
+func top_alpha(a: float) -> void:
+	_top.modulate.a = a
 
 func card(text: String, color: Color, hold := 1.2) -> void:
 	_card.text = text
@@ -256,7 +324,7 @@ func update(m: BVMatch, dt: float) -> void:
 		_pulse[i] = maxf(0.0, _pulse[i] - dt * 3.0)
 		_score[i].scale = Vector2.ONE * (1.0 + _pulse[i] * 0.22)
 		_score[i].pivot_offset = _score[i].size * 0.5
-		var c: float = clampf(m.world.charge[i] / BV.SPECIAL_FULL, 0.0, 1.0)
+		var c: float = clampf(m.world.charge[m.world.lead(i)] / BV.SPECIAL_FULL, 0.0, 1.0)
 		_fill[i].offset_right = BAR_W * c
 		_fill[i].modulate.a = 0.55 + 0.45 * c
 		if c >= 1.0:
@@ -264,8 +332,8 @@ func update(m: BVMatch, dt: float) -> void:
 
 	var stw := g.score_to_win
 	var mp := maxi(g.scores[0], g.scores[1]) >= stw - 1 and g.winner == BV.NO_PLAYER
-	_info.text = "MATCH POINT" if mp else ("%s  vs  %s" % [names[0], names[1]] if names[0] != "" \
-		else "%s · até %d" % [g.rules.name, stw])
+	_info.text = "MATCH POINT" if mp else (sub_text if sub_text != "" else \
+		("%s  vs  %s" % [names[0], names[1]] if names[0] != "" else "First to %d" % stw))
 	_info.add_theme_color_override("font_color",
 		Color(1.0, 0.5, 0.35) if mp else Color(1, 1, 1, 0.78))
 
@@ -278,10 +346,10 @@ func update(m: BVMatch, dt: float) -> void:
 			var rec := g.rally > _rally_base
 			if rec and not _rally_rec:
 				_rally_rec = true
-				shout("NOVO RECORDE!", UiTheme.GOLD, 1.5)
+				shout("NEW RECORD!", UiTheme.GOLD, 1.5)
 			elif g.rally % 10 == 0:
 				shout("RALLY %d!" % g.rally, Color(1.0, 0.6, 0.3), 1.2)
-			_rally.text = ("RECORDE %d" if rec else "RALLY %d") % g.rally
+			_rally.text = ("RECORD %d" if rec else "RALLY %d") % g.rally
 			_rally_pulse = 1.0
 			_rally_t = 0.0 if _big_t > 0.0 else RALLY_HOLD
 			_rally.add_theme_color_override("font_color",
@@ -309,6 +377,15 @@ func update(m: BVMatch, dt: float) -> void:
 				keep.append(s)
 		_splats = keep
 		_goo.queue_redraw()
+	if _bub_t > 0.0:
+		_bub_t -= dt
+		_bub_pop = maxf(0.0, _bub_pop - dt * 6.0)
+		var e := _bub_pop * _bub_pop
+		_bub.modulate.a = clampf(minf(1.0, _bub_t * 3.0), 0.0, 1.0)
+		_bub.scale = Vector2.ONE * (0.6 + 0.4 * (1.0 - e))
+		_place_bubble()
+	elif _bub.visible:
+		_bub.visible = false
 	if _big_t > 0.0:
 		_big_t -= dt
 		_big_pop = maxf(0.0, _big_pop - dt * 5.0)
