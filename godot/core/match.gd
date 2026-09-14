@@ -5,7 +5,7 @@ extends RefCounted
 ## estado inteiro cabe em dois vetores e voltar no tempo é copiar dois vetores.
 
 const STATE_FLOATS := 26
-const STATE_INTS := 46
+const STATE_INTS := 58
 
 var world := PhysicWorld.new()
 var logic: GameLogic
@@ -124,6 +124,12 @@ func save(f: PackedFloat64Array, i: PackedInt32Array) -> void:
 	i[41] = w.ball_out
 	i[42] = w.prev_dive[0]; i[43] = w.prev_dive[1]
 	i[44] = w.hold[0]; i[45] = w.hold[1]
+	i[46] = w.dive_wind[0]; i[47] = w.dive_wind[1]
+	i[48] = w.dizzy[0]; i[49] = w.dizzy[1]
+	i[50] = w.block_t[0]; i[51] = w.block_t[1]
+	i[52] = w.block_cd[0]; i[53] = w.block_cd[1]
+	i[54] = w.hang[0]; i[55] = w.hang[1]
+	i[56] = w.prev_jump[0]; i[57] = w.prev_jump[1]
 
 func restore(f: PackedFloat64Array, i: PackedInt32Array) -> void:
 	var w := world
@@ -163,6 +169,12 @@ func restore(f: PackedFloat64Array, i: PackedInt32Array) -> void:
 	w.ball_out = i[41]
 	w.prev_dive[0] = i[42]; w.prev_dive[1] = i[43]
 	w.hold[0] = i[44]; w.hold[1] = i[45]
+	w.dive_wind[0] = i[46]; w.dive_wind[1] = i[47]
+	w.dizzy[0] = i[48]; w.dizzy[1] = i[49]
+	w.block_t[0] = i[50]; w.block_t[1] = i[51]
+	w.block_cd[0] = i[52]; w.block_cd[1] = i[53]
+	w.hang[0] = i[54]; w.hang[1] = i[55]
+	w.prev_jump[0] = i[56]; w.prev_jump[1] = i[57]
 	w.rally = g.rally
 	w.match_point = _at_match_point()
 

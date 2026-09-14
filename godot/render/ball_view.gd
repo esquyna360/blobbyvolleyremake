@@ -98,10 +98,15 @@ func _init(shadows := true) -> void:
 	add_child(_energy)
 
 ## Bola de energia: casca de plasma e anéis girando enquanto o especial vale.
-func energy(on: bool, col: Color) -> void:
+var _e_scale := 1.0
+var _e_off := Vector3.ZERO
+
+func energy(on: bool, col: Color, scale := 1.0, off := Vector3.ZERO) -> void:
 	_e_on = on
+	_e_scale = scale
+	_e_off = off
 	if on:
-		_shell_mat.set_shader_parameter("tint", Vector3(col.r, col.g, col.b) * 1.3)
+		_shell_mat.set_shader_parameter("tint", Vector3(col.r, col.g, col.b) * 1.0)
 		var rc := col.lightened(0.4)
 		_ring_mat.albedo_color = rc
 		_ring_mat.emission = rc
@@ -126,8 +131,9 @@ func update(x: float, y: float, rot: float, tilt: float, dt: float) -> void:
 	if _energy.visible:
 		var t := Time.get_ticks_msec() * 0.001
 		var pop := 1.0 + (1.0 - _e) * 0.9
-		_energy.scale = Vector3.ONE * (_e * pop * (1.0 + sin(t * 21.0) * 0.06))
-		_shell_mat.set_shader_parameter("power", 0.8 + _e * 1.2)
+		_energy.scale = Vector3.ONE * (_e * pop * _e_scale * (1.0 + sin(t * 21.0) * 0.06))
+		_energy.position = _e_off
+		_shell_mat.set_shader_parameter("power", 0.6 + _e * 0.6)
 		_rings[0].rotation = Vector3(t * 4.1, t * 2.7, 0.0)
 		_rings[1].rotation = Vector3(0.0, t * 3.3, t * 5.2 + 1.0)
 		_energy.rotation.z = -rot * 0.5

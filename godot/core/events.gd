@@ -24,3 +24,7 @@ const SPECIAL_WASTED := 19
 const APEX_HIT := 20
 const BALL_OUT := 21
 const SPECIAL_HOLD := 22
+const DIVE_LAND := 23
+const BONK := 24
+const BLOCK := 25
+const BLOCK_MISS := 26

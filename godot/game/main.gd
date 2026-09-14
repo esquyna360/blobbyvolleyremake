@@ -542,10 +542,14 @@ func _dev_shot() -> void:
 			game.bv.world.super_owner = 0
 		if every > 0 and i % every == 0 and i >= from:
 			await RenderingServer.frame_post_draw
-			get_viewport().get_texture().get_image().save_png(path.replace(".png", "_%03d.png" % n))
+			_shot_img().save_png(path.replace(".png", "_%03d.png" % n))
+			if game.bv != null:
+				print("cap %d super=%d hold=%d %d owner=%d win=%s" % [n, game.bv.world.super_frames,
+					game.bv.world.hold[0], game.bv.world.hold[1], game.bv.world.super_owner,
+					str(DisplayServer.window_get_size())])
 			n += 1
 	await RenderingServer.frame_post_draw
-	get_viewport().get_texture().get_image().save_png(path)
+	_shot_img().save_png(path)
 	if game.bv != null:
 		print("frame=%d placar=%d-%d rally=%d slow=%.2f" % [game.bv.frame,
 			game.bv.logic.scores[0], game.bv.logic.scores[1], game.bv.logic.rally,
@@ -601,3 +605,11 @@ func _dev_net() -> void:
 		mode, stop, game.rb.confirmed, cmp, "ok" if ok else "faltou",
 		game.bv.checksum(), game.bv.logic.scores[0], game.bv.logic.scores[1]])
 	get_tree().quit()
+
+
+func _shot_img() -> Image:
+	var img := get_viewport().get_texture().get_image()
+	var sz := img.get_size()
+	if sz.y != 720:
+		img.resize(int(round(sz.x * 720.0 / sz.y)), 720, Image.INTERPOLATE_BILINEAR)
+	return img

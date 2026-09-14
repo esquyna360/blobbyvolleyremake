@@ -52,14 +52,32 @@ static func _styles() -> Array:
 		{"id": "chama", "name": "Chama", "puffs": [], "tufts": [
 			[-24, 1.24, 0.19, 0.3], [-6, 1.66, 0.21, 0.26], [14, 1.4, 0.2, 0.34],
 			[34, 0.94, 0.17, 0.42]]},
+		{"id": "bone", "name": "Boné", "tufts": [], "puffs": [], "hat": [
+			["dome", 0.0, 0.72, 0.62, 0.0],
+			["disc", 0.58, 0.74, 0.50, 0.0, 0.06],
+			["puff", 0.0, 1.32, 0.09]]},
+		{"id": "chapeu", "name": "Chapéu de praia", "tufts": [], "puffs": [], "hat": [
+			["disc", 0.0, 0.70, 1.28, 0.0, 0.10],
+			["cyl", 0.0, 0.70, 0.62, 0.50],
+			["disc", 0.0, 1.20, 0.64, 0.0, 0.06],
+			["band", 0.0, 0.78, 0.66, 0.08]]},
+		{"id": "gorro", "name": "Gorro", "tufts": [], "puffs": [], "hat": [
+			["dome", 0.0, 0.66, 0.68, 0.0],
+			["band", 0.0, 0.62, 0.72, 0.16],
+			["puff", 0.0, 1.42, 0.2]]},
+		{"id": "coroa", "name": "Coroa", "tufts": [], "puffs": [], "hat": [
+			["cyl", 0.0, 0.72, 0.56, 0.3],
+			["spikes", 0.0, 1.02, 0.56, 0.3, 6]]},
+		{"id": "bandana", "name": "Bandana", "tufts": [[-96, 0.62, 0.11, -0.7], [-104, 0.5, 0.1, -0.45]], "puffs": [], "hat": [
+			["band", 0.0, 0.70, 0.70, 0.13]]},
 	]
 
 const BODY_COLORS := [
-	{"id": "rosa", "name": "Rosa", "hex": "#F58CB8"},
+	{"id": "rosa", "name": "Rosa", "hex": "#F07FBB"},
 	{"id": "lima", "name": "Lima", "hex": "#B8E05C"},
 	{"id": "coral", "name": "Coral", "hex": "#FF9A6B"},
 	{"id": "menta", "name": "Menta", "hex": "#6FD9A8"},
-	{"id": "lavanda", "name": "Lavanda", "hex": "#B49BF0"},
+	{"id": "lavanda", "name": "Lavanda", "hex": "#A47DFF"},
 	{"id": "creme", "name": "Creme", "hex": "#F0E2C0"},
 	{"id": "ciano", "name": "Ciano", "hex": "#63C8E8"},
 	{"id": "ambar", "name": "Âmbar", "hex": "#F5C451"},

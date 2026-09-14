@@ -19,6 +19,9 @@ var _ring_max := PackedFloat32Array()
 var _ring_from := PackedFloat32Array()
 var _ring_to := PackedFloat32Array()
 var _ring_next := 0
+var _goo: Array[GPUParticles3D] = []
+var _goo_next := 0
+const GOO_POOL := 6
 
 func _ready() -> void:
 	# some ao longo da vida: sem isso a partícula pisca fora de existência
@@ -61,6 +64,45 @@ func _ready() -> void:
 		add_child(p)
 		_pool.append(p)
 
+	var grow := Curve.new()
+	grow.add_point(Vector2(0.0, 0.55))
+	grow.add_point(Vector2(0.25, 1.0))
+	grow.add_point(Vector2(1.0, 0.15))
+	var grow_tex := CurveTexture.new()
+	grow_tex.curve = grow
+	for i in GOO_POOL:
+		var p := GPUParticles3D.new()
+		var pm := ParticleProcessMaterial.new()
+		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+		pm.emission_sphere_radius = 0.18
+		pm.gravity = Vector3(0, -11.0, 0)
+		pm.damping_min = 3.2
+		pm.damping_max = 5.0
+		pm.scale_min = 0.8
+		pm.scale_max = 1.3
+		pm.scale_curve = grow_tex
+		pm.alpha_curve = fade_tex
+		pm.particle_flag_align_y = true
+		p.process_material = pm
+		var qm := QuadMesh.new()
+		qm.size = Vector2(0.16, 0.30)
+		var sm := StandardMaterial3D.new()
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		sm.vertex_color_use_as_albedo = true
+		sm.disable_receive_shadows = true
+		sm.albedo_texture = _drop_tex()
+		sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		qm.material = sm
+		p.draw_pass_1 = qm
+		p.amount = 12
+		p.one_shot = true
+		p.explosiveness = 1.0
+		p.emitting = false
+		p.local_coords = false
+		add_child(p)
+		_goo.append(p)
+
 	var ring_mat := ShaderMaterial.new()
 	ring_mat.shader = load("res://render/ring.gdshader")
 	for i in RINGS:
@@ -82,7 +124,7 @@ func _ready() -> void:
 ## precisam de alpha normal, senão clareiam o cenário inteiro.
 func burst(pos: Vector3, count: int, speed: float, spread: float, up: float,
 		life: float, size: float, color: Color, drag := 2.4, jitter := 0.0,
-		glow := true) -> void:
+		glow := true, dir := Vector3.ZERO) -> void:
 	var n := int(count * quality)
 	if n < 4:
 		return
@@ -94,7 +136,8 @@ func burst(pos: Vector3, count: int, speed: float, spread: float, up: float,
 	pm.initial_velocity_min = speed * 0.45
 	pm.initial_velocity_max = speed
 	pm.spread = rad_to_deg(minf(spread, 3.1415)) * 0.5
-	pm.direction = Vector3(0, 1, 0) if up > 0.9 else Vector3(0, clampf(up, 0.05, 1.0), 0)
+	pm.direction = dir if dir != Vector3.ZERO \
+		else (Vector3(0, 1, 0) if up > 0.9 else Vector3(0, clampf(up, 0.05, 1.0), 0))
 	pm.gravity = Vector3(0, -5.5 * (1.0 - up * 0.4), 0)
 	pm.damping_min = drag * 0.6
 	pm.damping_max = drag
@@ -110,6 +153,40 @@ func burst(pos: Vector3, count: int, speed: float, spread: float, up: float,
 		pm.hue_variation_max = 0.0
 	p.lifetime = life
 	p.amount_ratio = clampf(float(n) / MAX_PARTICLES, 0.02, 1.0)
+	p.global_position = pos
+	p.restart()
+	p.emitting = true
+
+static var _drop: ImageTexture
+
+static func _drop_tex() -> ImageTexture:
+	if _drop != null:
+		return _drop
+	var n := 32
+	var img := Image.create(n, n * 2, false, Image.FORMAT_RGBA8)
+	for y in n * 2:
+		for x in n:
+			var u := (float(x) + 0.5) / n * 2.0 - 1.0
+			var v := (float(y) + 0.5) / (n * 2) * 2.0 - 1.0
+			var r := sqrt(u * u + (v * 1.15) * (v * 1.15) * (1.0 + 0.35 * v))
+			var a := clampf((0.92 - r) / 0.12, 0.0, 1.0)
+			var hl := clampf((0.35 - Vector2(u + 0.28, v + 0.35).length()) / 0.2, 0.0, 1.0) * 0.55
+			img.set_pixel(x, y, Color(1.0 + hl, 1.0 + hl, 1.0 + hl, a))
+	_drop = ImageTexture.create_from_image(img)
+	return _drop
+
+## Gosma: poucas gotas grandes, em arco, esticadas na direção do voo e freando.
+func goo_burst(pos: Vector3, dir: Vector3, color: Color, power := 1.0) -> void:
+	var p := _goo[_goo_next]
+	_goo_next = (_goo_next + 1) % GOO_POOL
+	var pm: ParticleProcessMaterial = p.process_material
+	pm.direction = (dir + Vector3(0, 0.55, 0)).normalized()
+	pm.spread = 38.0
+	pm.initial_velocity_min = 2.2 + 2.0 * power
+	pm.initial_velocity_max = 3.6 + 3.2 * power
+	pm.color = color
+	p.lifetime = 0.9
+	p.amount_ratio = clampf((6.0 + 4.0 * power) / 12.0, 0.5, 1.0)
 	p.global_position = pos
 	p.restart()
 	p.emitting = true

@@ -26,6 +26,7 @@ uniform float t = 0.0;
 uniform vec3 light_dir = vec3(-0.35, 0.80, 0.48);
 uniform vec3 rim_color : source_color = vec3(1.0, 0.85, 0.63);
 uniform float toon = 1.0;
+uniform float dizzy = 0.0;
 
 varying vec3 base_pos;
 
@@ -85,8 +86,19 @@ vec4 face_layer(vec3 p, out float face_zone) {
 
 		col = mix(col, line, rim);      a = max(a, rim);
 		col = mix(col, eye_col, me);    a = max(a, me);
-		col = mix(col, vec3(0.03, 0.03, 0.05), mp);
-		col = mix(col, vec3(1.0), mg);
+		if (dizzy > 0.01) {
+			vec2 sp = (uv - ec) / (0.22 * es);
+			float sr = length(sp);
+			float sa = atan(sp.y, sp.x) + t * 9.0 * side;
+			float spiral = 1.0 - smoothstep(0.10, 0.20, abs(fract(sr * 2.2 - sa / 6.2831) - 0.5));
+			float ms = spiral * step(sr, 1.0) * me;
+			col = mix(col, vec3(0.03, 0.03, 0.05), ms * dizzy);
+			col = mix(col, vec3(0.03, 0.03, 0.05), mp * (1.0 - dizzy));
+			col = mix(col, vec3(1.0), mg * (1.0 - dizzy));
+		} else {
+			col = mix(col, vec3(0.03, 0.03, 0.05), mp);
+			col = mix(col, vec3(1.0), mg);
+		}
 		col = mix(col, line, mb);       a = max(a, mb);
 
 		if (tear > 0.03) {

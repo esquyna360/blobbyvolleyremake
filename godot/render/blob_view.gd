@@ -30,6 +30,13 @@ var _hair := Hair3D.new()
 var _phase := 0.0
 var _lean := 0.0
 var _idle := 0.0
+var _sock := Vector3.ZERO
+var _sock_v := Vector3.ZERO
+var _dizzy := 0.0
+var charge_k := 0.0
+var recoil := 0.0
+var _land_hold := 0.0
+var dive_face := 0.0
 
 static var _shared_mesh: ArrayMesh
 
@@ -68,8 +75,8 @@ func pose(dt: float, time: float, tension := 0.0) -> void:
 	_mat.set_shader_parameter("squash", sq)
 	_mat.set_shader_parameter("wobble_amp", 0.0)
 	_mat.set_shader_parameter("eye_aim", Vector3(0.0, 0.08, 1.0).normalized())
-	_hair.position.y = HEAD_OFF * sq.y
-	_hair.scale = Vector3(sq.x * HEAD_R, sq.y * HEAD_R, sq.z * HEAD_R)
+	_hair.position.y = (HEAD_OFF + HEAD_R * 0.7) * sq.y - HEAD_R * 0.7
+	_hair.scale = Vector3.ONE * HEAD_R
 	rotation.z = sin(time * 0.9) * 0.03
 	face.update(dt, tension, false)
 	_mat.set_shader_parameter("blink", 0.08 + face.blink * 0.92)
@@ -78,6 +85,10 @@ func pose(dt: float, time: float, tension := 0.0) -> void:
 	_mat.set_shader_parameter("brow", face.brow)
 	_mat.set_shader_parameter("tear", face.tear)
 	_mat.set_shader_parameter("mouth", face.open)
+
+func dive_land() -> void:
+	_land_hold = 0.9
+	squash_vel -= 9.0
 
 func kick(w: float, sv: float) -> void:
 	wobble = maxf(wobble, w)
@@ -133,20 +144,28 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	if dive < 0.002:
 		dive = 0.0
 
+	var wind := w.dive_wind[i] > 0
 	var deform := squash_spring + air_stretch
-	var sy := 1.0 + deform - anim * 0.5 - cr * 0.34 - dive * 0.32 + breath
-	var sxz := 1.0 / sqrt(maxf(0.45, 1.0 + deform)) + anim * 0.45 + cr * 0.26 - breath * 0.6
-	var sq := Vector3(sxz + dive * 0.46, sy, sxz - dive * 0.1)
+	var ck := charge_k
+	var sy := 1.0 + deform - anim * 0.5 - cr * 0.34 - dive * 0.42 + breath - ck * 0.22 - (0.30 if wind else 0.0)
+	var sxz := 1.0 / sqrt(maxf(0.45, 1.0 + deform)) + anim * 0.45 + cr * 0.26 - breath * 0.6 + ck * 0.12 + (0.22 if wind else 0.0)
+	var sq := Vector3(sxz + dive * 0.72, sy, sxz - dive * 0.14)
 	spread = sxz
 	_mat.set_shader_parameter("squash", sq)
 
-	_hair.position.y = HEAD_OFF * sy
-	_hair.scale = Vector3(sq.x * HEAD_R, sq.y * HEAD_R, sq.z * HEAD_R)
+	# o acessório segue o topo do corpo com mola e atraso, mas nunca a escala
+	var want := Vector3(0.0, (HEAD_OFF + HEAD_R * 0.7) * sy - HEAD_R * 0.7, 0.0)
+	_sock_v += ((want - _sock) * 900.0 - _sock_v * 26.0) * dt
+	_sock += _sock_v * dt
+	_hair.position = _sock
+	_hair.scale = Vector3.ONE * HEAD_R
+	_hair.rotation.z = clampf(-_sock_v.y * 0.02, -0.35, 0.35)
 
 	# o achatamento encolhe em volta da origem: sem baixar, o blob agachado
 	# descola do chão em vez de afundar nele
+	recoil = maxf(0.0, recoil - dt * 4.0)
 	position = Vector3(
-		wx + w.dive_dir[i] * dive * 0.16,
+		wx + w.dive_dir[i] * dive * 0.16 - (1.0 if i == BV.LEFT else -1.0) * recoil * 0.35,
 		wy - cr * BV.CROUCH_DUCK * Map.S * (1.05 if grounded else 0.4) - dive * 0.22,
 		0.0)
 
@@ -162,6 +181,14 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	if w.stun[i] > 0:
 		rotation.z += sin(time * 9.5) * 0.24
 		wobble = maxf(wobble, 0.5 + sin(time * 17.0) * 0.22)
+	var dz := 1.0 if w.dizzy[i] > 0 else 0.0
+	_dizzy += (dz - _dizzy) * (1.0 - exp(-dt * (20.0 if dz > _dizzy else 5.0)))
+	if _dizzy > 0.01:
+		rotation.z += sin(time * 4.2) * 0.16 * _dizzy
+		rotation.y += sin(time * 3.1) * 0.22 * _dizzy
+	_mat.set_shader_parameter("dizzy", _dizzy)
+	_land_hold = maxf(0.0, _land_hold - dt)
+	dive_face = 1.0 if (w.dive_frames[i] > 0 or wind or _land_hold > 0.0) else 0.0
 
 	_mat.set_shader_parameter("wobble_amp", wobble)
 	_mat.set_shader_parameter("wobble_phase", _phase)
@@ -178,13 +205,13 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	_eye += (eye_want - _eye) * (1.0 - exp(-dt * 14.0))
 	_mat.set_shader_parameter("eye_scale", _eye)
 	_mat.set_shader_parameter("blink", 0.08 + face.blink * 0.92)
-	_mat.set_shader_parameter("lid", face.lid * (1.0 - _land_face * 0.55))
+	_mat.set_shader_parameter("lid", face.lid * (1.0 - _land_face * 0.55) * (1.0 - dive_face * 0.75) * (1.0 - _dizzy * 0.3))
 	_mat.set_shader_parameter("curve", face.curve)
 	_mat.set_shader_parameter("brow", face.brow)
 	_mat.set_shader_parameter("tear", face.tear)
 
 	mouth = maxf(0.0, mouth - dt * 3.2)
-	_mat.set_shader_parameter("mouth", maxf(maxf(mouth, face.open), _land_face * 0.7))
+	_mat.set_shader_parameter("mouth", maxf(maxf(maxf(mouth, face.open), _land_face * 0.7), dive_face * 0.95))
 
 	flash = maxf(0.0, flash - dt * 3.5)
 	_mat.set_shader_parameter("hit_flash", flash)

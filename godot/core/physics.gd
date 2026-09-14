@@ -29,6 +29,12 @@ var dive_frames := PackedInt32Array([0, 0])
 var dive_dir := PackedInt32Array([0, 0])
 var dive_cd := PackedInt32Array([0, 0])
 var dive_recover := PackedInt32Array([0, 0])
+var dive_wind := PackedInt32Array([0, 0])
+var dizzy := PackedInt32Array([0, 0])
+var block_t := PackedInt32Array([0, 0])
+var block_cd := PackedInt32Array([0, 0])
+var hang := PackedInt32Array([0, 0])
+var prev_jump := PackedInt32Array([0, 0])
 var rally := 0
 var tempo := 1.0
 var super_frames := 0
@@ -51,6 +57,7 @@ var ball_out := 0
 var match_point := false
 
 var _no_input := PlayerInput.new()
+var _land := PackedInt32Array([0, 0])
 
 func blob_hit_ground(p: int) -> bool:
 	return blob_y[p] >= BV.GROUND_PLANE_HEIGHT
@@ -70,6 +77,12 @@ func wide_x(p: int) -> float:
 
 func diving(p: int) -> bool:
 	return dive_frames[p] > 0
+
+func blocking(p: int) -> bool:
+	return block_t[p] > 0
+
+func over_net(p: int) -> bool:
+	return not blob_hit_ground(p) and upper_y(p) - upper_r(p) < BV.NET_SPHERE_POSITION + 18.0
 
 func _comeback(p: int) -> float:
 	var diff := float(scores[BV.RIGHT if p == BV.LEFT else BV.LEFT] - scores[p])
@@ -266,8 +279,8 @@ func _push_out(p: int, cy: float, dx: float, dy: float, l: float, r: float) -> v
 	ball_y = cy + (dy / k) * need
 
 func _dive_press(p: int) -> bool:
-	return stun[p] == 0 and dive_cd[p] == 0 \
-		and dive_frames[p] == 0 and dive_recover[p] == 0
+	return stun[p] == 0 and dizzy[p] == 0 and dive_cd[p] == 0 \
+		and dive_frames[p] == 0 and dive_recover[p] == 0 and dive_wind[p] == 0
 
 func _try_dive(p: int, raw: PlayerInput, out: EventBuf) -> void:
 	if not raw.dive or prev_dive[p] != 0:
@@ -279,14 +292,67 @@ func _try_dive(p: int, raw: PlayerInput, out: EventBuf) -> void:
 		dir = 1 if raw.right else -1
 	else:
 		dir = 1 if p == BV.LEFT else -1
-	var ground := blob_hit_ground(p)
-
-	dive_frames[p] = BV.DIVE_FRAMES
 	dive_dir[p] = dir
 	dive_cd[p] = BV.DIVE_CD
-	blob_vx[p] = dir * BV.DIVE_SPEED * tempo
-	blob_vy[p] = BV.DIVE_HOP * tempo if ground else maxf(blob_vy[p], BV.DIVE_HOP * tempo)
+	dive_wind[p] = BV.DIVE_WINDUP
 	out.push(Ev.DIVE, p, 0.0)
+
+func _dive_launch(p: int) -> void:
+	var ground := blob_hit_ground(p)
+	dive_frames[p] = BV.DIVE_FRAMES
+	blob_vx[p] = dive_dir[p] * BV.DIVE_SPEED * tempo
+	blob_vy[p] = BV.DIVE_HOP * tempo if ground else maxf(blob_vy[p], BV.DIVE_HOP * tempo)
+
+func _bonk(p: int, out: EventBuf) -> void:
+	if dizzy[p] > 0:
+		return
+	dive_frames[p] = 0
+	dive_recover[p] = BV.DIVE_RECOVER
+	dizzy[p] = BV.BONK_FRAMES
+	blob_vx[p] = -dive_dir[p] * BV.BONK_BOUNCE
+	if blob_vy[p] > 0.0:
+		blob_vy[p] = -1.4
+	out.push(Ev.BONK, p, 0.0)
+
+## Bloqueio: no ar, colado na rede, com a cabeça acima da fita. Janela curta;
+## se a bola cruza a rede dentro dela, volta forte. Se não, o blob paira e cai
+## devagar, exposto.
+func _try_block(p: int, raw: PlayerInput, out: EventBuf) -> bool:
+	if block_t[p] > 0:
+		block_t[p] -= 1
+		if block_t[p] == 0 and hang[p] == 0:
+			hang[p] = BV.BLOCK_HANG
+			out.push(Ev.BLOCK_MISS, p, 0.0)
+	if block_cd[p] > 0:
+		block_cd[p] -= 1
+	if hang[p] > 0:
+		hang[p] -= 1
+		if blob_hit_ground(p):
+			hang[p] = 0
+	var near := absf(blob_x[p] - BV.NET_POSITION_X) < BV.BLOCK_REACH
+	if block_t[p] == 0 and block_cd[p] == 0 and hang[p] == 0 and near and over_net(p) \
+			and stun[p] == 0 and dizzy[p] == 0 and dive_frames[p] == 0 \
+			and raw.up and prev_jump[p] == 0 and absf(blob_vy[p]) < 4.0:
+		block_t[p] = BV.BLOCK_WINDOW
+		block_cd[p] = BV.BLOCK_WINDOW + BV.BLOCK_HANG + 20
+		out.push(Ev.BLOCK, p, 0.0)
+	if block_t[p] == 0:
+		return false
+	var toward := (ball_vx > 0.0) if p == BV.RIGHT else (ball_vx < 0.0)
+	var dx := ball_x - blob_x[p]
+	var dy := ball_y - (upper_y(p) - upper_r(p) * 0.3)
+	if toward and dx * dx + dy * dy < (upper_r(p) + BV.BALL_RADIUS + 8.0) * (upper_r(p) + BV.BALL_RADIUS + 8.0):
+		var dir := -1.0 if p == BV.RIGHT else 1.0
+		ball_vx = dir * BV.BLOCK_SPEED * tempo
+		ball_vy = -3.0 * tempo
+		ball_spin = 0.0
+		ball_x = blob_x[p] + dir * (upper_r(p) + BV.BALL_RADIUS + 2.0)
+		block_t[p] = 0
+		hang[p] = 0
+		out.push(Ev.BALL_HIT_BLOB, p, 1.0)
+		out.push(Ev.DIVE_HIT, p, 1.0)
+		return true
+	return false
 
 func _try_special(p: int, raw: PlayerInput, is_ball_valid: bool, was_ground: bool, out: EventBuf) -> void:
 	if not is_ball_valid or stun[p] > 0:
@@ -412,6 +478,20 @@ func _handle_blob(p: int, inp: PlayerInput) -> void:
 	if (inp.left or inp.right) and ground:
 		_start_anim(p)
 	g *= t2
+	if hang[p] > 0 and blob_vy[p] > 0.0:
+		g *= BV.BLOCK_HANG_G
+
+	if dive_wind[p] > 0:
+		dive_wind[p] -= 1
+		blob_vx[p] = 0.0
+		if dive_wind[p] == 0:
+			_dive_launch(p)
+		blob_y[p] += 0.5 * g + blob_vy[p]
+		blob_vy[p] += g
+		if blob_y[p] >= BV.GROUND_PLANE_HEIGHT:
+			blob_y[p] = BV.GROUND_PLANE_HEIGHT
+			blob_vy[p] = 0.0
+		return
 
 	if dive_frames[p] > 0:
 		blob_x[p] += blob_vx[p] + knock[p]
@@ -427,6 +507,7 @@ func _handle_blob(p: int, inp: PlayerInput) -> void:
 			dive_frames[p] = 0
 			dive_recover[p] = BV.DIVE_RECOVER
 			blob_vx[p] *= BV.DIVE_SLIDE_KEEP
+			_land[p] = 1
 		return
 
 	var stuck := dive_recover[p] > 0
@@ -606,6 +687,10 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 		dive_recover[BV.LEFT] -= 1
 	if dive_recover[BV.RIGHT] > 0:
 		dive_recover[BV.RIGHT] -= 1
+	if dizzy[BV.LEFT] > 0:
+		dizzy[BV.LEFT] -= 1
+	if dizzy[BV.RIGHT] > 0:
+		dizzy[BV.RIGHT] -= 1
 	if parry_active[BV.LEFT] > 0:
 		parry_active[BV.LEFT] -= 1
 	if parry_active[BV.RIGHT] > 0:
@@ -623,8 +708,8 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	if dig_active[BV.RIGHT] > 0:
 		dig_active[BV.RIGHT] -= 1
 
-	var el := _no_input if stun[BV.LEFT] > 0 else li
-	var er := _no_input if stun[BV.RIGHT] > 0 else ri
+	var el := _no_input if stun[BV.LEFT] > 0 or dizzy[BV.LEFT] > 0 else li
+	var er := _no_input if stun[BV.RIGHT] > 0 or dizzy[BV.RIGHT] > 0 else ri
 	var ground_l := blob_hit_ground(BV.LEFT)
 	var ground_r := blob_hit_ground(BV.RIGHT)
 
@@ -632,6 +717,10 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	_try_crouch(BV.RIGHT, ri)
 	_handle_blob(BV.LEFT, el)
 	_handle_blob(BV.RIGHT, er)
+	for p in 2:
+		if _land[p] == 1:
+			_land[p] = 0
+			out.push(Ev.DIVE_LAND, p, 0.0)
 
 	_hold_step(BV.LEFT, li, out)
 	_hold_step(BV.RIGHT, ri, out)
@@ -664,10 +753,10 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	if is_ball_valid and not is_holding:
 		_try_parry(BV.LEFT, li, out)
 		_try_parry(BV.RIGHT, ri, out)
-		if not _try_dig(BV.LEFT, out):
+		if not _try_block(BV.LEFT, el, out) and not _try_dig(BV.LEFT, out):
 			_handle_blob_ball_collision(BV.LEFT, out)
 		if not solo:
-			if not _try_dig(BV.RIGHT, out):
+			if not _try_block(BV.RIGHT, er, out) and not _try_dig(BV.RIGHT, out):
 				_handle_blob_ball_collision(BV.RIGHT, out)
 
 	_try_special(BV.LEFT, li, is_ball_valid and not is_holding, ground_l, out)
@@ -680,19 +769,33 @@ func step(li: PlayerInput, ri: PlayerInput, is_ball_valid: bool, is_game_running
 	prev_down[BV.RIGHT] = 1 if ri.down else 0
 	prev_dive[BV.LEFT] = 1 if li.dive else 0
 	prev_dive[BV.RIGHT] = 1 if ri.dive else 0
+	prev_jump[BV.LEFT] = 1 if el.up else 0
+	prev_jump[BV.RIGHT] = 1 if er.up else 0
 
 	if not is_holding:
 		_handle_ball_world_collisions(out)
 
-	if blob_x[BV.LEFT] + BV.BLOBBY_LOWER_RADIUS > BV.NET_POSITION_X - BV.NET_RADIUS:
-		blob_x[BV.LEFT] = BV.NET_POSITION_X - BV.NET_RADIUS - BV.BLOBBY_LOWER_RADIUS
-	if blob_x[BV.RIGHT] - BV.BLOBBY_LOWER_RADIUS < BV.NET_POSITION_X + BV.NET_RADIUS:
-		blob_x[BV.RIGHT] = BV.NET_POSITION_X + BV.NET_RADIUS + BV.BLOBBY_LOWER_RADIUS
+	var over_l := BV.BLOCK_OVER if over_net(BV.LEFT) else 0.0
+	var over_r := BV.BLOCK_OVER if over_net(BV.RIGHT) else 0.0
+	var fast_l := (dive_frames[BV.LEFT] > 0 or dive_recover[BV.LEFT] > 0) and absf(blob_vx[BV.LEFT]) > BV.BONK_SPEED
+	var fast_r := (dive_frames[BV.RIGHT] > 0 or dive_recover[BV.RIGHT] > 0) and absf(blob_vx[BV.RIGHT]) > BV.BONK_SPEED
+	if blob_x[BV.LEFT] + BV.BLOBBY_LOWER_RADIUS - over_l > BV.NET_POSITION_X - BV.NET_RADIUS:
+		blob_x[BV.LEFT] = BV.NET_POSITION_X - BV.NET_RADIUS - BV.BLOBBY_LOWER_RADIUS + over_l
+		if fast_l and blob_vx[BV.LEFT] > 0.0:
+			_bonk(BV.LEFT, out)
+	if blob_x[BV.RIGHT] - BV.BLOBBY_LOWER_RADIUS + over_r < BV.NET_POSITION_X + BV.NET_RADIUS:
+		blob_x[BV.RIGHT] = BV.NET_POSITION_X + BV.NET_RADIUS + BV.BLOBBY_LOWER_RADIUS - over_r
+		if fast_r and blob_vx[BV.RIGHT] < 0.0:
+			_bonk(BV.RIGHT, out)
 	var outer := 0.0 if walls else BV.OPEN_MARGIN
 	if blob_x[BV.LEFT] < BV.LEFT_PLANE - outer:
 		blob_x[BV.LEFT] = BV.LEFT_PLANE - outer
+		if walls and fast_l and blob_vx[BV.LEFT] < 0.0:
+			_bonk(BV.LEFT, out)
 	if blob_x[BV.RIGHT] > BV.RIGHT_PLANE + outer:
 		blob_x[BV.RIGHT] = BV.RIGHT_PLANE + outer
+		if walls and fast_r and blob_vx[BV.RIGHT] > 0.0:
+			_bonk(BV.RIGHT, out)
 
 	var speed := sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
 	if not is_game_running:

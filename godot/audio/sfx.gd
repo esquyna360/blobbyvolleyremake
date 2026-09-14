@@ -249,6 +249,19 @@ static func bank() -> Dictionary:
 	bell(b, 0.02, 1245, 0.34, 0.1)
 	out["dive_hit"] = _wav(b)
 
+	b = Buf.new(0.8)
+	thump(b, 0, 120, 0.4, 0.08, 0.3, "sine")
+	burst(b, 0, 0.06, 0.2, "lowpass", 900, 0.5)
+	for k in 5:
+		var f := 520.0 * pow(0.82, k)
+		bell(b, 0.05 + k * 0.15, f, 0.14, 0.13 * pow(0.8, k))
+	out["bonk"] = _wav(b)
+
+	b = Buf.new(0.3)
+	burst(b, 0, 0.12, 0.2, "bandpass", 1600, 1.2)
+	thump(b, 0, 300, 1.8, 0.1, 0.12, "triangle")
+	out["block"] = _wav(b)
+
 	b = Buf.new(0.5)
 	thump(b, 0, 430, 1.4, 0.07, 0.12, "triangle")
 	bell(b, 0, 2093, 0.4, 0.1)

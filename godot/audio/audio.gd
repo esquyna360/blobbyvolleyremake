@@ -33,6 +33,8 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_buses()
 	_bank = Sfx.bank()
+	for k in _bank:
+		_register(_bank[k])
 	for i in POOL:
 		var p := AudioStreamPlayer.new()
 		p.bus = "Sfx"
@@ -42,6 +44,15 @@ func _ready() -> void:
 	_full = _music_player()
 	_load_vol()
 	_apply_vol()
+
+
+## Web sem threads toca em modo "samples": stream criado em runtime só sai
+## se for registrado. Fora do web a chamada não faz nada.
+static func _register(s: AudioStream) -> void:
+	if s == null or not OS.has_feature("web"):
+		return
+	if not AudioServer.is_stream_registered_as_sample(s):
+		AudioServer.register_stream_as_sample(s)
 
 
 func _music_player() -> AudioStreamPlayer:
@@ -121,6 +132,8 @@ func set_song(id: String) -> void:
 	a.loop = true
 	if b != null:
 		b.loop = true
+	_register(a)
+	_register(b)
 	_base.stream = a
 	_full.stream = b if b != null else a
 	_base.play()
@@ -221,6 +234,12 @@ func on_event(kind: int, side: int, intensity: float, w: PhysicWorld,
 			play("dive", 0.9)
 		Ev.DIVE_HIT:
 			play("dive_hit")
+		Ev.BONK:
+			play("bonk", 1.0)
+		Ev.BLOCK:
+			play("block", 0.7)
+		Ev.DIVE_LAND:
+			play("hit_ground", 0.35, 0.8)
 		Ev.APEX_HIT:
 			play("apex")
 		Ev.SPECIAL_WASTED:
