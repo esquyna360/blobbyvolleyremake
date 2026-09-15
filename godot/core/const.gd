@@ -76,12 +76,16 @@ const PARRY_CHAIN_MAX := 4
 
 ## Ataque no ar: aperta o pulo de novo e o blob gira. Sem bola perto, nao
 ## acontece nada -- e so a animacao, e o giro nao repete no mesmo pulo.
-const SPIN_FRAMES := 14
-const SPIN_REACH := 78.0
+const SPIN_FRAMES := 12
+const SPIN_REACH := 94.0
 
 ## O giro só pega o que está à frente ou acima: bola atrás das costas passava
 ## porque a bolha do golpe era redonda e enorme.
 const SPIN_FRONT_MIN := -0.2
+
+## Bola em cima da cabeça não é cortada: o giro passa por baixo dela. O toque
+## normal assume e a bola sobe -- cortar dali saía de lugar nenhum.
+const SPIN_TOP_NY := -0.72
 const SPIN_V := BALL_COLLISION_VELOCITY * 1.74
 const SPIN_GAIN := 0.075
 const SPIN_LOCK := 255

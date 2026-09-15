@@ -371,6 +371,9 @@ func _spin_hit(p: int, out: EventBuf) -> bool:
 		l = sqrt(dx * dx + dy * dy)
 	elif (dx / l) * dir_of(p) < BV.SPIN_FRONT_MIN and dy / l > -0.6:
 		return false
+	if l > 0.001 and dy / l <= BV.SPIN_TOP_NY:
+		spin_t[p] = 0
+		return false
 	spin_t[p] = 0
 	hit_cd[p] = 10
 	_bump_tempo()

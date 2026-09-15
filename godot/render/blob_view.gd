@@ -169,9 +169,9 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 
 	# giro no ar: o corpo vira um pião e estica na vertical
 	var sp := 1.0 if w.spin_t[i] > 0 else 0.0
-	_spin_k += (sp - _spin_k) * (1.0 - exp(-dt * (26.0 if sp > _spin_k else 12.0)))
+	_spin_k += (sp - _spin_k) * (1.0 - exp(-dt * (26.0 if sp > _spin_k else 24.0)))
 	if sp > 0.0:
-		_spin_roll += dt * TAU * 5.5
+		_spin_roll += dt * TAU * 3.8
 	elif _spin_k < 0.02:
 		_spin_roll = 0.0
 	_mat.set_shader_parameter("twist", _spin_k)
@@ -186,8 +186,8 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	var ck := charge_k
 	var sy := 1.0 + deform - anim * 0.5 - cr * 0.34 - dive * 0.42 + breath - ck * 0.22 - (0.30 if wind else 0.0)
 	var sxz := 1.0 / sqrt(maxf(0.45, 1.0 + deform)) + anim * 0.45 + cr * 0.26 - breath * 0.6 + ck * 0.12 + (0.22 if wind else 0.0)
-	sy += _spin_k * 0.16 - _down * 0.12
-	sxz += -_spin_k * 0.07 + _down * 0.10
+	sy += _spin_k * 0.09 - _down * 0.12
+	sxz += -_spin_k * 0.04 + _down * 0.10
 	var sq := Vector3(sxz + dive * 0.72, sy, sxz - dive * 0.14)
 	spread = sxz
 	sq_now = sq

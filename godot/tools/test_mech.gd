@@ -128,8 +128,8 @@ func _init() -> void:
 		fails += 1
 	# 9. giro no ar: segundo toque no pulo vira ataque e a bola sai forte
 	w = PhysicWorld.new()
-	w.ball_x = w.blob_x[0] + 30.0
-	w.ball_y = 300.0
+	w.ball_x = w.blob_x[0] + 50.0
+	w.ball_y = 345.0
 	w.ball_vy = 0.0
 	seen = _run(w, 40, func(f): return _inp(false, false, f < 2 or (f > 8 and f < 11)),
 		func(_f): return _inp())
@@ -251,13 +251,13 @@ func _init() -> void:
 	print("parry quente=", _has(seen, Ev.PARRY, 1), " vy=", w.ball_vy, " stun=", w.stun[1])
 	if _has(seen, Ev.PARRY, 1) < 0 or w.ball_vy >= -8.0 or w.stun[1] > 0:
 		fails += 1
-	# 18. giro pra cima vira parabola em vez de foguete
+	# 18. giro na bola um pouco acima vira parabola em vez de foguete
 	w = PhysicWorld.new()
 	w.blob_y[0] = 300.0
 	w.blob_vy[0] = 1.0
 	w.spin_t[0] = 10
-	w.ball_x = w.blob_x[0] + 30.0
-	w.ball_y = w.upper_y(0) - 60.0
+	w.ball_x = w.blob_x[0] + 50.0
+	w.ball_y = w.upper_y(0) - 20.0
 	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
 	print("giro: vy=", w.ball_vy, " vx=", w.ball_vx)
 	if _has(seen, Ev.SPIN_HIT, 0) < 0 or w.ball_vy < -16.0 or w.ball_vx <= 0.0:
@@ -281,6 +281,18 @@ func _init() -> void:
 	var atras := _has(seen, Ev.SPIN_HIT, 0)
 	print("giro longe=", longe, " giro atras=", atras)
 	if longe >= 0 or atras >= 0:
+		fails += 1
+	# 18c. bola em cima da cabeca nao vira cortada: o giro passa e a bola sobe
+	w = PhysicWorld.new()
+	w.blob_y[0] = 300.0
+	w.blob_vy[0] = 1.0
+	w.spin_t[0] = 10
+	w.ball_x = w.blob_x[0] + 4.0
+	w.ball_y = w.upper_y(0) - w.upper_r(0) * 0.95
+	w.ball_vy = 1.0
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	print("giro por baixo: acerto=", _has(seen, Ev.SPIN_HIT, 0), " vy=", w.ball_vy)
+	if _has(seen, Ev.SPIN_HIT, 0) >= 0 or w.ball_vy >= 0.0:
 		fails += 1
 	# 19. toque na diagonal frente/topo: parabola rapida pro fundo do outro lado
 	w = PhysicWorld.new()
