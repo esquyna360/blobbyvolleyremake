@@ -15,7 +15,12 @@ const QUALS := ["Low", "Medium", "High", "Ultra"]
 const MUTED := Color(1, 1, 1, 0.55)
 const COL_W := 620.0
 const COL_W_C := 430.0
-const VERSION := "0.5"
+## A versão mora no project.godot e sai daqui direto: assim o número do menu
+## nunca fica diferente do número do build.
+static func version_line() -> String:
+	var v := str(ProjectSettings.get_setting("application/config/version", "?"))
+	var d := str(ProjectSettings.get_setting("application/config/build_date", ""))
+	return "v%s" % v if d == "" else "v%s  ·  %s" % [v, d]
 
 var settings: Settings
 
@@ -128,7 +133,7 @@ func build(s: Settings) -> void:
 	_foot_l.offset_right = -64
 	_foot_l.offset_bottom = -18
 	add_child(_foot_l)
-	_foot_r = UiTheme.eyebrow("BLORP  ·  " + VERSION, MUTED, 12)
+	_foot_r = UiTheme.eyebrow(version_line(), Color(0.86, 0.80, 0.62, 0.85), 13)
 	_foot_r.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_foot_r.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_foot_r.offset_left = -600
