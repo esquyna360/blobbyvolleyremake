@@ -92,6 +92,7 @@ body {
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
+<link rel="manifest" href="index.manifest.json">
 
 	</head>
 	<body>
@@ -111,7 +112,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":4607020,"index.wasm":37013224},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":4607020,"index.wasm":37013224},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"serviceWorker":"index.service.worker.js"};
 const GODOT_THREADS_ENABLED = true;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -178,10 +179,14 @@ const engine = new Engine(GODOT_CONFIG);
 			Promise.race([
 				serviceWorkerRegistrationPromise.then((registration) => {
 					if (registration != null) {
-						return Promise.reject(new Error('Service worker already exists.'));
+						if (sessionStorage.getItem('blorp_sw_retry')) {
+							return Promise.reject(new Error('Service worker already exists.'));
+						}
+						sessionStorage.setItem('blorp_sw_retry', '1');
+						return registration.update().catch(() => null);
 					}
-					return registration;
-				}).then(() => engine.installServiceWorker()),
+					return engine.installServiceWorker();
+				}),
 				// For some reason, `getRegistration()` can stall
 				new Promise((resolve) => {
 					setTimeout(() => resolve(), 2000);
@@ -215,7 +220,6 @@ const engine = new Engine(GODOT_CONFIG);
 	}
 }());
 		</script>
-	<script>if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister()})});if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){caches.delete(k)})})}}</script>
-</body>
+	</body>
 </html>
 
