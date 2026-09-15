@@ -156,6 +156,18 @@ const DIVE_TIME_STEP := 3.0
 const DIVE_TIME_STEPS := 26
 const DIVE_GAIN := 0.05
 
+## Toque na diagonal entre a frente e o topo do blob: em vez de devolver a bola
+## na direção do contato, ela sai numa parábola rápida para o fundo do outro
+## lado. É o ataque de posição, sem botão.
+const ATTACK_FRONT_MIN := 0.26
+const ATTACK_FRONT_MAX := 0.94
+const ATTACK_V := BALL_COLLISION_VELOCITY * 2.15
+const ATTACK_TARGET_DEPTH := 0.80
+const ATTACK_NET_CLEARANCE := 14.0
+const ATTACK_TIME_MIN := 11.0
+const ATTACK_TIME_STEP := 1.0
+const ATTACK_TIME_STEPS := 30
+
 const SPECIAL_GAIN_LOST := 0.15
 const SPECIAL_RALLY_HOT := 10
 const SPECIAL_RALLY_MUL := 2.0

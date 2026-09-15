@@ -194,7 +194,7 @@ func _play_campaign(n: int) -> void:
 	_foe = info.nation
 	var p := Campaign.params(level)
 	var k: float = info.skill
-	var tier := "easy" if k < 1.0 else ("normal" if k < 2.0 else ("hard" if k < 3.0 else "insane"))
+	var tier := "chill" if k < 0.9 else ("easy" if k < 1.8 else ("normal" if k < 2.7 else ("hard" if k < 3.4 else "insane")))
 	var foe_look := Campaign.look_of(_foe)
 	game.start(p, settings.quality, Game.Source.LOCAL_SOLO, Game.Source.BOT, tier,
 		[settings.look, foe_look])
@@ -223,7 +223,7 @@ func _play_versus(stw: int) -> void:
 		Game.Source.BOT if cpu else Game.Source.LOCAL_P2,
 		settings.versus_diff if cpu else "normal", lk)
 	if cpu:
-		var sk: float = {"easy": 0.8, "normal": 1.6, "hard": 2.6, "insane": 3.4}.get(settings.versus_diff, 1.6)
+		var sk: float = {"easy": 0.35, "normal": 1.6, "hard": 2.7, "insane": 3.6}.get(settings.versus_diff, 1.6)
 		for bt in game.bots:
 			if bt != null:
 				bt.set_skill(sk)

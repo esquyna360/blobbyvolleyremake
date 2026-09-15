@@ -4,7 +4,7 @@
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = '1789446911|1837416';
+const CACHE_VERSION = '1789482705|1849472';
 /** @type {string} */
 const CACHE_PREFIX = 'BLORP-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;

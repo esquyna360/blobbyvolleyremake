@@ -250,5 +250,33 @@ func _init() -> void:
 	print("giro: vy=", w.ball_vy, " vx=", w.ball_vx)
 	if _has(seen, Ev.SPIN_HIT, 0) < 0 or w.ball_vy < -16.0 or w.ball_vx <= 0.0:
 		fails += 1
+	# 19. toque na diagonal frente/topo: parabola rapida pro fundo do outro lado
+	w = PhysicWorld.new()
+	w.blob_y[0] = 300.0
+	w.ball_x = w.blob_x[0] + w.upper_r(0) * 0.9
+	w.ball_y = w.upper_y(0) - w.upper_r(0) * 0.5
+	w.ball_vy = 1.0
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	var land := w.ball_x
+	var lvy := w.ball_vy
+	var lvx := w.ball_vx
+	for i in 240:
+		land += lvx
+		lvy += BV.BALL_GRAVITATION
+		if land > w.net_x and lvy > 0.0 and w.ball_y + i * 2.0 > BV.GROUND_PLANE_HEIGHT_MAX:
+			break
+	print("ataque: vx=", lvx, " vy=", w.ball_vy, " smash=", _has(seen, Ev.SMASH, 0))
+	if _has(seen, Ev.SMASH, 0) < 0 or w.ball_vx <= 0.0 or w.ball_vy > -2.0:
+		fails += 1
+	# 19b. toque por baixo continua toque normal
+	w = PhysicWorld.new()
+	w.blob_y[0] = 300.0
+	w.ball_x = w.blob_x[0] + 1.0
+	w.ball_y = w.upper_y(0) - w.upper_r(0) * 1.2
+	w.ball_vy = 1.0
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	print("toque alto e reto: smash=", _has(seen, Ev.SMASH, 0))
+	if _has(seen, Ev.SMASH, 0) >= 0:
+		fails += 1
 	print("FAILS=", fails)
 	quit(1 if fails > 0 else 0)

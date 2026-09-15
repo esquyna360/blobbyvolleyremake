@@ -28,8 +28,10 @@ var JUMP_V := BV.BLOBBY_JUMP_ACCELERATION
 var _cfg := false
 
 const PARAMS := {
-	"easy": {"reaction": 12, "horizon": 30, "aim_err": 42.0, "shot_err": 0.8, "speed": 0.7,
-		"attack": 0.05, "parry": 0.1, "offsets": 6, "clear": 30.0, "foe_lead": 0.0},
+	"chill": {"reaction": 22, "horizon": 16, "aim_err": 72.0, "shot_err": 1.0, "speed": 0.52,
+		"attack": 0.0, "parry": 0.0, "offsets": 3, "clear": 36.0, "foe_lead": 0.0},
+	"easy": {"reaction": 15, "horizon": 26, "aim_err": 52.0, "shot_err": 0.9, "speed": 0.66,
+		"attack": 0.03, "parry": 0.05, "offsets": 5, "clear": 32.0, "foe_lead": 0.0},
 	"normal": {"reaction": 6, "horizon": 62, "aim_err": 22.0, "shot_err": 0.42, "speed": 0.92,
 		"attack": 0.32, "parry": 0.34, "offsets": 9, "clear": 26.0, "foe_lead": 0.0},
 	"hard": {"reaction": 3, "horizon": 125, "aim_err": 8.0, "shot_err": 0.12, "speed": 1.0,
@@ -131,24 +133,19 @@ func _init(s: int, d := "normal", seed := 12345, idx := -1) -> void:
 	_ay.resize(HORIZON + 2)
 	_clear_plan()
 
-## Habilidade contínua: 0 = easy, 1 = normal, 2 = hard, 3 = insane, e acima
-## de 3 continua apertando reação e erro até o limite.
+## Habilidade contínua de 0 a 3.6, um degrau a cada 0.9: 0 = chill, 0.9 = easy,
+## 1.8 = normal, 2.7 = hard, 3.6 = insane.
 func set_skill(k: float) -> void:
-	var tiers := ["easy", "normal", "hard", "insane"]
+	var tiers := ["chill", "easy", "normal", "hard", "insane"]
 	var kk := clampf(k, 0.0, 3.6)
-	var i := mini(2, int(floor(kk)))
-	var t := kk - i
+	var f := kk / 0.9
+	var i := mini(3, int(floor(f)))
+	var t := f - i
 	var a: Dictionary = PARAMS[tiers[i]]
 	var b: Dictionary = PARAMS[tiers[i + 1]]
 	var out := {}
 	for key in a:
 		out[key] = lerpf(float(a[key]), float(b[key]), minf(t, 1.0))
-	if kk > 3.0:
-		var e := kk - 3.0
-		out["reaction"] = 1.0
-		out["horizon"] = 200.0
-		out["speed"] = 1.0
-		out["foe_lead"] = 10.0 + e * 8.0
 	out["reaction"] = maxf(1.0, round(float(out["reaction"])))
 	out["horizon"] = round(float(out["horizon"]))
 	out["offsets"] = round(float(out["offsets"]))

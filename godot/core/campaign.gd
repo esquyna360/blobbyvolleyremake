@@ -207,12 +207,14 @@ static func is_boss(level: int) -> bool:
 	return level % 10 == 0
 
 
-## Habilidade contínua 0..3.6: nível 1 é abaixo do easy, 100 acima do insane.
+## Habilidade contínua 0..3.6, um degrau a cada 0.9. A campanha começa no chill
+## e só chega no insane no fim: o primeiro terço passeia entre chill e easy, o
+## meio cobre normal e o último terço aperta até o topo.
 static func skill(level: int) -> float:
 	var t := float(level - 1) / float(LAST - 1)
-	var k := 3.6 * pow(t, 1.35)
+	var k := 3.6 * pow(t, 1.15)
 	if is_boss(level):
-		k += 0.25
+		k += 0.22
 	return clampf(k, 0.0, 3.6)
 
 

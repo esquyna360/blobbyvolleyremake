@@ -748,6 +748,20 @@ func _handle_blob_ball_collision(p: int, out: EventBuf) -> bool:
 			apex = BV.APEX_MUL
 		elif bvy > 0.0:
 			apex = BV.FALL_MUL
+	var front := nx * dir_of(p)
+	if super_frames == 0 and stun[p] == 0 and ny < 0.0 \
+			and front >= BV.ATTACK_FRONT_MIN and front <= BV.ATTACK_FRONT_MAX:
+		ball_spin = 0.0
+		_aim_shot_scaled(p, BV.ATTACK_V * P.ball_hit, BV.ATTACK_V * 0.55 * P.ball_hit,
+			BV.ATTACK_TARGET_DEPTH, BV.ATTACK_NET_CLEARANCE, BV.ATTACK_TIME_MIN,
+			BV.ATTACK_TIME_STEP, BV.ATTACK_TIME_STEPS, 11)
+		ball_x += ball_vx
+		ball_y += ball_vy
+		out.push(Ev.SMASH, p, 1.0)
+		out.push(Ev.BALL_HIT_BLOB, p, intensity)
+		add_charge(p, BV.SPECIAL_GAIN_TOUCH, out)
+		return true
+
 	var v := _hit_v() * tempo * apex
 	ball_vx = nx * v
 	ball_vy = ny * v

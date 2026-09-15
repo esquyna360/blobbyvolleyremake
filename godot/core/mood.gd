@@ -12,6 +12,7 @@ const TAUNT := 4
 const NONE := -1
 
 const TEMPER := {
+	"chill": {"talk": 0.22, "salt": 0.10, "smug": 0.12, "rude": 0.00, "cool": 6.0},
 	"easy": {"talk": 0.28, "salt": 0.18, "smug": 0.20, "rude": 0.00, "cool": 5.0},
 	"normal": {"talk": 0.44, "salt": 0.52, "smug": 0.46, "rude": 0.06, "cool": 3.6},
 	"hard": {"talk": 0.62, "salt": 0.72, "smug": 0.70, "rude": 0.20, "cool": 2.8},
