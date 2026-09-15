@@ -13,7 +13,7 @@ signal quit_game()
 
 const QUALS := ["Low", "Medium", "High", "Ultra"]
 const MUTED := Color(1, 1, 1, 0.55)
-const VERSION := "0.4"
+const VERSION := "0.5"
 
 var settings: Settings
 
@@ -200,7 +200,10 @@ func show_page(p: String) -> void:
 	_sub.text = ""
 	_heading.add_theme_font_size_override("font_size", 38 if _compact() else 52)
 	var touch := DisplayServer.is_touchscreen_available() or _compact()
-	_foot_l.text = "" if touch else ("Enter · select      Esc · back" if p != "main" else "Enter · select")
+	var hint := "Enter · select      Esc · back" if p != "main" else "Enter · select"
+	if Controls.has_pad():
+		hint = "A · select      B · back" if p != "main" else "A · select"
+	_foot_l.text = "" if touch else hint
 	if p != "campaign":
 		_page_pinned = false
 	match p:
@@ -695,12 +698,80 @@ func _options() -> void:
 	var g3 := Control.new()
 	g3.custom_minimum_size = Vector2(0, 8)
 	v.add_child(g3)
-	v.add_child(UiTheme.eyebrow("Keys", MUTED, 12))
-	v.add_child(UiTheme.label("Move: A/D or arrows · Jump: W / Up / Space · Action: E, Shift, Ctrl, Enter or mouse click\nGamepad: stick + A jump + X/B action · Esc pauses\nTouch: drag anywhere on the left half to move · JUMP and ACTION on the right", 13, MUTED))
+	v.add_child(UiTheme.eyebrow("Gamepad", MUTED, 12))
+	v.add_child(_pad_list())
+	var rr := HBoxContainer.new()
+	rr.add_theme_constant_override("separation", 6)
+	for o in [[true, "Vibration on"], [false, "Vibration off"]]:
+		var b := UiTheme.chip(Button.new(), settings.rumble == o[0], 15)
+		b.text = str(o[1])
+		b.pressed.connect(func():
+			settings.rumble = bool(o[0])
+			settings.save()
+			Rumble.on = settings.rumble
+			if settings.rumble:
+				Rumble.human = [true, true]
+				Rumble.both(0.5, 0.5, 0.18)
+			else:
+				Rumble.stop()
+			show_page("options"))
+		rr.add_child(b)
+	v.add_child(rr)
+	var g4 := Control.new()
+	g4.custom_minimum_size = Vector2(0, 8)
+	v.add_child(g4)
 	m.add_child(v)
 	_list.add_child(m)
 	_spacer()
 	_back()
+	_side_legend()
+
+## Lista o que está plugado. Sem isso, controle que não responde vira adivinhação:
+## aqui dá pra ver na hora se o jogo enxergou o aparelho e em que lado ele caiu.
+func _pad_list() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	if not Controls.has_pad():
+		v.add_child(UiTheme.label("None detected. In the browser, press a button on it once.", 13, MUTED))
+		return v
+	for slot in Controls.pads.size():
+		var nm := Controls.pad_name(slot)
+		var who := "P1" if slot == 0 else ("P2" if slot == 1 else "extra")
+		v.add_child(UiTheme.label("%s · %s" % [who, nm], 13, Color(0.62, 0.86, 0.55)))
+	return v
+
+
+## A legenda vai para o lado direito, que nesta página está vazio: a coluna da
+## esquerda já passa da altura da tela e empurrar mais texto lá embaixo esconde
+## justamente quem precisa da legenda.
+func _side_legend() -> void:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.custom_minimum_size = Vector2(330 if _compact() else 420, 0)
+	v.add_child(UiTheme.eyebrow("Controls", MUTED, 12))
+	for line in _legend().split("\n"):
+		var l := UiTheme.label(line, 13, MUTED)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(330 if _compact() else 420, 0)
+		v.add_child(l)
+	_side_box.add_child(v)
+
+
+## Só o que vale para o aparelho que está na mão. A lista inteira vira parede de
+## texto no celular, e o dono do controle não precisa da tabela do teclado.
+func _legend() -> String:
+	var out: Array[String] = []
+	if DisplayServer.is_touchscreen_available() or _compact():
+		out.append("Touch: the whole left half moves · JUMP and ACTION on the right")
+	if Controls.has_pad():
+		out.append("Gamepad: stick or d-pad · A jumps · X, B, Y, shoulders or triggers act · Start pauses")
+		if Controls.pads.size() < 2:
+			out.append("A second gamepad becomes P2; with only one, P2 plays on the arrows")
+	if out.is_empty() or not (DisplayServer.is_touchscreen_available() or _compact()):
+		out.append("Move: A/D or arrows · Jump: W / Up / Space · Action: E, Shift, Ctrl or Enter")
+		out.append("Esc pauses and goes back")
+	return "\n".join(out)
+
 
 static func quality_row(s: Settings, cb: Callable) -> HBoxContainer:
 	var row := HBoxContainer.new()

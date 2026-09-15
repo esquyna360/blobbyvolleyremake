@@ -49,6 +49,14 @@ func _ready() -> void:
 	Stage.theme = "anoitecer"
 	settings.scene = "anoitecer"
 	Controls.setup()
+	Rumble.on = settings.rumble
+	# controle entrando ou saindo no meio do jogo: refaz o vínculo dos slots e
+	# corta qualquer motor que tenha ficado ligado no controle que sumiu
+	Input.joy_connection_changed.connect(func(_d: int, _c: bool):
+		Rumble.stop()
+		Controls.refresh_pads()
+		if menu != null and menu.visible:
+			menu.relayout())
 	randomize()
 
 	add_child(game)
@@ -183,6 +191,7 @@ func _play_campaign(n: int) -> void:
 	for b in game.bots:
 		if b != null:
 			b.set_skill(k)
+	Rumble.setup([true, false])
 	hud.names = [settings.player_name if settings.player_name != "" else "YOU", _foe.p]
 	hud.sub_text = "LEVEL %d · %s of %s" % [level, _foe.p, _foe.n]
 	_nat_tag = ["", str(_foe.n)]
@@ -200,6 +209,7 @@ func _play_versus(stw: int) -> void:
 	lk[1][0] = Looks.pair_body(lk[0][0], lk[1][0])
 	game.start(MatchParams.classic("default", stw, true), settings.quality,
 		Game.Source.LOCAL_P1, Game.Source.LOCAL_P2, "normal", lk)
+	Rumble.setup([true, true])
 	hud.names = ["P1", "P2"]
 	hud.sub_text = ""
 	_nat_tag = ["", ""]
@@ -237,6 +247,7 @@ func _start_net(side: int, looks: Array, rules: String, stw: int, walls: bool) -
 	game.start(MatchParams.classic(rules, stw, walls), settings.quality,
 		game.src[BV.LEFT], game.src[BV.RIGHT], "normal", looks)
 	_net_pending = false
+	Rumble.setup([side == BV.LEFT, side == BV.RIGHT])
 	hud.names = ["", ""]
 	hud.sub_text = ""
 	_nat_tag = ["", ""]
@@ -435,6 +446,8 @@ func _relook(look: Array) -> void:
 
 func _to_menu() -> void:
 	_paused = false
+	Rumble.stop()
+	Rumble.setup([false, false])
 	hud.names = ["", ""]
 	hud.sub_text = ""
 	_pause_ui.visible = false
@@ -634,6 +647,8 @@ func _build_pause_refresh() -> void:
 func _set_pause(p: bool) -> void:
 	_paused = p
 	_pause_ui.visible = p
+	if p:
+		Rumble.stop()
 	if game.net_side == BV.NO_PLAYER:
 		game.set_paused(p)
 	if touch != null:
@@ -723,6 +738,7 @@ func _play_bots(sk: float) -> void:
 	for bot in game.bots:
 		if bot != null:
 			bot.set_skill(clampf(k + randf_range(-0.35, 0.35), 0.3, 3.6))
+	Rumble.setup([false, false])
 	hud.names = [a.p, b.p]
 	hud.sub_text = "CPU vs CPU · match %d · %s" % [_bots_run, Campaign.rule_of(lv).name]
 	_nat_tag = [str(a.n), str(b.n)]

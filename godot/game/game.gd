@@ -194,6 +194,7 @@ func _step() -> void:
 		_last_winner = bv.logic.winner
 		arena.celebrate(_last_winner)
 		Aud.finish(_last_winner == arena.local_side)
+		Rumble.finish(_last_winner)
 		for i in 2:
 			if moods[i] != null:
 				_emote_later(i, moods[i].finish(_last_winner == i), 0.7)

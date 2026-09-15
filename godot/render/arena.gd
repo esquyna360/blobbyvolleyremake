@@ -505,6 +505,7 @@ func _faces() -> Array:
 
 func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 	Aud.on_event(kind, side, intensity, w, local_side)
+	Rumble.on_event(kind, side, intensity, w)
 	match kind:
 		Ev.SMASH:
 			var p := side

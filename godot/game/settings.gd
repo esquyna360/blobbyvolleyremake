@@ -9,6 +9,7 @@ var last_ip := ""
 var rules := "default"
 var score_to_win := 15
 var bots_skill := 2.4
+var rumble := true
 var walls := true
 var difficulty := "normal"
 var scene := "anoitecer"
@@ -26,6 +27,7 @@ func load_all() -> void:
 		rules = c.get_value("v", "rules", "default")
 		score_to_win = c.get_value("v", "stw", 15)
 		bots_skill = c.get_value("v", "botsk", 2.4)
+		rumble = c.get_value("v", "rumble", true)
 		walls = c.get_value("v", "walls", true)
 		difficulty = c.get_value("v", "diff", "normal")
 		scene = c.get_value("v", "scene", "anoitecer")
@@ -44,6 +46,7 @@ func save() -> void:
 	c.set_value("v", "rules", rules)
 	c.set_value("v", "stw", score_to_win)
 	c.set_value("v", "botsk", bots_skill)
+	c.set_value("v", "rumble", rumble)
 	c.set_value("v", "walls", walls)
 	c.set_value("v", "diff", difficulty)
 	c.set_value("v", "scene", scene)
