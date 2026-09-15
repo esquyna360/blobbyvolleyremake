@@ -24,6 +24,11 @@ const BLOBBY_JUMP_BUFFER := GRAVITATION / 2.0
 
 const BALL_RADIUS := 31.5
 const BALL_GRAVITATION := 0.287
+## Abaixo disso a bola nao quica mais: deita no chao e para. Sem esse corte ela
+## quicava cada vez mais baixo e mais rapido, e o quique virava um chocalho.
+const BALL_REST_VY := 2.4
+const BALL_ROLL_DRAG := 0.97
+
 const BALL_COLLISION_VELOCITY := 13.762993860348844
 
 const NET_POSITION_X := RIGHT_PLANE / 2.0

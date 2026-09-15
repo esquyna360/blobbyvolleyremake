@@ -191,8 +191,11 @@ func _outro_cam(dt: float, w: PhysicWorld) -> bool:
 		return false
 	outro_t += dt
 	var i: int = _lead[_outro_winner]
+	var j: int = _lead[BV.other(_outro_winner)]
 	var wx: float = blobs[i].position.x
 	var hy: float = blobs[i].position.y + 0.75
+	var lx: float = blobs[j].position.x
+	var ly: float = blobs[j].position.y + 0.75
 	var d := 1.0 if _outro_winner == BV.LEFT else -1.0
 	var t := outro_t
 	if t < 0.9:
@@ -200,12 +203,17 @@ func _outro_cam(dt: float, w: PhysicWorld) -> bool:
 	var k := _ease(clampf((t - 0.9) / 1.2, 0.0, 1.0))
 	var gp := camera.position
 	var orbit := sin((t - 2.0) * 0.5) * 0.7
-	var cx := wx * 0.72 + d * 0.35 + orbit
-	var pos := Vector3(cx, maxf(2.6, hy * 0.4 + 2.1), 11.4 - (t - 2.0) * 0.14)
-	var look := Vector3(wx * 0.82, maxf(1.3, hy * 0.45), 0.0)
+	# os dois no quadro: quem ganhou puxa a lente, mas a cara de quem perdeu
+	# e metade da graca. O plano abre conforme eles se afastam.
+	var mid := wx * 0.58 + lx * 0.42
+	var spread := absf(wx - lx)
+	var cx := mid + d * 0.25 + orbit
+	var zc := clampf(12.6 + spread * 0.42, 12.6, 19.5) - (t - 2.0) * 0.1
+	var pos := Vector3(cx, maxf(2.2, (hy + ly) * 0.18 + 1.7), zc)
+	var look := Vector3(mid, maxf(1.1, (hy + ly) * 0.2), 0.0)
 	camera.position = gp.lerp(pos, k)
 	camera.look_at(Vector3(_cam_target_x * CAM_LOOK, _cam_ly, 0.0).lerp(look, k), Vector3.UP)
-	camera.fov = lerpf(CAM_FOV, 30.0, k)
+	camera.fov = lerpf(CAM_FOV, 38.0, k)
 	if outro_t >= OUTRO_LEN:
 		outro_t = OUTRO_LEN
 	return true
@@ -1214,7 +1222,7 @@ func _lose_pose(b: BlobView, bx: float, by: float, t: float, dt: float, half: fl
 		_:
 			var dir := -1.0 if bx < 0.0 else 1.0
 			var k2 := _ease(minf(1.0, t * 0.9))
-			x = bx + dir * maxf(0.0, t - 0.5) * 0.95
+			x = bx + dir * minf(maxf(0.0, t - 0.5) * 0.95, 2.6)
 			y -= absf(sin(t * 3.1)) * 0.16 * k2
 			rz = (-dir * 0.16 + sin(t * 3.1) * 0.08) * k2
 			var beat := int(t * 1.55)

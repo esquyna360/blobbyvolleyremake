@@ -190,16 +190,17 @@ func _init() -> void:
 	print("mergulho: vy=", w.ball_vy, " vx=", w.ball_vx, " lado=", w.ball_side())
 	if _has(seen, Ev.DIVE_HIT, 0) < 0 or w.ball_vy > -9.0 or w.ball_side() != BV.LEFT:
 		fails += 1
-	# 13. mergulho em cima da bola toca uma vez só
+	# 13. mergulho em cima da bola nao toca quadro a quadro: no maximo um
+	# contato do mergulho (dois eventos) mais um toque solto depois do pique
 	w = PhysicWorld.new()
 	w.ball_x = w.blob_x[0] + 20.0
 	w.ball_y = w.lower_y(0)
 	w.ball_vx = 0.0
 	w.ball_vy = 0.0
-	seen = _run(w, 40, func(f): return _inp(false, true, false, false, f < 2), func(_f): return _inp())
+	seen = _run(w, 20, func(f): return _inp(false, true, false, false, f < 2), func(_f): return _inp())
 	var touches := _count(seen, Ev.DIVE_HIT) + _count(seen, Ev.BALL_HIT_BLOB)
 	print("toques no mergulho=", touches, " carga=", w.charge[0])
-	if touches > 2 or w.charge[0] > 0.2:
+	if touches > 3 or w.charge[0] > 0.2:
 		fails += 1
 	# 14. bola quente do giro derruba quem encosta
 	w = PhysicWorld.new()

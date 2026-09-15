@@ -762,11 +762,22 @@ func _handle_ball_world_collisions(out: EventBuf) -> void:
 			super_owner = -1
 			parry_chain = 0
 			out.push(Ev.SPECIAL_GROUND, ball_side(), 1.0)
-		ball_vy = -ball_vy * 0.95 * P.ball_bounce
-		ball_vx *= 0.95
+		# chegando devagar a bola nao quica: deita e rola. Quicando, cada quique
+		# era mais baixo e mais rapido que o anterior ate virar um por quadro --
+		# era esse o chocalho depois do ponto
+		var impact := ball_vy
+		var soft := impact < BV.BALL_REST_VY
+		var settled := soft and ball_y - ground < BV.BALL_REST_VY
 		ball_y = ground
 		ball_spin = 0.0
-		out.push(Ev.BALL_HIT_GROUND, ball_side(), 0.0)
+		if soft:
+			ball_vy = 0.0
+			ball_vx *= BV.BALL_ROLL_DRAG
+		else:
+			ball_vy = -impact * 0.95 * P.ball_bounce
+			ball_vx *= 0.95
+		if not settled:
+			out.push(Ev.BALL_HIT_GROUND, ball_side(), 0.0)
 
 	var on_left := ball_x - ball_r <= BV.LEFT_PLANE and ball_vx < 0.0
 	var on_right := ball_x + ball_r >= right_plane and ball_vx > 0.0
