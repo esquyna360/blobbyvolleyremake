@@ -172,8 +172,13 @@ func _finish_enter() -> void:
 	else:
 		hud.shout("GO!", UiTheme.GOLD, 1.4)
 	if touch != null:
-		touch.visible = mode != Mode.BOTS
+		touch.visible = _touch_plays()
 		Controls.clear_touch()
+
+## O pad só aparece quando algum lado de fato lê o toque: em versus de dois
+## jogadores num aparelho só ele ficava desenhado sem mexer em nada.
+func _touch_plays() -> bool:
+	return game.touch_slot[0] >= 0 or game.touch_slot[1] >= 0
 
 ## Campanha: o nível escolhe o país, os modificadores e a regra. O bot recebe
 ## a habilidade contínua do nível.
@@ -208,10 +213,10 @@ func _play_versus(stw: int) -> void:
 	game.net_side = BV.NO_PLAYER
 	game.link = null
 	game.rb = null
-	game.touch_slot = [-1, -1]
+	var cpu := settings.versus_cpu
+	game.touch_slot = [0, -1] if cpu else [-1, -1]
 	var lk: Array = [settings.look.duplicate(), Looks.roll_look(settings.look[0])]
 	lk[1][0] = Looks.pair_body(lk[0][0], lk[1][0])
-	var cpu := settings.versus_cpu
 	game.start(MatchParams.classic("default", stw, true), settings.quality,
 		Game.Source.LOCAL_SOLO if cpu else Game.Source.LOCAL_P1,
 		Game.Source.BOT if cpu else Game.Source.LOCAL_P2,
@@ -451,7 +456,7 @@ func _requality(q: int) -> void:
 	if _in_match:
 		game.rebuild_arena(q)
 		if touch != null:
-			touch.visible = true
+			touch.visible = _touch_plays()
 		return
 	game.reset_arena()
 	game.bv = null
@@ -531,7 +536,8 @@ func _process(dt: float) -> void:
 		var dim := intro or game.replaying()
 		hud.top_alpha(clampf(hud._top.modulate.a + ((-1.0 if dim else 1.0) * dt * 3.0), 0.0, 1.0))
 		if touch != null:
-			touch.visible = not cine and not _paused and not game.replaying()
+			touch.visible = _touch_plays() and not cine and not _paused \
+				and not game.replaying()
 		if intro:
 			var it: float = game.arena.intro_t
 			var step := 1 if it >= 0.3 and it < 1.9 else (2 if it >= 1.9 and it < 3.3 else (3 if it >= 3.3 and it < 4.7 else 0))
@@ -706,6 +712,9 @@ func _dev_shot() -> void:
 		elif a.begins_with("--level="):
 			_play_campaign(int(a.substr(8)))
 		elif a == "--versus":
+			_play_versus(5)
+		elif a == "--vscpu" or a == "--vs2":
+			settings.versus_cpu = a == "--vscpu"
 			_play_versus(5)
 		elif a.begins_with("--page="):
 			menu.show_page(a.substr(7))
