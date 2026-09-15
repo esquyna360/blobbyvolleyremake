@@ -213,7 +213,8 @@ func _update_mix(force: bool) -> void:
 ## O mesmo arquivo tocado 200 vezes soa sintético mesmo estando perfeito. Cada
 ## disparo sai com um empurrãozinho de altura e de volume.
 const WOBBLE := ["hit_blob", "hit_ground", "hit_net", "hit_wall", "land", "dive",
-	"dive_hit", "block", "dig", "bonk", "apex", "parry", "parry_whiff"]
+	"dive_hit", "block", "dig", "bonk", "apex", "parry", "parry_whiff",
+	"spin", "spin_hit", "volley"]
 
 func play(name: String, vol := 1.0, pitch := 1.0) -> void:
 	var s: AudioStream = _bank.get(name)
@@ -254,8 +255,26 @@ func on_event(kind: int, side: int, intensity: float, w: PhysicWorld,
 				play("special_ready")
 		Ev.SMASH:
 			play("dive_hit", 0.9, 1.15 if intensity >= 1.0 else 0.95)
+		Ev.SPECIAL_HOLD:
+			play("shinkuu", 1.2)
 		Ev.SPECIAL_FIRED:
 			play("special_fired")
+		Ev.VOLLEY_FIRE:
+			play("volley", 0.85, 1.0 + intensity * 0.12)
+		Ev.VOLLEY_BLOCKED:
+			play("parry", 1.0, 1.0 + intensity * 0.25)
+		Ev.VOLLEY_PASS:
+			play("knockdown", 0.9)
+		Ev.REVERSAL:
+			play("reversal", 1.15)
+		Ev.SPIN:
+			play("spin", 0.7)
+		Ev.SPIN_HIT:
+			play("spin_hit", 0.95 + intensity * 0.25)
+		Ev.STAGGER:
+			play("knockdown", 0.8, 1.12)
+		Ev.KNOCKDOWN:
+			play("knockdown")
 		Ev.SPECIAL_HIT:
 			play("special_hit")
 		Ev.SPECIAL_GROUND:

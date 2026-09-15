@@ -59,6 +59,19 @@ func at_match_point() -> bool:
 		return absi(scores[0] - scores[1]) >= lb - 1
 	return maxi(scores[0], scores[1]) >= score_to_win - 1
 
+## O lance em curso decide a partida? É a única coisa que justifica abrir o
+## tempo -- `at_match_point` também é verdade um ponto antes.
+func would_win(loser_side: int) -> bool:
+	if winner != BV.NO_PLAYER:
+		return false
+	var l := scores[BV.LEFT]
+	var r := scores[BV.RIGHT]
+	if loser_side == BV.LEFT:
+		r += 1
+	else:
+		l += 1
+	return _is_winning(l, r)
+
 func _is_winning(l: int, r: int) -> bool:
 	var lb := int(rules.get("lead_by", 0))
 	if lb > 0:

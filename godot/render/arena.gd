@@ -142,44 +142,50 @@ var _cut := 0.0
 
 ## Fator de tempo do jogo: para no fim da partida (ver Game._process).
 func drama() -> float:
-	if outro_t >= 0.0:
+	if outro_t >= 0.0 or freeze > 0.0:
 		return 0.0
 	return 1.0
 
+## Relógio de verdade: o congelamento do especial não pode se congelar sozinho,
+## e o estouro de luz tem que apagar mesmo com o jogo parado.
+func tick_real(dt: float) -> void:
+	if freeze <= 0.0:
+		return
+	freeze = maxf(0.0, freeze - dt)
+	_freeze_k = minf(1.0, _freeze_k + dt * 9.0)
+	flash = maxf(0.0, flash - dt * 3.2)
+	aberration = maxf(0.0, aberration - dt * 5.0)
+	if _post != null:
+		_post_mat.set_shader_parameter("flash", flash)
+		_post_mat.set_shader_parameter("aberration", aberration)
+
+const WIN_MOVES := 4
+const LOSE_MOVES := 3
+
+## Fim de partida sem explosão: um comemora do seu jeito, o outro sofre do dele.
 func start_outro(winner: int) -> void:
 	outro_t = 0.0
+	_outro_anim = 0.0
 	_outro_winner = winner
-	var l: int = _lead[BV.other(winner)]
-	var bp: Vector3 = blobs[l].position
-	var col := blobs[l].body_color
+	_win_move = randi() % WIN_MOVES
+	_lose_move = randi() % LOSE_MOVES
+	_kick_beat = 0
+	_outro_base.resize(blobs.size() * 2)
 	for p in blobs.size():
-		if blobs[p].side != winner:
-			_gib[p] = 1
-	trauma = 1.0
-	hitstop = maxf(hitstop, 0.12)
-	flash = maxf(flash, 0.5)
-	fx.burst(bp + Vector3(0, 0.8, 0), 700, 16.0, PI, 1.3, 2.6, 0.12, col, 0.9, 0.45, false)
-	fx.burst(bp + Vector3(0, 0.8, 0), 260, 26.0, 0.8, 0.3, 0.6, 0.07, Color(1.0, 0.95, 0.85), 3.0)
-	for k in 14:
-		var mi := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		var r := 0.12 + randf() * 0.28
-		sm.radius = r
-		sm.height = r * 2.0
-		sm.radial_segments = 10
-		sm.rings = 6
-		mi.mesh = sm
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = col
-		mat.roughness = 0.25
-		mat.clearcoat_enabled = true
-		mi.material_override = mat
-		mi.position = bp + Vector3((randf() - 0.5) * 0.6, 0.6 + randf() * 0.8, 0.2)
-		add_child(mi)
-		var to_cam := (camera.position - mi.position).normalized()
-		var v := to_cam * (9.0 + randf() * 9.0) + Vector3((randf() - 0.5) * 6.0, 3.0 + randf() * 6.0, 0.0)
-		_chunks.append({"n": mi, "v": v, "spin": Vector3(randf(), randf(), randf()) * 6.0, "t": 0.0})
-	blobs[_lead[winner]].face.set_mood("laugh", 8.0, 9)
+		_outro_base[p * 2] = blobs[p].position.x
+		_outro_base[p * 2 + 1] = blobs[p].position.y
+	trauma = 0.45
+	hitstop = maxf(hitstop, 0.10)
+	flash = maxf(flash, 0.18)
+	for p in blobs.size():
+		var mine := blobs[p].side == winner
+		blobs[p].face.set_mood("laugh" if mine else _lose_face(), 30.0, 9)
+	var wb := blobs[_lead[winner]]
+	fx.burst(wb.position + Vector3(0, 1.0, 0), 320, 6.0, PI, 1.0, 2.6, 0.05,
+		wb.body_color.lightened(0.3), 1.6, 0.5)
+
+func _lose_face() -> String:
+	return ["sad", "angry", "angry"][_lose_move]
 
 func outro_active() -> bool:
 	return outro_t >= 0.0
@@ -203,8 +209,8 @@ func _step_chunks(dt: float) -> void:
 		keep.append(c)
 	_chunks = keep
 
-## Fim de partida: o perdedor explode em gosma, uns pedaços vêm até a lente,
-## e a câmera vai buscar a cara de quem ganhou.
+## Fim de partida: plano médio nos dois, com a lente puxando pro lado de quem
+## ganhou. Perto demais e a comemoração some pra fora do quadro.
 func _outro_cam(dt: float, w: PhysicWorld) -> bool:
 	if outro_t < 0.0:
 		return false
@@ -216,14 +222,15 @@ func _outro_cam(dt: float, w: PhysicWorld) -> bool:
 	var t := outro_t
 	if t < 0.9:
 		return false
-	var k := _ease(clampf((t - 0.9) / 1.1, 0.0, 1.0))
+	var k := _ease(clampf((t - 0.9) / 1.2, 0.0, 1.0))
 	var gp := camera.position
-	var orbit := sin((t - 2.0) * 0.6) * 0.5
-	var pos := Vector3(wx + d * 0.5 + orbit, hy + 0.15, 3.4 - (t - 2.0) * 0.06)
-	var look := Vector3(wx, hy, 0.0)
+	var orbit := sin((t - 2.0) * 0.5) * 0.7
+	var cx := wx * 0.72 + d * 0.35 + orbit
+	var pos := Vector3(cx, maxf(2.6, hy * 0.4 + 2.1), 11.4 - (t - 2.0) * 0.14)
+	var look := Vector3(wx * 0.82, maxf(1.3, hy * 0.45), 0.0)
 	camera.position = gp.lerp(pos, k)
 	camera.look_at(Vector3(_cam_target_x * CAM_LOOK, _cam_ly, 0.0).lerp(look, k), Vector3.UP)
-	camera.fov = lerpf(CAM_FOV, 29.0, k)
+	camera.fov = lerpf(CAM_FOV, 30.0, k)
 	if outro_t >= OUTRO_LEN:
 		outro_t = OUTRO_LEN
 	return true
@@ -243,10 +250,22 @@ var _stars_n: Array = []
 var _squash_k := 0.0
 var _squash_ang := 0.0
 var _gib := PackedInt32Array([0, 0])
-var _reach: Array[MeshInstance3D] = []
 var _shadow: Array[MeshInstance3D] = []
 var _ball_shadow: MeshInstance3D
-var _reach_a := PackedFloat32Array([0.0, 0.0])
+var _ex_nodes: Array[MeshInstance3D] = []
+var _ex_shadow: Array[MeshInstance3D] = []
+var freeze := 0.0
+var _freeze_k := 0.0
+var _freeze_x := 0.0
+var rep_want := 0.0
+var _rep_k := 0.0
+var _rep_z := 1.0
+var _outro_anim := 0.0
+var _win_move := 0
+var _lose_move := 0
+var _outro_base := PackedFloat64Array()
+var _kick_beat := 0
+var _win_beat := 0
 var _lead := [0, 1]
 var _blob_nodes: Array = []
 var _post: ColorRect
@@ -313,8 +332,9 @@ func setup_blobs(w: PhysicWorld) -> void:
 		n.queue_free()
 	_blob_nodes.clear()
 	blobs.clear()
-	_reach.clear()
 	_shadow.clear()
+	_ex_nodes.clear()
+	_ex_shadow.clear()
 	_aura.clear()
 	_stars.clear()
 	var nb := 2 if w == null else w.nb
@@ -334,14 +354,34 @@ func setup_blobs(w: PhysicWorld) -> void:
 	_chunks.clear()
 	trauma = 0.0
 	hitstop = 0.0
-	_reach_a.resize(nb)
-	_reach_a.fill(0.0)
 	for a in [_ppx, _ppy, _pst, _cpx, _cpy, _cst]:
 		a.resize(nb)
 		a.fill(0.0)
 	ball = BallView.new(true, br, kind)
 	add_child(ball)
 	_blob_nodes.append(ball)
+
+	for i in BV.MAX_EX:
+		var em := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = br
+		sm.height = br * 2.0
+		sm.radial_segments = 14
+		sm.rings = 8
+		em.mesh = sm
+		var emat := StandardMaterial3D.new()
+		emat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		emat.albedo_color = Color(1.0, 0.8, 0.35)
+		em.material_override = emat
+		em.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		em.visible = false
+		add_child(em)
+		_blob_nodes.append(em)
+		_ex_nodes.append(em)
+		var es := _make_shadow()
+		es.visible = false
+		_ex_shadow.append(es)
+		_blob_nodes.append(es)
 
 	for i in nb:
 		var side_i := i if w == null else w.side_of(i)
@@ -350,23 +390,6 @@ func setup_blobs(w: PhysicWorld) -> void:
 		blobs.append(b)
 		add_child(b)
 		_blob_nodes.append(b)
-		var m := MeshInstance3D.new()
-		var qm := QuadMesh.new()
-		qm.size = Vector2(1, 1)
-		m.mesh = qm
-		var rm := ShaderMaterial.new()
-		rm.shader = load("res://render/ring.gdshader")
-		rm.set_shader_parameter("tint", Color(1.0, 0.78, 0.28))
-		rm.set_shader_parameter("alpha", 1.0)
-		rm.set_shader_parameter("fade", 0.0)
-		m.material_override = rm
-		var r := BV.SPECIAL_REACH * Map.S * 2.0 * bsc
-		m.scale = Vector3(r, r, 1)
-		m.visible = false
-		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(m)
-		_blob_nodes.append(m)
-		_reach.append(m)
 		var sh := _make_shadow()
 		_shadow.append(sh)
 		_blob_nodes.append(sh)
@@ -664,12 +687,26 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 
 		Ev.SPECIAL_HOLD:
 			var p := side
-			hitstop = maxf(hitstop, 0.04)
-			blobs[p].face.set_mood("strain", 1.0, 8)
+			freeze = BV.SUPER_FREEZE
+			_freeze_k = 0.0
+			_freeze_x = Map.gx(w.blob_x[p])
+			trauma = minf(1.0, trauma + 0.55)
+			flash = maxf(flash, 0.42)
+			aberration = maxf(aberration, 3.0)
+			blobs[p].face.set_mood("strain", 1.6, 8)
 			blobs[p].charge_k = 1.0
+			blobs[p].flash = 1.0
+			var o := w.lead(BV.other(w.side_of(p)))
+			blobs[o].face.set_mood("shock", 1.4, 8)
 			var bp := Vector3(Map.gx(w.blob_x[p]), Map.gy(w.blob_y[p]) + 0.9, 0.2)
-			fx.shock(bp, 2.6, 0.2, 0.28, blobs[p].body_color * 1.4, 0.45)
-			fx.shock(bp, 1.8, 0.1, 0.2, Color(1.4, 1.2, 0.8), 0.35)
+			# o mundo trava e a partícula não anda: o anel já nasce aberto pra
+			# o quadro congelado ter o que mostrar, mas colado no blob -- anel
+			# grande vira halo e come a quadra inteira
+			fx.shock(bp, 1.9, 3.0, 0.5, Color(1.0, 0.86, 0.42), 1.0)
+			fx.shock(bp, 0.9, 1.7, 0.4, blobs[p].body_color.lightened(0.5), 0.9)
+			fx.burst(bp, 220, 5.5, PI, 0.4, 1.4, 0.055,
+				blobs[p].body_color.lightened(0.4), 2.2, 0.35)
+			fx.burst(bp, 90, 2.0, PI, 0.2, 1.0, 0.09, Color(1.0, 0.95, 0.78), 2.8, 0.1)
 
 		Ev.DIVE_LAND:
 			var p := side
@@ -706,6 +743,7 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 
 		Ev.PARRY_TRY:
 			var p := side
+			blobs[p].parry_glow = maxf(blobs[p].parry_glow, 0.45)
 			fx.burst(Vector3(Map.gx(w.blob_x[p]), Map.gy(w.blob_y[p]) + 1.3, 0), 22,
 				2.6, PI, 0.8, 0.3, 0.026, Color(0.42, 0.78, 1.0), 3.6)
 
@@ -718,7 +756,9 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			aberration = maxf(aberration, 1.6)
 			flash = maxf(flash, 0.16)
 			var pdir := w.dir_of(p)
-			fx.shock(Vector3(px + pdir * 1.2, py, 0.2), 0.5, 6.0, 0.4, Color(0.1, 0.85, 1.8))
+			# anel curto e colado: o parry do SF3 é um estalo azul no corpo, não
+			# uma onda que cobre a quadra
+			fx.shock(Vector3(px + pdir * 1.2, py, 0.2), 0.4, 2.2, 0.28, Color(0.1, 0.85, 1.8))
 			fx.burst(Vector3(px + pdir * 1.1, py, 0), 70, 13.0, 0.9, 0.4, 0.6, 0.05,
 				Color(0.36, 0.84, 1.0), 2.2, 0.3, true, Vector3(pdir, 0.0, 0.0))
 			fx.burst(Vector3(px + pdir * 1.1, py, 0), 40, 22.0, 0.4, 0.1, 0.4, 0.062,
@@ -726,6 +766,7 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			ball.flash(2.0)
 			blobs[p].kick(1.5, 3.0)
 			blobs[p].flash = 1.0
+			blobs[p].parry_glow = 1.0
 
 		Ev.DIG:
 			var p := side
@@ -755,24 +796,17 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			var bx := Map.gx(w.blob_x[o])
 			var by := Map.gy(w.blob_y[o])
 			trauma = 1.0
-			hitstop = maxf(hitstop, 0.3)
-			aberration = maxf(aberration, 5.0)
-			flash = maxf(flash, 0.75)
-			_scorch(bx)
-			for i in 3:
-				fx.burst(Vector3(bx, by + 1.0 + i * 0.5, 0), 460, 13.0 + i * 5.0, PI,
-					1.1, 2.4, 0.075, Color(0.62 - i * 0.12, 0.03, 0.03), 0.8, 0.3, false)
-			fx.burst(Vector3(bx, by + 1.2, 0), 220, 5.0, PI, 2.2, 2.8, 0.05,
-				Color(0.9, 0.75, 0.75), 1.2, 0.25, false)
-			for i in 3:
-				fx.burst(Vector3(bx, by + 0.6 + i * 0.6, 0), 300, 10.0 + i * 6.0, PI,
-					1.4, 2.2, 0.11 - i * 0.02, blobs[o].body_color, 0.9, 0.45, false)
-			fx.burst(Vector3(bx, by + 1.0, 0), 160, 24.0, 0.9, 0.3, 0.5, 0.07,
-				Color(1.0, 0.94, 0.86), 3.0)
-			blobs[o].kick(3.0, 7.0)
+			hitstop = maxf(hitstop, 0.22)
+			aberration = maxf(aberration, 3.0)
+			flash = maxf(flash, 0.4)
+			fx.burst(Vector3(bx, by + 0.8, 0), 260, 11.0, PI, 1.2, 1.6, 0.06,
+				blobs[o].body_color, 1.4, 0.4)
+			fx.burst(Vector3(bx, 0.06, 0), 320, 6.5, 2.4, 1.4, 1.3, 0.024,
+				Color(0.82, 0.70, 0.52), 2.0, 0.25, false)
+			blobs[o].kick(2.2, 6.0)
 			blobs[o].mouth = 1.0
 			blobs[o].flash = 1.0
-			_gib[o] = 1
+			blobs[o].face.set_mood("dumb", 2.4, 9)
 
 		Ev.SPECIAL_HIT:
 			var p := side
@@ -791,6 +825,93 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			blobs[p].kick(1.3, 3.0)
 			blobs[p].mouth = 1.0
 			blobs[p].flash = 0.35
+			blobs[p].knock_face = 1.0
+
+		Ev.SPIN:
+			var p := side
+			var px := Map.gx(w.blob_x[p])
+			var py := Map.gy(w.blob_y[p]) + 0.6
+			blobs[p].face.set_mood("strain", 0.45, 5)
+			fx.burst(Vector3(px, py, 0), 40, 3.6, PI, 0.4, 0.5, 0.03,
+				Color(0.95, 0.95, 1.0), 2.0, 0.15)
+
+		Ev.SPIN_HIT:
+			var p := side
+			var bx := Map.gx(w.ball_x)
+			var by := Map.gy(w.ball_y)
+			trauma = minf(1.0, trauma + 0.42)
+			hitstop = maxf(hitstop, 0.07)
+			aberration = maxf(aberration, 1.2)
+			flash = maxf(flash, 0.07)
+			var d := Vector3(w.ball_vx, -w.ball_vy, 0.0).normalized()
+			fx.shock(Vector3(bx, by, 0.2), 0.1, 3.2, 0.32, Color(1.5, 1.25, 0.8), 0.8)
+			fx.burst(Vector3(bx, by, 0) + d * 0.5, 120, 13.0, 0.6, 0.3, 0.6, 0.045,
+				Color(1.3, 1.15, 0.8), 2.4, 0.25, true, d)
+			ball.flash(1.8)
+			_squash_ball(w, 0.32)
+			blobs[p].kick(1.2, 2.2)
+
+		Ev.STAGGER:
+			var p := side
+			var px := Map.gx(w.blob_x[p])
+			var py := Map.gy(w.blob_y[p])
+			trauma = minf(1.0, trauma + 0.45)
+			hitstop = maxf(hitstop, 0.08)
+			flash = maxf(flash, 0.1)
+			blobs[p].kick(1.6, 4.5)
+			blobs[p].mouth = 1.0
+			blobs[p].flash = 0.8
+			blobs[p].knock_face = 1.0
+			blobs[p].face.set_mood("hurt", 1.1, 6)
+			fx.burst(Vector3(px, py + 0.7, 0), 70, 6.0, PI, 0.8, 0.8, 0.04,
+				Color(1.0, 0.85, 0.5), 2.0, 0.3)
+			fx.burst(Vector3(px, 0.05, 0), 90, 3.0, 2.2, 1.0, 0.9, 0.02,
+				Color(0.82, 0.70, 0.52), 2.0, 0.2, false)
+
+		Ev.VOLLEY_FIRE:
+			var p := side
+			var bx := Map.gx(w.ball_x)
+			var by := Map.gy(w.ball_y)
+			trauma = minf(1.0, trauma + 0.22)
+			aberration = maxf(aberration, 0.7)
+			var fwd := Vector3(w.dir_of(p), 0.0, 0.0)
+			fx.burst(Vector3(bx, by, 0) + fwd * 1.1, 110, 16.0, 0.4, 0.1, 0.5, 0.045,
+				blobs[p].body_color.lightened(0.25), 2.0, 0.3, true, fwd)
+
+		Ev.VOLLEY_BLOCKED:
+			var p := side
+			var px := Map.gx(w.blob_x[p])
+			var py := Map.gy(w.blob_y[p]) + 1.2
+			trauma = minf(1.0, trauma + 0.25)
+			hitstop = maxf(hitstop, 0.05)
+			flash = maxf(flash, 0.1)
+			blobs[p].parry_glow = 1.0
+			fx.shock(Vector3(px + w.dir_of(p) * 0.9, py, 0.2), 0.3, 3.4, 0.3,
+				Color(0.2, 0.9, 1.9))
+
+		Ev.REVERSAL:
+			var p := side
+			var px := Map.gx(w.blob_x[p])
+			var py := Map.gy(w.blob_y[p]) + 1.2
+			trauma = 1.0
+			hitstop = maxf(hitstop, 0.14)
+			aberration = maxf(aberration, 2.4)
+			flash = maxf(flash, 0.3)
+			freeze = maxf(freeze, BV.SUPER_FREEZE * 0.7)
+			_freeze_k = 0.0
+			_freeze_x = Map.gx(w.blob_x[p])
+			blobs[p].parry_glow = 1.0
+			blobs[p].face.set_mood("slick", 1.6, 8)
+			var o := w.lead(BV.other(w.side_of(p)))
+			blobs[o].face.set_mood("shock", 1.6, 8)
+			fx.shock(Vector3(px, py, 0.2), 0.4, 9.0, 0.5, Color(0.25, 0.95, 2.0))
+			fx.burst(Vector3(px, py, 0), 260, 9.0, PI, 0.6, 1.4, 0.05,
+				Color(0.4, 0.86, 1.0), 2.4, 0.35)
+
+		Ev.KNOCKDOWN:
+			var p := side
+			blobs[p].face.set_mood("hurt", 1.8, 7)
+			blobs[p].knock_face = 1.0
 
 ## A câmera fica perto e persegue a bola: precisa ver um pedaço da quadra
 ## (CAM_NEED), não ela inteira. A folga entre a janela e a lateral da quadra
@@ -855,9 +976,18 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var full_half := Map.court_half_w() + CAM_MARGIN + _open_extra
 	_fit_arena(aspect, tan(deg_to_rad(fov) * 0.5), full_half, dt)
 
+	# no replay a lente cola na bola, mas só aperta quando ela está baixa: bola
+	# alta com zoom fechado é quadro vazio, não é close
+	_rep_k += (rep_want - _rep_k) * (1.0 - exp(-dt * 3.4))
 	var want_x := _pt_x * kp
-	_cam_target_x = lerpf(_cam_target_x, want_x, 1.0 - exp(-dt * 4.0))
-	var zoom := 1.0 - 0.32 * kp
+	if _rep_k > 0.01:
+		want_x = lerpf(want_x, bx * 0.8, _rep_k)
+	_cam_target_x = lerpf(_cam_target_x, want_x, 1.0 - exp(-dt * (7.0 if _rep_k > 0.4 else 4.0)))
+	var rep_z := lerpf(0.72, 0.9, clampf((by - 1.4) / 3.6, 0.0, 1.0))
+	_rep_z += (rep_z - _rep_z) * (1.0 - exp(-dt * 2.6))
+	# o aperto do ponto e o do replay se multiplicavam: dava close em cima do
+	# blob, sem bola, sem quadra e sem dar pra entender o lance
+	var zoom := (1.0 - 0.32 * kp * (1.0 - _rep_k)) * lerpf(1.0, _rep_z, _rep_k)
 	var sway := 0.0
 	var sway_y := 0.0
 
@@ -869,9 +999,15 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var shy := (sin(t * 1.7 + 2.0) + sin(t * 3.1)) * 0.5 * sh * 0.30
 	var shr := sin(t * 1.3) * sh * 0.022
 
+	# o congelamento é o quadro que vira print: a lente fecha em cima de quem
+	# soltou o especial em vez de ficar no plano aberto da partida
+	if freeze <= 0.0:
+		_freeze_k = maxf(0.0, _freeze_k - dt * 2.4)
+	zoom *= lerpf(1.0, 0.74, _freeze_k)
 	var zc := _cam_z * zoom
 	var span := maxf(0.0, full_half - zc * tan(deg_to_rad(fov) * 0.5) * maxf(0.5, aspect))
-	var px := clampf(_cam_target_x, -span, span)
+	var ftx := lerpf(_cam_target_x, _freeze_x * 0.55, _freeze_k)
+	var px := clampf(ftx, -span, span)
 	if not _intro_cam(dt, w):
 		camera.position = Vector3(px + CAM_SIDE + sway + shx, CAM_EYE_Y + sway_y + shy,
 			zc - trauma * 0.9)
@@ -911,6 +1047,8 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var faces := _faces()
 	FaceRig.crouch_moods(faces, w.crouch)
 	FaceRig.reach_moods(faces, w, m.logic.is_ball_valid)
+	if outro_t < 0.0:
+		FaceRig.doom_moods(faces, w, m.logic.is_ball_valid, m.logic.would_win(w.ball_side()))
 	for i in blobs.size():
 		_update_blob(i, alpha, dt, w, bx, by)
 	for i in blobs.size():
@@ -926,7 +1064,7 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 			am.position = b.position + Vector3(0, 0.9 * bsc, -0.35)
 			var mat: StandardMaterial3D = am.material_override
 			var c := b.body_color.lightened(0.35)
-			mat.albedo_color = Color(c.r, c.g, c.b, 0.28 + pulse * 0.16)
+			mat.albedo_color = Color(c.r, c.g, c.b, 0.17 + pulse * 0.10)
 			if int(time * 12.0 + i * 5) % 4 == 0:
 				fx.burst(b.position + Vector3((randf() - 0.5) * 1.2, 0.2, 0.3), 4, 1.2,
 					0.5, 1.0, 0.9, 0.05, c, 1.2, 0.2)
@@ -938,7 +1076,9 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 				var a := time * 5.0 + k * TAU / 3.0
 				st.position = b.position + Vector3(cos(a) * 0.55 * bsc, (1.75 + sin(a * 2.0) * 0.08) * bsc, sin(a) * 0.55 * bsc)
 				st.scale = Vector3.ONE * (0.8 + 0.25 * sin(time * 9.0 + k))
-	_update_reach(w, alpha, dt)
+	_update_extras(w, dt)
+	if outro_t >= 0.0:
+		_outro_pose(dt)
 
 	court.step(dt)
 	stage.step(dt)
@@ -957,7 +1097,6 @@ func _update_blob(i: int, alpha: float, dt: float, w: PhysicWorld,
 	var b := blobs[i]
 	if _gib[i] > 0 or (solo and b.side == BV.RIGHT):
 		b.visible = false
-		_reach[i].visible = false
 		_shadow[i].visible = false
 		return
 	_shadow[i].visible = true
@@ -1006,22 +1145,121 @@ func _update_blob(i: int, alpha: float, dt: float, w: PhysicWorld,
 			sin(a) * 0.55), 6, 0.3, 1.2, 0.5, 0.8, 0.05,
 			Color(1.0, 0.88, 0.32), 1.2)
 
-## Anel dourado do especial pronto. Some quando não dá pra usar.
-func _update_reach(w: PhysicWorld, alpha: float, dt: float) -> void:
-	for i in blobs.size():
-		var m := _reach[i]
-		var hidden := _gib[i] > 0 or w.stun[i] > 0 or (solo and blobs[i].side == BV.RIGHT)
-		var on := not hidden and w.charge[i] >= BV.SPECIAL_FULL
-		var want := (0.34 + sin(time * 2.6) * 0.07) if on else 0.0
-		_reach_a[i] += (want - _reach_a[i]) * minf(1.0, dt * 9.0)
-		m.visible = _reach_a[i] > 0.004
-		if not m.visible:
+## Fim de partida: um comemora, o outro sofre, cada um de um jeito sorteado.
+func _outro_pose(dt: float) -> void:
+	_outro_anim += dt
+	var t := _outro_anim
+	var half := Map.court_half_w()
+	for p in blobs.size():
+		var b := blobs[p]
+		if _gib[p] > 0 or (solo and b.side == BV.RIGHT):
 			continue
-		var mat: ShaderMaterial = m.material_override
-		mat.set_shader_parameter("fade", _reach_a[i])
-		m.position = Vector3(
-			Map.gx(lerpf(_ppx[i], _cpx[i], alpha)),
-			Map.gy(lerpf(_ppy[i], _cpy[i], alpha) - BV.BLOBBY_UPPER_SPHERE * w.bs[i]), 0.0)
+		if _outro_base.size() < (p + 1) * 2:
+			continue
+		var bx: float = _outro_base[p * 2]
+		var by: float = _outro_base[p * 2 + 1]
+		b.set_squash(Vector3.ONE)
+		if b.side == _outro_winner:
+			_win_pose(b, bx, by, t)
+		else:
+			_lose_pose(b, bx, by, t, dt, half)
+		_shadow[p].visible = b.visible
+		if b.visible:
+			_blob_shadow(_shadow[p], b.position.x, b.position.y, 3.0 * b.body_scale, b.spread)
+
+func _win_pose(b: BlobView, bx: float, by: float, t: float) -> void:
+	var x := bx
+	var y := by
+	var rz := 0.0
+	var sq := Vector3.ONE
+	match _win_move:
+		0:
+			var beat := t * 5.2
+			x += sin(beat * 0.5) * 0.6
+			y -= absf(sin(beat)) * 0.48
+			rz = sin(beat * 0.5) * 0.36
+			sq = Vector3(1.0 - 0.10 * sin(beat), 1.0 + 0.15 * sin(beat), 1.0)
+		1:
+			x += sin(t * 2.3) * 2.9
+			y -= absf(sin(t * 9.0)) * 0.44
+			rz = -cos(t * 2.3) * 0.32
+		2:
+			var k := absf(sin(t * 2.1))
+			y -= k * 2.0
+			rz = t * TAU * 1.3
+			sq = Vector3(1.0 - 0.12 * k, 1.0 + 0.22 * k, 1.0)
+		_:
+			var pulse := 0.5 + 0.5 * sin(t * 4.2)
+			sq = Vector3(1.0 + 0.24 * pulse, 1.0 + 0.18 * pulse, 1.0 + 0.24 * pulse)
+			y -= absf(sin(t * 4.2)) * 0.24
+			rz = sin(t * 8.4) * 0.07
+	b.position = Vector3(x, y, 0.0)
+	b.rotation = Vector3(0.0, 0.0, rz)
+	b.scale = Vector3(sq.x, sq.y, sq.z) * b.body_scale
+	b.mouth = 1.0
+	var beat2 := int(t * 3.0)
+	if beat2 != _win_beat:
+		_win_beat = beat2
+		fx.burst(b.position + Vector3((randf() - 0.5) * 1.2, 1.5, 0.3), 110,
+			4.4, PI, 0.9, 1.9, 0.05, Color.from_hsv(randf(), 0.85, 0.75), 1.2, 0.55)
+
+func _lose_pose(b: BlobView, bx: float, by: float, t: float, dt: float, half: float) -> void:
+	var x := bx
+	var y := by
+	var rz := 0.0
+	var ry := 0.0
+	var sq := Vector3.ONE
+	match _lose_move:
+		0:
+			var k := minf(1.0, t * 1.1)
+			y += 0.32 * k
+			sq = Vector3(1.0 + 0.36 * k, 1.0 - 0.38 * k, 1.0 + 0.22 * k)
+			rz = sin(t * 3.0) * 0.06 * k
+			if randf() < dt * 16.0 * k:
+				fx.burst(b.position + Vector3((randf() - 0.5) * 0.6, 0.85, 0.4), 5,
+					1.2, 0.5, 1.7, 1.2, 0.035, Color(0.45, 0.78, 1.0), 2.4, 0.3)
+		1:
+			ry = sin(t * 6.2) * 0.6
+			rz = sin(t * 3.1) * 0.07
+			sq = Vector3(1.0 + 0.05 * sin(t * 6.2), 1.0, 1.0)
+		_:
+			var dir := -1.0 if bx < 0.0 else 1.0
+			x = bx + dir * t * 2.2
+			y -= absf(sin(t * 7.0)) * 0.24
+			rz = -dir * 0.14 + sin(t * 7.0) * 0.1
+			var beat := int(t * 3.5)
+			if beat != _kick_beat:
+				_kick_beat = beat
+				trauma = minf(1.0, trauma + 0.07)
+				fx.burst(Vector3(x + dir * 0.7, 0.06, 0.0), 140, 5.2, 1.8, 1.2, 1.0,
+					0.022, Color(0.84, 0.72, 0.53), 2.2, 0.25, false)
+			b.visible = absf(x) < half + 14.0
+	b.position = Vector3(x, y, 0.0)
+	b.rotation = Vector3(0.0, ry, rz)
+	b.scale = Vector3(sq.x, sq.y, sq.z) * b.body_scale
+
+## As bolas extras da rajada: a principal é a última, estas vêm na frente.
+func _update_extras(w: PhysicWorld, dt: float) -> void:
+	var col := Color(1.0, 0.8, 0.35)
+	if w.vol_owner >= 0 and w.vol_owner < blobs.size():
+		col = blobs[w.vol_owner].body_color.lightened(0.45)
+	for i in _ex_nodes.size():
+		var n := _ex_nodes[i]
+		var on: bool = i < BV.MAX_EX and w.ex_on[i] == 2
+		n.visible = on
+		_ex_shadow[i].visible = on
+		if not on:
+			continue
+		var x := Map.gx(w.ex_x[i])
+		var y := Map.gy(w.ex_y[i])
+		n.position = Vector3(x, y, 0.0)
+		var mat: StandardMaterial3D = n.material_override
+		mat.albedo_color = col
+		_blob_shadow(_ex_shadow[i], x, y, 1.5 * ball.R / (BV.BALL_RADIUS * Map.S))
+		if randf() < dt * 120.0:
+			fx.burst(Vector3(x, y, 0), 7, 2.0, PI, 0.8, 0.5, 0.055, col, 2.4, 0.25)
+			fx.burst(Vector3(x, y, 0), 3, 0.5, PI, 1.8, 1.2, 0.05,
+				Color(0.18, 0.14, 0.12), 1.3, 0.15, false)
 
 func _squash_ball(w: PhysicWorld, k: float) -> void:
 	var v := sqrt(w.ball_vx * w.ball_vx + w.ball_vy * w.ball_vy)
@@ -1069,7 +1307,8 @@ func _update_emotes(dt: float) -> void:
 			continue
 		var pop: float = u / 0.16 if u < 0.16 else 1.0
 		var ease := 1.0 - pow(1.0 - pop, 3.0)
-		var s: float = 1.5 * ease * (1.0 + sin(time * 11.0 + e.spin) * 0.05)
+		var s: float = 1.5 * ease * (1.0 + sin(time * 11.0 + e.spin) * 0.05) \
+			* lerpf(1.0, 0.55, _rep_k)
 		e.n.scale = Vector3.ONE * s
 		e.n.position.y += dt * 0.55
 		e.n.position.x += sin(time * 3.0 + e.spin * 4.0) * dt * 0.25

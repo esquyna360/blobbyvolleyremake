@@ -94,6 +94,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_refit_ui)
 	_refit_ui()
 	game.match_over.connect(_on_match_over)
+	game.replay.connect(_on_replay)
 	game.arena.goo.connect(hud.splat)
 	_dev_net()
 	_dev_shot()
@@ -138,21 +139,22 @@ func _setup_touch() -> void:
 	_ui.add_child(touch)
 	_refit_ui()
 
+## Menu não tem jogo no fundo nem trilha: o padrão da tela basta.
 func _demo() -> void:
 	mode = Mode.NONE
 	game.net_side = BV.NO_PLAYER
 	game.link = null
 	game.rb = null
-	game.start(MatchParams.classic("default", 15, true), settings.quality,
-		Game.Source.BOT, Game.Source.BOT, "hard", [Looks.roll_look(-1), Looks.roll_look(-1)])
+	game.visible = false
 	_in_match = false
 	_over_t = -1.0
 	hud.visible = false
-	Aud.set_song("menu")
+	Aud.stop_music()
 	if touch != null:
 		touch.visible = false
 
 func _finish_enter() -> void:
+	game.visible = true
 	hud.set_colors(game.arena.lead_blob(BV.LEFT).body_color, game.arena.lead_blob(BV.RIGHT).body_color)
 	_in_match = true
 	_over_t = -1.0
@@ -193,8 +195,8 @@ func _play_campaign(n: int) -> void:
 			b.set_skill(k)
 	Rumble.setup([true, false])
 	hud.names = [settings.player_name if settings.player_name != "" else "YOU", _foe.p]
-	hud.sub_text = "LEVEL %d · %s of %s" % [level, _foe.p, _foe.n]
-	_nat_tag = ["", str(_foe.n)]
+	hud.sub_text = "LEVEL %d · %s" % [level, _foe.p]
+	_nat_tag = ["", ""]
 	_finish_enter()
 
 func _play_versus(stw: int) -> void:
@@ -262,6 +264,11 @@ func _on_closed() -> void:
 
 # ------------------------------------------------------------------ fim
 
+## Replay: o placar some, sobra a lente colada no lance.
+func _on_replay(tag: String, on: bool) -> void:
+	if on:
+		hud.shout("● " + tag, UiTheme.GOLD, 2.4)
+
 func _on_match_over(winner: int) -> void:
 	if not _in_match or _over_t >= 0.0:
 		return
@@ -313,7 +320,7 @@ func _show_result(winner: int, mine: bool) -> void:
 	_result_again.text = "Rematch"
 	match mode:
 		Mode.CAMPAIGN:
-			eyebrow = "level %d · %s of %s" % [level, _foe.p, _foe.n]
+			eyebrow = "level %d · %s" % [level, _foe.p]
 			if mine:
 				if level >= Campaign.LAST:
 					title = "WORLD CHAMPION"
@@ -323,7 +330,7 @@ func _show_result(winner: int, mine: bool) -> void:
 				else:
 					title = "LEVEL %d CLEAR" % level
 					var nx := Campaign.nation(level + 1)
-					line = "Next: %s of %s" % [nx.p, nx.n]
+					line = "Next: %s" % nx.p
 					_result_next.visible = true
 					_result_next.text = "Next level"
 					_result_again.text = "Replay"
@@ -490,10 +497,9 @@ func _build_rotate() -> void:
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	v.grow_vertical = Control.GROW_DIRECTION_BOTH
-	var ic := UiTheme.display("↻", 120, UiTheme.GOLD)
-	ic.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(ic)
-	var l := UiTheme.display("ROTATE YOUR PHONE", 44)
+	# sem ícone: o navegador do celular não traz a seta circular e o quadradinho
+	# de fonte faltando é pior que não ter desenho nenhum
+	var l := UiTheme.display("ROTATE YOUR PHONE", 52, UiTheme.GOLD)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(l)
 	_rotate_ui.add_child(v)
@@ -512,7 +518,8 @@ func _process(dt: float) -> void:
 		var cine := intro or game.arena.outro_active()
 		hud.ball_hint(game.arena.ball_screen_hint(Map.gx(w.ball_x), Map.gy(w.ball_y)) \
 			if not cine else Vector3(-1, -1, 0), dt)
-		hud.top_alpha(clampf(hud._top.modulate.a + ((-1.0 if intro else 1.0) * dt * 3.0), 0.0, 1.0))
+		var dim := intro or game.replaying()
+		hud.top_alpha(clampf(hud._top.modulate.a + ((-1.0 if dim else 1.0) * dt * 3.0), 0.0, 1.0))
 		if touch != null:
 			touch.visible = not cine and not _paused
 		if intro:
@@ -685,6 +692,8 @@ func _dev_shot() -> void:
 			_requality(int(a.substr(10)))
 		elif a == "--bots":
 			_play_bots(settings.bots_skill)
+		elif a.begins_with("--skill="):
+			_play_bots(float(a.substr(8)))
 		elif a == "--paused":
 			_set_pause.call_deferred(true)
 		elif a == "--skipintro":
@@ -693,11 +702,48 @@ func _dev_shot() -> void:
 		return
 	var n := 0
 	var force_over := "--over" in OS.get_cmdline_user_args()
+	var end_at := 0
+	var pose := ""
+	var trig := ""
+	var burst := 40
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--end="):
+			end_at = int(a.substr(6))
+		elif a.begins_with("--pose="):
+			pose = a.substr(7)
+		elif a.begins_with("--trig="):
+			trig = a.substr(7)
+		elif a.begins_with("--burst="):
+			burst = int(a.substr(8))
 	for i in wait:
 		await get_tree().process_frame
 		if force_over and game.bv != null and i == 30 and _in_match:
-			game.bv.logic.scores[BV.LEFT] = game.bv.logic.score_to_win - 1
-		if every > 0 and i % every == 0 and i >= from:
+			var lg := game.bv.logic
+			lg.scores[BV.LEFT] = lg.score_to_win - 1
+			lg.scores[BV.RIGHT] = maxi(0, lg.score_to_win - 3)
+		if end_at > 0 and i == end_at and game.bv != null and _in_match:
+			game.bv.logic.winner = BV.LEFT
+		if pose != "" and game.bv != null and _in_match:
+			if pose == "charge":
+				if i % 30 == 0:
+					game.bv.world.charge[0] = BV.SPECIAL_FULL
+					game.bv.world.charge[1] = BV.SPECIAL_FULL
+			elif pose == "replay":
+				game._rep_score = 30
+				game._rep_tag = "WHAT A SAVE"
+			elif pose == "parry" and i % 90 == 0:
+				_dev_pose(pose)
+			elif i == 40:
+				_dev_pose(pose)
+		if trig != "":
+			if _dev_trig(trig) and _trig_left <= 0 and n < burst:
+				_trig_left = burst
+			if _trig_left > 0:
+				_trig_left -= 1
+				await RenderingServer.frame_post_draw
+				_shot_img().save_png(path.replace(".png", "_%03d.png" % n))
+				n += 1
+		elif every > 0 and i % every == 0 and i >= from:
 			await RenderingServer.frame_post_draw
 			_shot_img().save_png(path.replace(".png", "_%03d.png" % n))
 			n += 1
@@ -709,6 +755,47 @@ func _dev_shot() -> void:
 			_over_t, str(_result_ui.visible)])
 	print("shot: ", path)
 	get_tree().quit()
+
+
+var _trig_left := 0
+
+## Ferramenta de desenvolvimento: dispara a rajada de quadros quando o lance
+## que interessa começa.
+func _dev_trig(kind: String) -> bool:
+	if game.bv == null or not _in_match:
+		return false
+	match kind:
+		"super": return game.bv.world.super_frames > 0
+		"replay": return game.replaying()
+		"parry":
+			for q in game.bv.world.nb:
+				if game.bv.world.parry_active[q] > 0:
+					return true
+			return game.arena.blobs[0].parry_glow > 0.2 \
+				or game.arena.blobs[1].parry_glow > 0.2
+	return false
+
+
+## Ferramenta de desenvolvimento: força uma pose pra conferir a animação.
+func _dev_pose(kind: String) -> void:
+	var w := game.bv.world
+	match kind:
+		"knock":
+			w.knocked[1] = 300
+			w.stun[1] = 300
+			game.bv.events.push(Ev.KNOCKDOWN, 1, 1.0)
+		"spin":
+			w.blob_y[0] = 260.0
+			w.blob_vy[0] = 4.0
+			w.spin_t[0] = 300
+			game.bv.events.push(Ev.SPIN, 0, 1.0)
+		"hold":
+			w.hold[0] = 300
+			game.bv.events.push(Ev.SPECIAL_HOLD, 0, 1.0)
+		"parry":
+			w.parry_active[1] = BV.PARRY_ACTIVE
+			game.bv.events.push(Ev.PARRY, 1, 1.0)
+	game.arena.on_events(game.bv)
 
 
 ## CPU contra CPU: dois países sorteados, regra e modificadores de um nível
@@ -741,7 +828,7 @@ func _play_bots(sk: float) -> void:
 	Rumble.setup([false, false])
 	hud.names = [a.p, b.p]
 	hud.sub_text = "CPU vs CPU · match %d · %s" % [_bots_run, Campaign.rule_of(lv).name]
-	_nat_tag = [str(a.n), str(b.n)]
+	_nat_tag = ["", ""]
 	_foe = {}
 	_finish_enter()
 	mode = Mode.BOTS

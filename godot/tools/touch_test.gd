@@ -12,7 +12,7 @@ const CASES := [
 ]
 
 const MM_PER_CSS := 25.4 / 160.0
-const ACTS := ["left", "right", "dive", "up"]
+const ACTS := ["left", "right", "dive", "up", "special"]
 var fails: Array = []
 
 func _init() -> void:
@@ -66,6 +66,11 @@ func _run(name: String, px: Vector2) -> void:
 		"%s: o canto esquerdo nao anda para tras" % name)
 	_check(pad, logical, Vector2(logical.x - 60.0, 20.0), "",
 		"%s: o canto do botao de pausa esta roubando toque" % name)
+	var sp: Vector2 = pad._pos("special")
+	_check(pad, logical, sp, "special", "%s: o centro do SPECIAL nao aciona o especial" % name)
+	var sr: float = pad._rr("special")
+	if sr * 2.0 * to_mm < 13.0:
+		fails.append("%s: SPECIAL com %.1f mm, abaixo dos 13 mm" % [name, sr * 2.0 * to_mm])
 	var c: Vector2 = pad._pos("dive")
 	_check(pad, logical, c, "dive", "%s: o centro do ACTION nao aciona o ACTION" % name)
 	_check(pad, logical, c + Vector2(0, r * 0.9), "dive",

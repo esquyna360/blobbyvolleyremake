@@ -1,8 +1,8 @@
 class_name Menu
 extends Control
 
-## Menu em cima da partida de demonstração. Título e lista à esquerda, painel
-## de conteúdo à direita. Funciona com mouse, teclado, gamepad (foco) e toque.
+## Menu em tela cheia, sem a partida atrás. Uma coluna central com título e
+## itens. Funciona com mouse, teclado, gamepad (foco) e toque.
 
 signal play_campaign(level: int)
 signal play_versus(stw: int)
@@ -13,14 +13,14 @@ signal quit_game()
 
 const QUALS := ["Low", "Medium", "High", "Ultra"]
 const MUTED := Color(1, 1, 1, 0.55)
+const COL_W := 620.0
+const COL_W_C := 430.0
 const VERSION := "0.5"
 
 var settings: Settings
 
 var _left: VBoxContainer
 var _list: VBoxContainer
-var _side: Control
-var _side_box: VBoxContainer
 var _eyebrow: Label
 var _heading: Label
 var _sub: Label
@@ -40,18 +40,28 @@ func build(s: Settings) -> void:
 	settings = s
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
-	var shade := TextureRect.new()
-	_shade = shade
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shade.texture = _gradient([Color(0.01, 0.02, 0.02, 0.94), Color(0.01, 0.02, 0.02, 0.78),
-		Color(0.01, 0.02, 0.02, 0.18)], [0.0, 0.42, 1.0], Vector2(0, 0), Vector2(1, 0))
-	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	shade.stretch_mode = TextureRect.STRETCH_SCALE
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(shade)
+	var base := ColorRect.new()
+	base.set_anchors_preset(Control.PRESET_FULL_RECT)
+	base.color = Color(0.043, 0.051, 0.070)
+	base.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(base)
+	var pat := TextureRect.new()
+	_shade = pat
+	pat.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pat.texture = _pattern()
+	pat.stretch_mode = TextureRect.STRETCH_TILE
+	pat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(pat)
+	var glow := TextureRect.new()
+	glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	glow.texture = _glow_tex()
+	glow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(glow)
 	var vig := TextureRect.new()
 	vig.set_anchors_preset(Control.PRESET_FULL_RECT)
-	vig.texture = _gradient([Color(0, 0, 0, 0.0), Color(0, 0, 0, 0.55)], [0.72, 1.0],
+	vig.texture = _gradient([Color(0, 0, 0, 0.0), Color(0, 0, 0, 0.55)], [0.55, 1.0],
 		Vector2(0, 0), Vector2(0, 1))
 	vig.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	vig.stretch_mode = TextureRect.STRETCH_SCALE
@@ -59,24 +69,32 @@ func build(s: Settings) -> void:
 	add_child(vig)
 
 	_left = VBoxContainer.new()
-	_left.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	_left.offset_left = 64
-	_left.offset_top = 36
-	_left.offset_right = 64 + 470
-	_left.offset_bottom = -56
+	_left.set_anchors_preset(Control.PRESET_VCENTER_WIDE)
+	_left.anchor_left = 0.5
+	_left.anchor_right = 0.5
+	_left.anchor_top = 0.0
+	_left.anchor_bottom = 1.0
+	_left.offset_left = -COL_W * 0.5
+	_left.offset_right = COL_W * 0.5
+	_left.offset_top = 30
+	_left.offset_bottom = -52
+	_left.alignment = BoxContainer.ALIGNMENT_CENTER
 	_left.add_theme_constant_override("separation", 6)
 	add_child(_left)
 
 	_eyebrow = UiTheme.eyebrow("")
+	_eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_left.add_child(_eyebrow)
 	_heading = UiTheme.heading("")
+	_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_left.add_child(_heading)
 	_rule = ColorRect.new()
 	_rule.color = UiTheme.GOLD
 	_rule.custom_minimum_size = Vector2(56, 3)
-	_rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_rule.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_left.add_child(_rule)
 	_sub = UiTheme.label("", 15, MUTED)
+	_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_left.add_child(_sub)
 	var gap := Control.new()
@@ -86,43 +104,28 @@ func build(s: Settings) -> void:
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_scroll.follow_focus = true
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(1, 1, 1, 0.13)
-	sb.set_corner_radius_all(2)
-	sb.content_margin_left = 3
-	sb.content_margin_right = 3
+	_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# a barra de rolagem some: quando a lista passa de pouco, o polegar dela vira
+	# uma régua vertical do lado da coluna centralizada e lê como enfeite torto
 	var tr := StyleBoxEmpty.new()
 	var vsb := _scroll.get_v_scroll_bar()
-	vsb.add_theme_stylebox_override("grabber", sb)
-	vsb.add_theme_stylebox_override("grabber_highlight", sb)
-	vsb.add_theme_stylebox_override("grabber_pressed", sb)
-	vsb.add_theme_stylebox_override("scroll", tr)
-	vsb.custom_minimum_size = Vector2(6, 0)
+	for k in ["grabber", "grabber_highlight", "grabber_pressed", "scroll", "scroll_focus"]:
+		vsb.add_theme_stylebox_override(k, tr)
+	vsb.custom_minimum_size = Vector2(0, 0)
 	_left.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 2)
+	_list.alignment = BoxContainer.ALIGNMENT_CENTER
+	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_list)
 
-	_side = MarginContainer.new()
-	_side.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	_side.offset_left = -760
-	_side.offset_right = -48
-	_side.offset_top = 36
-	_side.offset_bottom = -56
-	_side.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_side)
-	_side_box = VBoxContainer.new()
-	_side_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	_side_box.size_flags_horizontal = Control.SIZE_SHRINK_END
-	_side_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_side.add_child(_side_box)
-
 	_foot_l = UiTheme.eyebrow("", MUTED, 12)
-	_foot_l.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_foot_l.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_foot_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_foot_l.offset_left = 64
 	_foot_l.offset_top = -36
-	_foot_l.offset_right = 700
+	_foot_l.offset_right = -64
 	_foot_l.offset_bottom = -18
 	add_child(_foot_l)
 	_foot_r = UiTheme.eyebrow("BLORP  ·  " + VERSION, MUTED, 12)
@@ -151,21 +154,45 @@ func _fit() -> void:
 	var c := _compact()
 	UiTheme.compact = c
 	var w := get_viewport_rect().size.x
-	var m := 34.0 if c else 64.0
-	_left.offset_left = m
-	_left.offset_top = 14.0 if c else 36.0
-	_left.offset_right = m + (420.0 if c else 470.0)
-	_left.offset_bottom = -26.0 if c else -56.0
-	_side.offset_left = -(w - _left.offset_right - 26.0) if c else -760.0
-	_side.offset_right = -22.0 if c else -48.0
-	_side.offset_top = _left.offset_top
-	_side.offset_bottom = _left.offset_bottom
-	_foot_l.offset_left = m
-	_foot_r.offset_right = -(22.0 if c else 48.0)
+	var cw := minf(COL_W_C if c else COL_W, w - 40.0)
+	_left.offset_left = -cw * 0.5
+	_left.offset_right = cw * 0.5
+	_left.offset_top = 8.0 if c else 30.0
+	_left.offset_bottom = -18.0 if c else -58.0
+	_foot_l.offset_left = 24.0
+	_foot_l.offset_right = -24.0
+	_foot_r.offset_right = -(18.0 if c else 32.0)
 
 func relayout() -> void:
 	_fit()
 	show_page(_page)
+
+## Faixas diagonais bem discretas: dá textura à tela sem competir com o texto.
+static func _pattern() -> ImageTexture:
+	var n := 48
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var d := (x + y) % 16
+			var a := 0.030 if d < 8 else 0.0
+			if (x - y + n * 2) % 16 == 0:
+				a = 0.055
+			img.set_pixel(x, y, Color(0.55, 0.72, 1.0, a))
+	return ImageTexture.create_from_image(img)
+
+## Brilho quente atrás do título, pra tela não ficar chapada.
+static func _glow_tex() -> GradientTexture2D:
+	var gr := Gradient.new()
+	gr.offsets = PackedFloat32Array([0.0, 1.0])
+	gr.colors = PackedColorArray([Color(1.0, 0.76, 0.30, 0.13), Color(1.0, 0.76, 0.30, 0.0)])
+	var g := GradientTexture2D.new()
+	g.gradient = gr
+	g.width = 256
+	g.height = 256
+	g.fill = GradientTexture2D.FILL_RADIAL
+	g.fill_from = Vector2(0.5, 0.42)
+	g.fill_to = Vector2(1.05, 0.42)
+	return g
 
 static func _gradient(cols: Array, offs: Array, from: Vector2, to: Vector2) -> GradientTexture2D:
 	var gr := Gradient.new()
@@ -187,9 +214,6 @@ func show_page(p: String) -> void:
 	_first = null
 	for c in _list.get_children():
 		_list.remove_child(c)
-		c.queue_free()
-	for c in _side_box.get_children():
-		_side_box.remove_child(c)
 		c.queue_free()
 	_left.visible = true
 	_heading.visible = true
@@ -228,35 +252,36 @@ func _unhandled_input(e: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _animate() -> void:
-	for n in [_left, _side]:
-		n.modulate.a = 0.0
-		var base: float = 64.0 if n == _left else size.x + _side.offset_left
-		n.position.x = base + (-28.0 if n == _left else 28.0)
-		var tw := create_tween().set_parallel(true).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
-		tw.tween_property(n, "modulate:a", 1.0, 0.22)
-		tw.tween_property(n, "position:x", base, 0.3)
+	_left.modulate.a = 0.0
+	var tw := create_tween().set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(_left, "modulate:a", 1.0, 0.2)
 
 func _title(text: String, eyebrow := "BLORP", sub := "") -> void:
 	_heading.text = text.to_upper()
 	_eyebrow.text = eyebrow.to_upper()
 	_sub.text = sub
 
-func _btn(text: String, cb: Callable, sub := "", col := UiTheme.GOLD) -> Button:
+## Item de menu: nome centralizado e nada mais. Sem descrição, sem mistério.
+func _btn(text: String, cb: Callable, _sub := "", col := UiTheme.GOLD) -> Button:
 	var b := UiTheme.item(Button.new(), col)
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.custom_minimum_size = Vector2(260.0 if _compact() else 320.0, 0)
+	for k in ["normal", "hover", "pressed", "focus"]:
+		var sb: StyleBoxFlat = b.get_theme_stylebox(k)
+		sb.border_width_left = 0
+		sb.set_corner_radius_all(8)
+		if k != "normal":
+			sb.bg_color = Color(1, 1, 1, 0.09)
+			sb.set_border_width_all(2)
+			sb.border_color = col
+		sb.content_margin_top = 8.0 if _compact() else 9.0
+		sb.content_margin_bottom = 8.0 if _compact() else 9.0
 	b.text = text
 	b.pressed.connect(func():
 		Aud.play("ui", 0.6)
 		cb.call())
 	_list.add_child(b)
-	if sub != "" and not _compact():
-		var l := UiTheme.label(sub, 13, MUTED)
-		l.add_theme_constant_override("outline_size", 3)
-		var m := MarginContainer.new()
-		m.add_theme_constant_override("margin_left", 26)
-		m.add_theme_constant_override("margin_bottom", 4)
-		m.add_theme_constant_override("margin_top", -8)
-		m.add_child(l)
-		_list.add_child(m)
 	if _first == null:
 		_first = b
 	return b
@@ -285,67 +310,52 @@ func _main() -> void:
 	_btn("Versus", func(): show_page("versus"), "two players, one keyboard or two pads", UiTheme.LEAF)
 	_btn("Online", func(): show_page("online"), "coming soon", Color(0.36, 0.72, 1.0))
 	_btn("CPU vs CPU", func(): show_page("cpu"), "sit back and watch the goo fight", Color(1.0, 0.62, 0.26))
-	_spacer()
+	if not _compact():
+		_spacer()
 	_btn("You", func(): show_page("look"), "", Color(0.9, 0.45, 0.8))
 	_btn("Settings", func(): show_page("options"), "", Color(0.7, 0.75, 0.8))
 	if OS.get_name() != "Web":
 		_btn("Quit", func(): quit_game.emit(), "", Color(0.8, 0.35, 0.3))
-	_side_hero()
 
 ## Logo: o nome em fonte de cartaz e o seu blob espiando por cima.
 func _logo() -> void:
 	var c := _compact()
 	var box := HBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", -6)
-	var pr := Portrait.new(settings.look, "laugh", 58 if c else 104, BV.LEFT)
+	var pr := Portrait.new(settings.look, "laugh", 44 if c else 104, BV.LEFT)
 	pr.size_flags_vertical = Control.SIZE_SHRINK_END
 	box.add_child(pr)
-	var l := UiTheme.display("BLORP", 62 if c else 110, UiTheme.GOLD)
+	var l := UiTheme.display("BLORP", 46 if c else 110, UiTheme.GOLD)
 	l.size_flags_vertical = Control.SIZE_SHRINK_END
 	box.add_child(l)
 	var top_gap := Control.new()
-	top_gap.custom_minimum_size = Vector2(0, 6 if c else 0)
+	top_gap.custom_minimum_size = Vector2(0, 2 if c else 0)
 	_list.add_child(top_gap)
 	_list.move_child(top_gap, 0)
 	_list.add_child(box)
 	var tag := UiTheme.eyebrow("Volleyball, but goo.", MUTED, 12)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var tm := MarginContainer.new()
-	tm.add_theme_constant_override("margin_left", 64 if c else 112)
-	tm.add_theme_constant_override("margin_top", -10)
-	tm.add_theme_constant_override("margin_bottom", 10)
+	tm.add_theme_constant_override("margin_top", 2)
+	tm.add_theme_constant_override("margin_bottom", 14)
 	tm.add_child(tag)
 	_list.add_child(tm)
-
-func _side_hero() -> void:
-	var v := VBoxContainer.new()
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 2)
-	var pr := Portrait.new(settings.look, "smug", 170 if _compact() else 300, BV.LEFT)
-	v.add_child(pr)
-	var n := UiTheme.eyebrow(settings.player_name if settings.player_name != "" else "YOU",
-		Looks.body_color(settings.look).lightened(0.35), 16)
-	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(n)
-	if settings.campaign_best > 0:
-		var s := UiTheme.label("best: level %d" % settings.campaign_best, 13, MUTED)
-		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(s)
-	_side_box.add_child(v)
 
 func _campaign() -> void:
 	var c := _compact()
 	_heading.add_theme_font_size_override("font_size", 36 if c else 46)
-	_title("The Hundred" if c else "The\nHundred", "world championship",
-		"" if c else "one nation per level. Brazil waits at 100.")
+	_title("The Hundred", "world championship", "")
 	_sel_level = clampi(settings.campaign_level, 1, Campaign.LAST)
 	if not _page_pinned:
 		_grid_page = (_sel_level - 1) / PER_PAGE
 	_detail = VBoxContainer.new()
 	_detail.add_theme_constant_override("separation", 4)
 	_list.add_child(_detail)
+	_spacer(10)
+	_list.add_child(_grid_block())
 	_spacer()
 	_back()
-	_side_box.add_child(_grid_block())
 	_fill_detail()
 
 const PER_PAGE := 20
@@ -453,6 +463,7 @@ func _fill_detail() -> void:
 	var nat: Dictionary = info.nation
 	var open: bool = n <= settings.campaign_level
 	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 12)
 	var pr := Portrait.new(Campaign.look_of(nat), "smug" if open else "calm", 84 if _compact() else 120, BV.RIGHT)
 	row.add_child(pr)
@@ -461,25 +472,22 @@ func _fill_detail() -> void:
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	v.add_child(UiTheme.eyebrow(("BOSS · " if info.boss else "") + "LEVEL %d" % n, Color(nat.h).lightened(0.2), 12))
 	v.add_child(UiTheme.display(nat.p, 30 if _compact() else 40, Color(nat.b).lightened(0.35)))
-	v.add_child(UiTheme.label(str(nat.n).to_upper(), 13, Color(nat.h).lightened(0.25)))
 	v.add_child(UiTheme.label(info.rule, 14, Color(1, 1, 1, 0.8)))
 	row.add_child(v)
 	_detail.add_child(row)
 	if info.mods.size() > 0:
-		var mods := HFlowContainer.new()
+		var mods := HBoxContainer.new()
+		mods.alignment = BoxContainer.ALIGNMENT_CENTER
 		mods.add_theme_constant_override("h_separation", 6)
 		mods.add_theme_constant_override("v_separation", 4)
 		for m in info.mods:
 			var md: Dictionary = Campaign.MODS[m]
 			var chip := UiTheme.chip(Button.new(), false, 13)
-			chip.text = md.icon + " " + md.name
+			chip.text = md.name
 			chip.focus_mode = Control.FOCUS_NONE
 			chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			mods.add_child(chip)
-		var mm := MarginContainer.new()
-		mm.add_theme_constant_override("margin_left", 4)
-		mm.add_child(mods)
-		_detail.add_child(mm)
+		_detail.add_child(mods)
 	var go := UiTheme.solid(Button.new(), Color(nat.b) if open else Color(0.3, 0.32, 0.34), 20)
 	go.text = ("PLAY LEVEL %d" % n) if open else "LOCKED"
 	go.disabled = not open
@@ -494,6 +502,15 @@ func _fill_detail() -> void:
 
 func _versus() -> void:
 	_title("Versus", "two players", "same keyboard (WASD + arrows) or two gamepads")
+	var hero := HBoxContainer.new()
+	hero.alignment = BoxContainer.ALIGNMENT_CENTER
+	hero.add_theme_constant_override("separation", 16)
+	var hs := 96 if _compact() else 150
+	hero.add_child(Portrait.new(settings.look, "smug", hs, BV.LEFT))
+	hero.add_child(UiTheme.display("VS", 36 if _compact() else 54, UiTheme.GOLD))
+	hero.add_child(Portrait.new(Looks.roll_look(settings.look[0]), "focus", hs, BV.RIGHT))
+	_list.add_child(hero)
+	_spacer(10)
 	var stw := [settings.score_to_win]
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -509,29 +526,31 @@ func _versus() -> void:
 				UiTheme.chip(c, c.text.ends_with(" %d" % n), 15))
 		chips.append(b)
 		row.add_child(b)
-	var m := MarginContainer.new()
-	m.add_theme_constant_override("margin_left", 22)
-	m.add_theme_constant_override("margin_bottom", 10)
-	m.add_child(row)
-	_list.add_child(m)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_list.add_child(row)
+	_spacer(10)
 	_btn("Play", func(): play_versus.emit(stw[0]), "", UiTheme.LEAF)
 	_spacer()
 	_back()
-	var v := VBoxContainer.new()
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 20)
-	var ps := 130 if _compact() else 220
-	h.add_child(Portrait.new(settings.look, "smug", ps, BV.LEFT))
-	h.add_child(UiTheme.display("VS", 48 if _compact() else 72, UiTheme.GOLD))
-	h.add_child(Portrait.new(Looks.roll_look(settings.look[0]), "focus", ps, BV.RIGHT))
-	v.add_child(h)
-	_side_box.add_child(v)
 
 ## CPU vs CPU: só escolhe o nível de habilidade e assiste. As partidas se
 ## emendam sozinhas, com países e modificadores sorteados a cada uma.
 func _cpu() -> void:
-	_title("CPU vs CPU", "no hands", "two bots, random nations and modifiers, one match after another")
+	_title("CPU vs CPU", "no hands", "two bots, random rules, one match after another")
+	var a: Dictionary = Campaign.NATIONS[randi() % Campaign.NATIONS.size()]
+	var b2: Dictionary = Campaign.NATIONS[randi() % Campaign.NATIONS.size()]
+	var hero := HBoxContainer.new()
+	hero.alignment = BoxContainer.ALIGNMENT_CENTER
+	hero.add_theme_constant_override("separation", 14)
+	var hs := 96 if _compact() else 150
+	hero.add_child(Portrait.new(Campaign.look_of(a), "focus", hs, BV.LEFT))
+	hero.add_child(UiTheme.display("VS", 36 if _compact() else 54, Color(1.0, 0.62, 0.26)))
+	hero.add_child(Portrait.new(Campaign.look_of(b2), "smug", hs, BV.RIGHT))
+	_list.add_child(hero)
+	var tag := UiTheme.eyebrow("%s  vs  %s" % [a.p, b2.p], MUTED, 14)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_list.add_child(tag)
+	_spacer(10)
 	var sk := [settings.bots_skill]
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -548,40 +567,24 @@ func _cpu() -> void:
 				UiTheme.chip(c, c.text == str(o[0]), 15))
 		chips.append(b)
 		row.add_child(b)
-	var m := MarginContainer.new()
-	m.add_theme_constant_override("margin_left", 22)
-	m.add_theme_constant_override("margin_bottom", 10)
-	m.add_child(row)
-	_list.add_child(m)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_list.add_child(row)
+	_spacer(10)
 	_btn("Watch", func(): play_bots.emit(sk[0]), "", Color(1.0, 0.62, 0.26))
 	_spacer()
 	_back()
-	var v := VBoxContainer.new()
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 18)
-	var ps := 130 if _compact() else 220
-	var a: Dictionary = Campaign.NATIONS[randi() % Campaign.NATIONS.size()]
-	var b2: Dictionary = Campaign.NATIONS[randi() % Campaign.NATIONS.size()]
-	h.add_child(Portrait.new(Campaign.look_of(a), "focus", ps, BV.LEFT))
-	h.add_child(UiTheme.display("VS", 48 if _compact() else 72, Color(1.0, 0.62, 0.26)))
-	h.add_child(Portrait.new(Campaign.look_of(b2), "smug", ps, BV.RIGHT))
-	v.add_child(h)
-	var t := UiTheme.eyebrow("%s  vs  %s" % [a.p, b2.p], MUTED, 14)
-	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(t)
-	_side_box.add_child(v)
 
 func _online() -> void:
 	_title("Online", "coming soon", "cross-play ranked matches are on the way. Meanwhile: beat the Hundred.")
-	_back()
-	var v := VBoxContainer.new()
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_child(Portrait.new(Looks.roll_look(-1), "sad", 150 if _compact() else 260, BV.RIGHT))
-	var l := UiTheme.display("COMING SOON", 36 if _compact() else 54, Color(0.36, 0.72, 1.0))
+	var hero := HBoxContainer.new()
+	hero.alignment = BoxContainer.ALIGNMENT_CENTER
+	hero.add_child(Portrait.new(Looks.roll_look(-1), "sad", 130 if _compact() else 190, BV.RIGHT))
+	_list.add_child(hero)
+	var l := UiTheme.display("COMING SOON", 30 if _compact() else 44, Color(0.36, 0.72, 1.0))
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(l)
-	_side_box.add_child(v)
+	_list.add_child(l)
+	_spacer(12)
+	_back()
 
 func _look() -> void:
 	_title("You", "profile", "name, body, hair and color")
@@ -590,6 +593,12 @@ func _look() -> void:
 	_back()
 
 func _look_editor() -> void:
+	var pr := Portrait.new(settings.look, "smug", 120 if _compact() else 190, BV.LEFT)
+	var pw := HBoxContainer.new()
+	pw.alignment = BoxContainer.ALIGNMENT_CENTER
+	pw.add_child(pr)
+	_list.add_child(pw)
+	_spacer(10)
 	var ne := UiTheme.line_edit(LineEdit.new(), 22)
 	ne.placeholder_text = "your name"
 	ne.max_length = 12
@@ -598,20 +607,18 @@ func _look_editor() -> void:
 	ne.text_changed.connect(func(t):
 		settings.player_name = t.strip_edges()
 		settings.save())
-	var nm := MarginContainer.new()
-	nm.add_theme_constant_override("margin_left", 22)
-	nm.add_theme_constant_override("margin_bottom", 10)
+	var nm := HBoxContainer.new()
+	nm.alignment = BoxContainer.ALIGNMENT_CENTER
 	nm.add_child(ne)
 	_list.add_child(nm)
-	var pr := Portrait.new(settings.look, "smug", 180 if _compact() else 320, BV.LEFT)
+	_spacer(10)
 	var look: Array = settings.look.duplicate()
 	var names := ["Body", "Hair", "Color"]
 	var sizes := [Looks.BODY_COLORS.size(), Looks.HAIR_STYLES.size(), Looks.HAIR_COLORS.size()]
 	for i in 3:
 		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		row.add_theme_constant_override("separation", 6)
-		var m := MarginContainer.new()
-		m.add_theme_constant_override("margin_left", 22)
 		var name_l := UiTheme.eyebrow(names[i], MUTED, 12)
 		name_l.custom_minimum_size = Vector2(80, 0)
 		name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -639,9 +646,11 @@ func _look_editor() -> void:
 				row.add_child(value)
 			else:
 				row.add_child(b)
-		m.add_child(row)
-		_list.add_child(m)
+		_list.add_child(row)
 	var roll := UiTheme.item(Button.new(), Color(0.9, 0.45, 0.8), 18)
+	roll.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	roll.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	roll.custom_minimum_size = Vector2(260, 0)
 	roll.text = "Random"
 	roll.pressed.connect(func():
 		settings.look = Looks.roll_look(-1)
@@ -650,10 +659,6 @@ func _look_editor() -> void:
 		show_page(_page))
 	_list.add_child(roll)
 	_spacer(6)
-	var v := VBoxContainer.new()
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_child(pr)
-	_side_box.add_child(v)
 
 func _look_name(kind: int, v: int) -> String:
 	match kind:
@@ -663,9 +668,10 @@ func _look_name(kind: int, v: int) -> String:
 
 func _options() -> void:
 	_title("Settings", "graphics, sound, controls")
-	var m := MarginContainer.new()
-	m.add_theme_constant_override("margin_left", 22)
+	var m := HBoxContainer.new()
+	m.alignment = BoxContainer.ALIGNMENT_CENTER
 	var v := VBoxContainer.new()
+	v.custom_minimum_size = Vector2(0 if _compact() else 430, 0)
 	v.add_theme_constant_override("separation", 10)
 	v.add_child(UiTheme.eyebrow("Quality", MUTED, 12))
 	v.add_child(quality_row(settings, func(q):
@@ -724,7 +730,7 @@ func _options() -> void:
 	_list.add_child(m)
 	_spacer()
 	_back()
-	_side_legend()
+	_legend_block()
 
 ## Lista o que está plugado. Sem isso, controle que não responde vira adivinhação:
 ## aqui dá pra ver na hora se o jogo enxergou o aparelho e em que lado ele caiu.
@@ -744,17 +750,18 @@ func _pad_list() -> Control:
 ## A legenda vai para o lado direito, que nesta página está vazio: a coluna da
 ## esquerda já passa da altura da tela e empurrar mais texto lá embaixo esconde
 ## justamente quem precisa da legenda.
-func _side_legend() -> void:
+func _legend_block() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	v.custom_minimum_size = Vector2(330 if _compact() else 420, 0)
 	v.add_child(UiTheme.eyebrow("Controls", MUTED, 12))
 	for line in _legend().split("\n"):
 		var l := UiTheme.label(line, 13, MUTED)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.custom_minimum_size = Vector2(330 if _compact() else 420, 0)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		v.add_child(l)
-	_side_box.add_child(v)
+	_spacer(14)
+	_list.add_child(v)
 
 
 ## Só o que vale para o aparelho que está na mão. A lista inteira vira parede de
@@ -762,13 +769,14 @@ func _side_legend() -> void:
 func _legend() -> String:
 	var out: Array[String] = []
 	if DisplayServer.is_touchscreen_available() or _compact():
-		out.append("Touch: the whole left half moves · JUMP and ACTION on the right")
+		out.append("Touch: the whole left half moves · JUMP, ACTION and SPECIAL on the right")
 	if Controls.has_pad():
-		out.append("Gamepad: stick or d-pad · A jumps · X, B, Y, shoulders or triggers act · Start pauses")
+		out.append("Gamepad: stick or d-pad · A jumps (again in the air = spin) · X, B or shoulders act · Y charges the special · Start pauses")
 		if Controls.pads.size() < 2:
 			out.append("A second gamepad becomes P2; with only one, P2 plays on the arrows")
 	if out.is_empty() or not (DisplayServer.is_touchscreen_available() or _compact()):
-		out.append("Move: A/D or arrows · Jump: W / Up / Space · Action: E, Shift, Ctrl or Enter")
+		out.append("Move: A/D or arrows · Jump: W / Up / Space, again in the air to spin")
+		out.append("Action: E, Shift, Ctrl or Enter · Special: R or F")
 		out.append("Esc pauses and goes back")
 	return "\n".join(out)
 

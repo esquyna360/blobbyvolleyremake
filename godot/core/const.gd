@@ -45,7 +45,7 @@ const SPECIAL_GAIN_FRAME := 0.0003
 const SPECIAL_REACH := 165.0
 const SPECIAL_VELOCITY := BALL_COLLISION_VELOCITY * 2.45
 const SPECIAL_BALL_FRAMES := 150
-const STUN_FRAMES := 165
+const STUN_FRAMES := 112
 const SPECIAL_KNOCKBACK := 11.0
 const SPECIAL_POP := -9.0
 const KNOCK_DECAY := 0.9
@@ -61,13 +61,46 @@ const SPECIAL_COMEBACK_MAX := 2.2
 const SPECIAL_DEPTH_JITTER := 0.36
 const SPECIAL_ARC_JITTER := 3.0
 
-const PARRY_ACTIVE := 5
-const PARRY_CD := 58
-const PARRY_REACH := 112.0
+## Parry encadeado: o especial vem em tres bolas, entao a janela tem que caber
+## tres vezes. Ativa por 7 quadros e recarrega em 12 -- da pra cobrir as tres
+## se o tempo estiver certo, e apertar sem parar nao cobre nem metade.
+const PARRY_ACTIVE := 7
+const PARRY_CD := 12
+const PARRY_REACH := 124.0
 const PARRY_BOOST := 0.1
 const PARRY_CHAIN_MAX := 4
 const PARRY_HOLD := 60
 const SPECIAL_HOLD := 120
+
+## Ataque no ar: aperta o pulo de novo e o blob gira. Sem bola perto, nao
+## acontece nada -- e so a animacao, e o giro nao repete no mesmo pulo.
+const SPIN_FRAMES := 26
+const SPIN_REACH := 128.0
+const SPIN_V := BALL_COLLISION_VELOCITY * 1.74
+const SPIN_GAIN := 0.075
+const SPIN_LOCK := 255
+
+## Bola batida no giro sai "quente": se relar no adversario, empurra e tira
+## ele do lugar por um tempinho. Blob grande aguenta melhor o tranco.
+const HOT_FRAMES := 50
+const HOT_KNOCK := 10.5
+const HOT_POP := -4.6
+const HOT_STAGGER := 32
+
+## Especial: congela a tela, o blob carrega a pose e solta tres bolas em fila.
+## Parry nas tres devolve seis. As bolas do especial quase nao caem -- e um
+## projetil, nao um saque.
+const SUPER_FREEZE := 0.34
+const SUPER_WINDUP := 40
+const VOLLEY_N := 3
+const VOLLEY_REV := 6
+const VOLLEY_REV_WINDUP := 22
+const VOLLEY_GAP := 11
+const VOLLEY_GAP_JIT := 7
+const VOLLEY_V := BALL_COLLISION_VELOCITY * 2.35
+const VOLLEY_G := 0.85
+const VOLLEY_SPREAD := 0.055
+const MAX_EX := 5
 
 const CROUCH_RATE := 0.16
 const CROUCH_RATE_AIR := 0.09

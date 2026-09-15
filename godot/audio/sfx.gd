@@ -15,6 +15,7 @@ const NAMES := [
 	"dive_hit", "bonk", "block", "apex", "special_wasted", "parry",
 	"parry_whiff", "dig", "ball_out", "whistle", "cheer", "thunder", "glitch",
 	"fatality", "finish_win", "finish_lose",
+	"shinkuu", "spin", "spin_hit", "knockdown", "volley", "reversal",
 ]
 
 

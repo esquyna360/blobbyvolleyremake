@@ -40,6 +40,22 @@ var _last_winner := BV.NO_PLAYER
 var _slow := 1.0
 var _looks: Array = []
 
+const HIST := 210
+const REP_LEN := 118
+const REP_SPEED := 0.55
+var _hf: Array = []
+var _hi: Array = []
+var _he: Array = []
+var _hn := 0
+var _rep: BVMatch = null
+var _rep_at := 0
+var _rep_end := 0
+var _rep_acc := 0.0
+var _rep_score := 0
+var _rep_tag := ""
+var _rep_last := -9000
+signal replay(tag: String, on: bool)
+
 ## Cenário ou preset novo no meio da partida: troca só o palco, a simulação
 ## nem percebe.
 func rebuild_arena(q: int) -> void:
@@ -72,17 +88,18 @@ func _slowmo() -> float:
 	if rb != null or bv.logic.winner != BV.NO_PLAYER:
 		return 1.0
 	var w := bv.world
-	if not w.match_point:
-		return 1.0
 	var g := bv.logic
-	var leader := BV.LEFT if g.scores[BV.LEFT] >= g.scores[BV.RIGHT] else BV.RIGHT
-	var ball_side := w.ball_side()
-	if ball_side == leader or w.ball_vy <= 0.0:
+	if not g.is_ball_valid or not g.would_win(w.ball_side()):
+		return 1.0
+	if w.ball_vy <= 0.0:
 		return 1.0
 	var h := Map.gy(w.ball_y)
 	if h > 4.5:
 		return 1.0
 	return 0.28
+
+func replaying() -> bool:
+	return _rep_at < _rep_end
 
 func slow_factor() -> float:
 	return _slow
@@ -131,6 +148,21 @@ func start(p: MatchParams, q: int, left_src: int, right_src: int,
 	_paused = false
 	_last_winner = BV.NO_PLAYER
 	_slow = 1.0
+	_rep = null
+	_rep_at = 0
+	_rep_end = 0
+	_rep_score = 0
+	_rep_last = -9000
+	_hn = 0
+	_hf.clear()
+	_hi.clear()
+	_he.clear()
+	if net_side == BV.NO_PLAYER:
+		for k in HIST:
+			var st := bv.new_state()
+			_hf.append(st[0])
+			_hi.append(st[1])
+			_he.append([])
 	if net_side != BV.NO_PLAYER:
 		rb = Rollback.new()
 		rb.save(bv)
@@ -145,10 +177,14 @@ func set_remote_bits(side: int, bits: int) -> void:
 func _process(dt: float) -> void:
 	if bv == null:
 		return
+	if _rep_at < _rep_end and not _paused:
+		_rep_step(dt)
+		return
 	if _paused or _last_winner != BV.NO_PLAYER or arena.intro_active():
 		arena.render(bv, 1.0, dt)
 		return
 
+	arena.tick_real(dt)
 	var slow := _slowmo()
 	_slow += (slow - _slow) * (1.0 - exp(-dt * (12.0 if slow < _slow else 4.0)))
 	dt *= _slow * arena.drama()
@@ -183,6 +219,7 @@ func _step() -> void:
 	bv.step(_in)
 	arena.capture(bv)
 	if not _resim:
+		_record()
 		arena.on_events(bv)
 		for i in 2:
 			if moods[i] != null:
@@ -199,6 +236,93 @@ func _step() -> void:
 			if moods[i] != null:
 				_emote_later(i, moods[i].finish(_last_winner == i), 0.7)
 		match_over.emit(_last_winner)
+
+## Grava o rally inteiro num anel de estados. Quando o ponto acaba, se o lance
+## valeu a pena, ele volta em câmera lenta e com a lente colada na bola.
+func _record() -> void:
+	if _hf.is_empty():
+		return
+	var k := _hn % HIST
+	bv.save(_hf[k], _hi[k])
+	var ev := bv.events
+	var list: Array = []
+	for j in ev.n:
+		list.append([ev.kind[j], ev.side[j], ev.intensity[j]])
+		_score_event(ev.kind[j], ev.intensity[j])
+	_he[k] = list
+	_hn += 1
+	for j in ev.n:
+		if ev.kind[j] == Ev.PLAYER_ERROR:
+			_maybe_replay()
+
+func _score_event(kind: int, inten: float) -> void:
+	match kind:
+		Ev.REVERSAL:
+			_rep_score += 5
+			_rep_tag = "PARRY x3"
+		Ev.PARRY:
+			_rep_score += 3 if inten >= 1.0 else 1
+			if inten >= 1.0 and _rep_tag == "":
+				_rep_tag = "PARRY"
+		Ev.SPECIAL_GROUND:
+			_rep_score += 4
+			_rep_tag = "SHINKUU"
+		Ev.SPECIAL_HIT:
+			_rep_score += 3
+			if _rep_tag == "":
+				_rep_tag = "SHINKUU"
+		Ev.SPIN_HIT:
+			_rep_score += 1
+		Ev.STAGGER:
+			_rep_score += 2
+			if _rep_tag == "":
+				_rep_tag = "SPIN"
+		Ev.DIG, Ev.DIVE_HIT:
+			if bv.world.ball_y > BV.GROUND_PLANE_HEIGHT_MAX - 90.0:
+				_rep_score += 4
+				if _rep_tag == "":
+					_rep_tag = "WHAT A SAVE"
+			else:
+				_rep_score += 1
+
+func _maybe_replay() -> void:
+	var score := _rep_score
+	var tag := _rep_tag if _rep_tag != "" else "REPLAY"
+	_rep_score = 0
+	_rep_tag = ""
+	if rb != null or score < 6 or _hn < 60 or _last_winner != BV.NO_PLAYER:
+		return
+	if _hn - _rep_last < 900:
+		return
+	_rep_last = _hn
+	if _rep == null:
+		_rep = BVMatch.new(params, BV.LEFT)
+	_rep_end = _hn
+	_rep_at = _hn - mini(_hn, REP_LEN)
+	_rep_acc = 0.0
+	arena.rep_want = 1.0
+	replay.emit(tag, true)
+
+func _rep_step(dt: float) -> void:
+	_rep_acc += dt * REP_SPEED
+	var n := 0
+	while _rep_acc >= STEP and _rep_at < _rep_end and n < MAX_CATCHUP:
+		_rep_acc -= STEP
+		n += 1
+		var k := _rep_at % HIST
+		_rep.restore(_hf[k], _hi[k])
+		_rep.events.clear()
+		for e in _he[k]:
+			_rep.events.push(e[0], e[1], e[2])
+		arena.capture(_rep)
+		arena.on_events(_rep)
+		_rep_at += 1
+	arena.render(_rep, clampf(_rep_acc / STEP, 0.0, 1.0), dt)
+	if _rep_at >= _rep_end:
+		arena.rep_want = 0.0
+		arena.capture(bv)
+		arena.capture(bv)
+		replay.emit("", false)
 
 ## A janela de entradas sai todo quadro, inclusive quando o lado local está
 ## esperando o outro. Mandar só dentro do passo trancava os dois: quem espera

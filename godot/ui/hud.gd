@@ -4,10 +4,11 @@ extends Control
 ## Placar, barra de especial e contador de rally. Nada aqui lê o mundo direto:
 ## o jogo empurra o estado a cada quadro.
 
-const BAR_W := 170.0
+const BAR_W := 175.0
+const NAME_W := 96.0
 const RALLY_MIN := 6
 const RALLY_HOLD := 1.9
-const BAR_H := 12.0
+const BAR_H := 3.0
 
 var _score := [null, null]
 var _bar := [null, null]
@@ -44,6 +45,19 @@ var _pause_out := false
 
 signal pause_pressed
 
+## Barra fina no topo: pausa, nome, placar, nome. O resto da tela é o jogo.
+static func _bar_style() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.05, 0.07, 0.55)
+	sb.set_corner_radius_all(9)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 12
+	sb.content_margin_top = 5
+	sb.content_margin_bottom = 6
+	sb.border_color = Color(1, 1, 1, 0.08)
+	sb.set_border_width_all(1)
+	return sb
+
 func set_colors(left: Color, right: Color) -> void:
 	_score[0].add_theme_color_override("font_color", left)
 	_score[1].add_theme_color_override("font_color", right)
@@ -65,89 +79,95 @@ func build(left: Color, right: Color) -> void:
 	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
-	panel.offset_left = -250
-	panel.offset_right = 250
+	panel.offset_left = -BAR_W
+	panel.offset_right = BAR_W
 	panel.offset_top = 10
-	panel.add_theme_stylebox_override("panel", UiTheme.wood())
+	panel.add_theme_stylebox_override("panel", _bar_style())
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_top.add_child(panel)
 	var top := HBoxContainer.new()
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
-	top.add_theme_constant_override("separation", 14)
+	top.add_theme_constant_override("separation", 10)
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(top)
 
-	for i in 2:
-		if i == 1:
-			pause_btn = Button.new()
-			pause_btn.text = "❚❚"
-			pause_btn.custom_minimum_size = Vector2(58, 58)
-			pause_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			UiTheme.style(pause_btn, Color(0.45, 0.85, 0.40), 20)
-			pause_btn.focus_mode = Control.FOCUS_NONE
-			pause_btn.pressed.connect(func(): pause_pressed.emit())
-			top.add_child(pause_btn)
-			_pause_home = top
-		var col := VBoxContainer.new()
-		col.custom_minimum_size = Vector2(BAR_W, 0)
-		col.alignment = BoxContainer.ALIGNMENT_BEGIN
-		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.add_theme_constant_override("separation", 10)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var disc := Label.new()
-		disc.text = "●"
-		disc.add_theme_font_size_override("font_size", 44)
-		disc.add_theme_color_override("font_color", left if i == 0 else right)
-		disc.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
-		disc.add_theme_constant_override("outline_size", 6)
-		disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_disc[i] = disc
-		var s := Label.new()
-		s.text = "0"
-		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		s.add_theme_font_size_override("font_size", 50)
-		s.add_theme_color_override("font_color", left if i == 0 else right)
-		s.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
-		s.add_theme_constant_override("outline_size", 8)
-		s.custom_minimum_size = Vector2(80, 0)
-		if i == 0:
-			row.add_child(disc)
-			row.add_child(s)
-		else:
-			row.add_child(s)
-			row.add_child(disc)
-		col.add_child(row)
-		_score[i] = s
+	pause_btn = Button.new()
+	pause_btn.text = "❚❚"
+	pause_btn.custom_minimum_size = Vector2(26, 26)
+	pause_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pause_btn.flat = true
+	pause_btn.add_theme_font_size_override("font_size", 12)
+	pause_btn.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+	pause_btn.add_theme_color_override("font_hover_color", Color(1, 1, 1, 0.95))
+	pause_btn.focus_mode = Control.FOCUS_NONE
+	pause_btn.pressed.connect(func(): pause_pressed.emit())
+	top.add_child(pause_btn)
+	_pause_home = top
 
+	for i in 2:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 2)
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.custom_minimum_size = Vector2(NAME_W, 0)
+		var nm := Label.new()
+		nm.text = ""
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if i == 0 else HORIZONTAL_ALIGNMENT_LEFT
+		nm.add_theme_font_size_override("font_size", 15)
+		nm.add_theme_color_override("font_color", left if i == 0 else right)
+		nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_disc[i] = nm
 		var back := ColorRect.new()
-		back.color = Color(0, 0, 0, 0.42)
-		back.custom_minimum_size = Vector2(BAR_W, BAR_H)
+		back.color = Color(1, 1, 1, 0.13)
+		back.custom_minimum_size = Vector2(NAME_W, BAR_H)
 		back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var fill := ColorRect.new()
 		fill.color = left if i == 0 else right
-		fill.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-		fill.offset_right = 0.0
+		fill.set_anchors_preset(Control.PRESET_LEFT_WIDE if i == 0 else Control.PRESET_RIGHT_WIDE)
+		if i == 0:
+			fill.offset_right = 0.0
+		else:
+			fill.offset_left = 0.0
 		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		back.add_child(fill)
+		col.add_child(nm)
 		col.add_child(back)
 		_bar[i] = back
 		_fill[i] = fill
-		top.add_child(col)
+
+		var sc := Label.new()
+		sc.text = "0"
+		sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		sc.add_theme_font_size_override("font_size", 26)
+		sc.add_theme_color_override("font_color", left if i == 0 else right)
+		sc.custom_minimum_size = Vector2(30, 0)
+		sc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_score[i] = sc
+
+		if i == 0:
+			top.add_child(col)
+			top.add_child(sc)
+			var sep := Label.new()
+			sep.text = ":"
+			sep.add_theme_font_size_override("font_size", 22)
+			sep.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
+			sep.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			top.add_child(sep)
+		else:
+			top.add_child(sc)
+			top.add_child(col)
 
 	_info = Label.new()
 	_info.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_info.anchor_left = 0.5
 	_info.anchor_right = 0.5
-	_info.offset_left = -180
-	_info.offset_right = 180
-	_info.offset_top = 108
+	_info.offset_left = -220
+	_info.offset_right = 220
+	_info.offset_top = 58
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_info.add_theme_font_size_override("font_size", 22)
-	_info.add_theme_color_override("font_color", Color(1, 1, 1, 0.78))
-	_info.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
-	_info.add_theme_constant_override("outline_size", 5)
+	_info.add_theme_font_size_override("font_size", 15)
+	_info.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
 	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_top.add_child(_info)
 
@@ -157,7 +177,7 @@ func build(left: Color, right: Color) -> void:
 	_rally.anchor_right = 0.5
 	_rally.offset_left = -140
 	_rally.offset_right = 140
-	_rally.offset_top = 136
+	_rally.offset_top = 82
 	_rally.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rally.add_theme_font_size_override("font_size", 22)
 	_rally.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
@@ -275,17 +295,18 @@ func _place_bubble() -> void:
 ## Celular: o placar de 500 px de largura comia um quarto da tela. Encolhe o
 ## painel e solta o botão de pausa no canto, onde o dedo alcança.
 func fit(compact: bool) -> void:
-	var k := 0.72 if compact else 1.0
+	var k := 0.86 if compact else 1.0
 	_panel.scale = Vector2(k, k)
-	_panel.pivot_offset = Vector2(250.0, 0.0)
-	_info.offset_top = 108.0 * k
-	_rally.offset_top = 136.0 * k
+	_panel.pivot_offset = Vector2(BAR_W, 0.0)
+	_info.offset_top = 56.0 * k
+	_rally.offset_top = 82.0 * k
 	if compact == _pause_out or pause_btn == null:
 		return
 	_pause_out = compact
 	pause_btn.get_parent().remove_child(pause_btn)
 	if compact:
 		pause_btn.custom_minimum_size = Vector2(62, 62)
+		pause_btn.add_theme_font_size_override("font_size", 20)
 		pause_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		pause_btn.anchor_left = 1.0
 		pause_btn.anchor_right = 1.0
@@ -295,7 +316,8 @@ func fit(compact: bool) -> void:
 		pause_btn.offset_bottom = 78
 		_top.add_child(pause_btn)
 	else:
-		pause_btn.custom_minimum_size = Vector2(58, 58)
+		pause_btn.custom_minimum_size = Vector2(26, 26)
+		pause_btn.add_theme_font_size_override("font_size", 12)
 		pause_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
 		_pause_home.add_child(pause_btn)
 		_pause_home.move_child(pause_btn, 0)
@@ -357,18 +379,22 @@ func update(m: BVMatch, dt: float) -> void:
 		_pulse[i] = maxf(0.0, _pulse[i] - dt * 3.0)
 		_score[i].scale = Vector2.ONE * (1.0 + _pulse[i] * 0.22)
 		_score[i].pivot_offset = _score[i].size * 0.5
+		if _disc[i].text != names[i]:
+			_disc[i].text = names[i]
 		var c: float = clampf(m.world.charge[m.world.lead(i)] / BV.SPECIAL_FULL, 0.0, 1.0)
-		_fill[i].offset_right = BAR_W * c
+		if i == 0:
+			_fill[i].offset_right = NAME_W * c
+		else:
+			_fill[i].offset_left = -NAME_W * c
 		_fill[i].modulate.a = 0.55 + 0.45 * c
 		if c >= 1.0:
 			_fill[i].modulate.a = 0.8 + 0.2 * sin(Time.get_ticks_msec() * 0.006)
 
 	var stw := g.score_to_win
 	var mp := maxi(g.scores[0], g.scores[1]) >= stw - 1 and g.winner == BV.NO_PLAYER
-	_info.text = "MATCH POINT" if mp else (sub_text if sub_text != "" else \
-		("%s  vs  %s" % [names[0], names[1]] if names[0] != "" else "First to %d" % stw))
+	_info.text = "MATCH POINT" if mp else sub_text
 	_info.add_theme_color_override("font_color",
-		Color(1.0, 0.5, 0.35) if mp else Color(1, 1, 1, 0.78))
+		Color(1.0, 0.5, 0.35) if mp else Color(1, 1, 1, 0.5))
 
 	if g.rally != _rally_shown:
 		_rally_shown = g.rally

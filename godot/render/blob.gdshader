@@ -27,6 +27,7 @@ uniform vec3 light_dir = vec3(-0.35, 0.80, 0.48);
 uniform vec3 rim_color : source_color = vec3(1.0, 0.85, 0.63);
 uniform float toon = 1.0;
 uniform float dizzy = 0.0;
+uniform float parry_glow = 0.0;
 
 varying vec3 base_pos;
 
@@ -151,5 +152,8 @@ void fragment() {
 	float spot = step(0.93, pow(max(dot(n, h), 0.0), 1.0)) * gloss * (1.0 - face.a * 0.8);
 	col += vec3(1.0, 0.96, 0.9) * spot * 0.35;
 	col += body_color * hit_flash * 1.6;
+	// parry do SF3: o corpo inteiro acende azul, mais forte na borda
+	col = mix(col, vec3(0.30, 0.72, 1.35), parry_glow * (0.30 + fres * 0.70));
+	col += vec3(0.16, 0.48, 1.10) * parry_glow * (0.35 + rim * 1.4);
 	ALBEDO = col;
 }

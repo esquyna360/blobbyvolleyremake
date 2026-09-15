@@ -39,8 +39,21 @@ var charge_k := 0.0
 var recoil := 0.0
 var _land_hold := 0.0
 var dive_face := 0.0
+var parry_glow := 0.0
+var knock_face := 0.0
+var _spin_roll := 0.0
+var _spin_k := 0.0
+var _down := 0.0
+var _throw := 0.0
 
 static var _shared_mesh: ArrayMesh
+
+## No fim de partida quem manda na forma é a pose, não a física congelada no
+## quadro do ponto final.
+func set_squash(v: Vector3) -> void:
+	_mat.set_shader_parameter("squash", v)
+	spread = v.x
+
 
 func _init(s: int, shadows := true, idx := -1, bscale := 1.0) -> void:
 	side = s
@@ -89,6 +102,7 @@ func pose(dt: float, time: float, tension := 0.0) -> void:
 	_mat.set_shader_parameter("brow", face.brow)
 	_mat.set_shader_parameter("tear", face.tear)
 	_mat.set_shader_parameter("mouth", face.open)
+	_mat.set_shader_parameter("parry_glow", 0.0)
 
 func dive_land() -> void:
 	_land_hold = 0.9
@@ -149,11 +163,25 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	if dive < 0.002:
 		dive = 0.0
 
+	# giro no ar: o corpo vira um pião e estica na vertical
+	var sp := 1.0 if w.spin_t[i] > 0 else 0.0
+	_spin_k += (sp - _spin_k) * (1.0 - exp(-dt * (26.0 if sp > _spin_k else 12.0)))
+	if sp > 0.0:
+		_spin_roll += dt * TAU * 3.1
+	elif _spin_k < 0.02:
+		_spin_roll = 0.0
+
+	# levou a rajada: deita no chão como personagem de luta
+	var kd := 1.0 if w.knocked[i] > 0 else 0.0
+	_down += (kd - _down) * (1.0 - exp(-dt * (16.0 if kd > _down else 3.2)))
+
 	var wind := w.dive_wind[i] > 0
 	var deform := squash_spring + air_stretch
 	var ck := charge_k
 	var sy := 1.0 + deform - anim * 0.5 - cr * 0.34 - dive * 0.42 + breath - ck * 0.22 - (0.30 if wind else 0.0)
 	var sxz := 1.0 / sqrt(maxf(0.45, 1.0 + deform)) + anim * 0.45 + cr * 0.26 - breath * 0.6 + ck * 0.12 + (0.22 if wind else 0.0)
+	sy += _spin_k * 0.16 - _down * 0.12
+	sxz += -_spin_k * 0.07 + _down * 0.10
 	var sq := Vector3(sxz + dive * 0.72, sy, sxz - dive * 0.14)
 	spread = sxz
 	_mat.set_shader_parameter("squash", sq)
@@ -168,9 +196,14 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 
 	# o achatamento encolhe em volta da origem: sem baixar, o blob agachado
 	# descola do chão em vez de afundar nele
+	# carregar o especial recua o corpo; o arremesso joga tudo pra frente
+	var dirf := 1.0 if side == BV.LEFT else -1.0
+	var hk := clampf(float(w.hold[i]) / 40.0, 0.0, 1.0)
+	_throw = 0.0 if w.hold[i] == 0 else clampf((0.45 - hk) / 0.45, 0.0, 1.0)
+	var lunge := (_throw * 0.6 - hk * 0.32) * bsc
 	recoil = maxf(0.0, recoil - dt * 4.0)
 	position = Vector3(
-		wx + (w.dive_dir[i] * dive * 0.16 - (1.0 if side == BV.LEFT else -1.0) * recoil * 0.35) * bsc,
+		wx + lunge * dirf + (w.dive_dir[i] * dive * 0.16 - (1.0 if side == BV.LEFT else -1.0) * recoil * 0.35) * bsc,
 		wy - (cr * BV.CROUCH_DUCK * Map.S * (1.05 if grounded else 0.4) + dive * 0.22) * bsc,
 		0.0)
 	scale = Vector3.ONE * bsc
@@ -183,6 +216,13 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	_lean = lerpf(_lean, lean, 1.0 - exp(-dt * (17.0 if air else 9.0)))
 	rotation.z = _lean + sin(time * 0.9 + i * 2.4) * 0.035 * _idle
 	rotation.y = sin(time * 0.6 + i * 1.3) * 0.12 * _idle
+	rotation.z += dirf * (hk * 0.24 - _throw * 0.38)
+	var away := 1.0 if side == BV.LEFT else -1.0
+	if _spin_k > 0.004:
+		rotation.z = lerpf(rotation.z, _spin_roll * away, _spin_k)
+	if _down > 0.004:
+		rotation.z = lerpf(rotation.z, away * 1.62, _down)
+		position.y -= 0.22 * _down * bsc
 
 	if w.stun[i] > 0:
 		rotation.z += sin(time * 9.5) * 0.24
@@ -210,15 +250,21 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 		+ face.wide * 0.3 - _land_face * 0.25
 	_eye += (eye_want - _eye) * (1.0 - exp(-dt * 14.0))
 	_mat.set_shader_parameter("eye_scale", _eye)
-	_mat.set_shader_parameter("blink", 0.08 + face.blink * 0.92)
+	var shut := maxf(_spin_k, _down * 0.8)
+	_mat.set_shader_parameter("blink", (0.08 + face.blink * 0.92) * (1.0 - shut * 0.94))
 	_mat.set_shader_parameter("lid", face.lid * (1.0 - _land_face * 0.55) * (1.0 - dive_face * 0.75) * (1.0 - _dizzy * 0.3))
 	_mat.set_shader_parameter("curve", face.curve)
 	_mat.set_shader_parameter("brow", face.brow)
 	_mat.set_shader_parameter("tear", face.tear)
 
 	mouth = maxf(0.0, mouth - dt * 3.2)
-	_mat.set_shader_parameter("mouth", maxf(maxf(maxf(mouth, face.open), _land_face * 0.7), dive_face * 0.95))
+	var m := maxf(maxf(maxf(mouth, face.open), _land_face * 0.7), dive_face * 0.95)
+	m = maxf(m, _throw * 0.85)
+	_mat.set_shader_parameter("mouth", maxf(m, maxf(_spin_k * 0.75, _down * 0.9)))
 
 	flash = maxf(0.0, flash - dt * 3.5)
+	parry_glow = maxf(0.0, parry_glow - dt * 2.6)
+	knock_face = maxf(0.0, knock_face - dt * 1.6)
 	_mat.set_shader_parameter("hit_flash", flash)
+	_mat.set_shader_parameter("parry_glow", parry_glow)
 	_mat.set_shader_parameter("t", time)

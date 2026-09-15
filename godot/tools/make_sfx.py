@@ -278,6 +278,39 @@ def build(name, mx):
         body(mx, 0, 200, 110, 0.5, 0.7, 0.16, "triangle", 0.35)
         groan(mx, 0.15, 1.3, 0.34)
         whistle_ref(mx, 0.0, 0.2, 0.34)
+    elif name == "spin":
+        # giro no ar: sopro que sobe e passa, sem impacto nenhum
+        e = denv(0.34, 0.30, 0.02)
+        mx.add(bq_sweep(mx.noise_at(len(e)), "bandpass", 700.0, 3400.0, 0.30, 2.6) * e, 0, 0.25)
+        body(mx, 0.02, 180, 620, 0.22, 0.26, 0.10, "triangle", 0.3)
+    elif name == "spin_hit":
+        crack(mx, 0, 5200, 0.009, 0.55)
+        crack(mx, 0, 1400, 0.045, 0.42, 1.6, "bandpass")
+        body(mx, 0, 320, 110, 0.06, 0.13, 0.52, "sine", 0.2)
+        sub(mx, 0, 62, 0.11, 0.38)
+        ring(mx, 0.012, 1760.0, 0.26, 0.14, ((1.0, 1.0), (2.4, 0.35)), 0.5)
+    elif name == "knockdown":
+        # o corpo batendo no chao: baque grave, sem estalo agudo
+        crack(mx, 0, 900, 0.03, 0.30, 0.9, "lowpass")
+        sub(mx, 0, 52, 0.30, 0.6)
+        body(mx, 0, 150, 70, 0.14, 0.24, 0.34, "sine", 0.25)
+        e = denv(0.22, 0.34, 0.01)
+        mx.add(bq(mx.noise_at(len(e)), "lowpass", 620.0, 0.6) * e, 0.01, 0.3)
+        groan(mx, 0.06, 0.5, 0.2)
+    elif name == "volley":
+        # cada bola do especial passando: curto, seco e agudo
+        crack(mx, 0, 3600, 0.012, 0.42, 1.4, "bandpass")
+        body(mx, 0, 620, 190, 0.07, 0.12, 0.34, "sawtooth", 0.3)
+        sub(mx, 0, 88, 0.08, 0.24)
+    elif name == "reversal":
+        # a virada depois dos tres parries: sobe e estoura
+        e = denv(0.3, 0.42, 0.12)
+        mx.add(bq_sweep(mx.noise_at(len(e)), "bandpass", 500.0, 5200.0, 0.42, 1.6) * e, 0, 0.4)
+        for i, hz in enumerate((392.0, 523.25, 659.25, 784.0)):
+            stab(mx, 0.34 + i * 0.045, hz, 0.14, 0.30)
+        crack(mx, 0.42, 6000, 0.012, 0.5)
+        sub(mx, 0.42, 58, 0.5, 0.5)
+        ring(mx, 0.42, 1318.5, 0.6, 0.22, wet=0.55)
     else:
         raise KeyError(name)
 
@@ -290,11 +323,14 @@ SOUNDS = {
     "emote_2": (0.34, 0.75), "special_ready": (0.9, 0.8), "special_fired": (0.7, 0.95),
     "special_hit": (1.3, 0.98), "ground_burn": (1.3, 0.98), "dive": (0.5, 0.75),
     "dive_hit": (0.6, 0.95), "bonk": (1.0, 0.85), "block": (0.34, 0.9),
-    "apex": (0.5, 0.75), "special_wasted": (0.7, 0.75), "parry": (0.8, 0.88),
+    "apex": (0.5, 0.75), "special_wasted": (0.7, 0.75),
+    # parry sai do sample do SF3 em web/public/parry.mp3, nao daqui
     "parry_whiff": (0.2, 0.6), "dig": (0.24, 0.8), "ball_out": (0.45, 0.8),
     "whistle": (0.45, 0.85), "cheer": (2.6, 0.8), "thunder": (2.6, 0.95),
     "glitch": (0.4, 0.75), "fatality": (2.2, 0.98), "finish_win": (2.8, 0.95),
     "finish_lose": (2.4, 0.85),
+    "spin": (0.42, 0.7), "spin_hit": (0.6, 0.98), "knockdown": (0.9, 0.9),
+    "volley": (0.3, 0.92), "reversal": (1.3, 0.96),
 }
 
 

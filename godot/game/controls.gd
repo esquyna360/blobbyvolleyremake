@@ -33,14 +33,14 @@ static func _keys() -> void:
 	_act("p1_left", [KEY_A], DEAD_STICK)
 	_act("p1_right", [KEY_D], DEAD_STICK)
 	_act("p1_up", [KEY_W], DEAD_STICK)
-	_act("p1_special", [], DEAD_BTN)
+	_act("p1_special", [KEY_R, KEY_F], DEAD_BTN)
 	_act("p1_down", [KEY_S], DEAD_STICK)
 	_act("p1_dive", [KEY_E, KEY_Q, KEY_SHIFT], DEAD_BTN)
 
 	_act("p2_left", [KEY_LEFT], DEAD_STICK)
 	_act("p2_right", [KEY_RIGHT], DEAD_STICK)
 	_act("p2_up", [KEY_UP], DEAD_STICK)
-	_act("p2_special", [], DEAD_BTN)
+	_act("p2_special", [KEY_KP_2, KEY_PERIOD], DEAD_BTN)
 	_act("p2_down", [KEY_DOWN], DEAD_STICK)
 	_act("p2_dive", [KEY_CTRL, KEY_KP_0, KEY_KP_1, KEY_ENTER, KEY_SLASH], DEAD_BTN)
 
@@ -48,7 +48,7 @@ static func _keys() -> void:
 	_act("solo_left", [KEY_A, KEY_LEFT], DEAD_STICK)
 	_act("solo_right", [KEY_D, KEY_RIGHT], DEAD_STICK)
 	_act("solo_up", [KEY_W, KEY_UP, KEY_SPACE], DEAD_STICK)
-	_act("solo_special", [], DEAD_BTN)
+	_act("solo_special", [KEY_R, KEY_F, KEY_KP_2, KEY_PERIOD], DEAD_BTN)
 	_act("solo_down", [KEY_S, KEY_DOWN], DEAD_STICK)
 	_act("solo_dive", [KEY_E, KEY_Q, KEY_SHIFT, KEY_CTRL, KEY_KP_0, KEY_KP_1,
 		KEY_ENTER, KEY_SLASH], DEAD_BTN)
@@ -100,9 +100,10 @@ static func _pad_binds() -> void:
 		_joy_btn(p + "down", [JOY_BUTTON_DPAD_DOWN], d)
 		_joy_axis(p + "down", JOY_AXIS_LEFT_Y, 1, d)
 		_joy_btn(p + "dive", ACTION_BTNS, d)
+		_joy_btn(p + "special", SPECIAL_BTNS, d)
 
 	for a in ["solo_left", "solo_right", "solo_up", "solo_down", "solo_dive",
-			"ui_ok", "ui_back", "pause"]:
+			"solo_special", "ui_ok", "ui_back", "pause"]:
 		_clear_joy(a)
 	_joy_btn("solo_left", [JOY_BUTTON_DPAD_LEFT], PAD_ANY)
 	_joy_axis("solo_left", JOY_AXIS_LEFT_X, -1, PAD_ANY)
@@ -113,6 +114,7 @@ static func _pad_binds() -> void:
 	_joy_btn("solo_down", [JOY_BUTTON_DPAD_DOWN], PAD_ANY)
 	_joy_axis("solo_down", JOY_AXIS_LEFT_Y, 1, PAD_ANY)
 	_joy_btn("solo_dive", ACTION_BTNS, PAD_ANY)
+	_joy_btn("solo_special", SPECIAL_BTNS, PAD_ANY)
 	_joy_btn("ui_ok", [JOY_BUTTON_A], PAD_ANY)
 	_joy_btn("ui_back", [JOY_BUTTON_B], PAD_ANY)
 	_joy_btn("pause", [JOY_BUTTON_START, JOY_BUTTON_BACK], PAD_ANY)
@@ -120,8 +122,12 @@ static func _pad_binds() -> void:
 ## X e B no Xbox, Quadrado e Círculo no DualSense, mais os dois ombros e os dois
 ## gatilhos: muita gente aperta o gatilho por reflexo, e ficar sem resposta ali
 ## passa a impressão de que o controle não pegou.
-const ACTION_BTNS := [JOY_BUTTON_X, JOY_BUTTON_B, JOY_BUTTON_Y,
+const ACTION_BTNS := [JOY_BUTTON_X, JOY_BUTTON_B,
 	JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_RIGHT_SHOULDER]
+
+## Triângulo no DualSense, Y no Xbox: botão só do especial. Ficar junto com a
+## ação fazia o especial sair no meio de um mergulho.
+const SPECIAL_BTNS := [JOY_BUTTON_Y]
 
 static func _clear_joy(name: String) -> void:
 	if not InputMap.has_action(name):

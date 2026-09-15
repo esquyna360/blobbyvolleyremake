@@ -165,6 +165,23 @@ static func apply_events(rigs: Array, events: EventBuf, scores: PackedInt32Array
 				rigs[o].set_mood("laugh", 1.3, 3)
 			Ev.SMASH:
 				rigs[s].set_mood("angry", 0.5, 2)
+			Ev.SPIN:
+				rigs[s].set_mood("strain", 0.45, 2)
+			Ev.SPIN_HIT:
+				rigs[s].set_mood("angry", 0.6, 3)
+				rigs[o].set_mood("shock", 0.7, 3)
+			Ev.STAGGER, Ev.KNOCKDOWN:
+				rigs[s].set_mood("hurt", 1.4, 5)
+				rigs[o].set_mood("laugh", 1.0, 3)
+			Ev.VOLLEY_BLOCKED:
+				rigs[s].set_mood("smug", 0.7, 4)
+				rigs[o].set_mood("shock", 0.7, 3)
+			Ev.REVERSAL:
+				rigs[s].set_mood("slick", 1.6, 6)
+				rigs[o].set_mood("panic", 1.6, 6)
+			Ev.SPECIAL_HOLD:
+				rigs[s].set_mood("strain", 1.2, 6)
+				rigs[o].set_mood("shock", 1.2, 6)
 
 ## Agachar não é evento, é estado: a cara tem que acompanhar o frame inteiro.
 static func crouch_moods(rigs: Array, crouch: PackedFloat64Array) -> void:
@@ -172,6 +189,22 @@ static func crouch_moods(rigs: Array, crouch: PackedFloat64Array) -> void:
 		if crouch[s] < 0.45:
 			continue
 		rigs[s].set_mood("focus", 0.06, 1)
+
+## A bola vai morrer no seu campo: cara de desespero olhando pra ela, e quando
+## o ponto decide a partida vira pânico puro.
+static func doom_moods(rigs: Array, w: PhysicWorld, valid: bool, decisive: bool) -> void:
+	if not valid or w.ball_vy <= 0.0:
+		return
+	var s := w.ball_side()
+	var gap := BV.GROUND_PLANE_HEIGHT_MAX - BV.BALL_RADIUS - w.ball_y
+	if gap > 200.0:
+		return
+	for p in rigs.size():
+		if w.side_of(p) != s or w.stun[p] > 0 or w.knocked[p] > 0:
+			continue
+		if absf(w.ball_x - w.blob_x[p]) > 300.0:
+			continue
+		rigs[p].set_mood("panic" if (decisive or gap < 100.0) else "worry", 0.1, 2)
 
 ## Bola no alcance do especial pronto: a cara mira antes do botão.
 static func reach_moods(rigs: Array, w: PhysicWorld, valid: bool) -> void:

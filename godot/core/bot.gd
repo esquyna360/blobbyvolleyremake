@@ -99,7 +99,7 @@ var _cool := 0
 var _aim := 0.0
 var _up_held := false
 var _sp_held := false
-var _sp_hold := 0
+var _spin_arm := false
 var _dive_held := false
 var _dig_lock := 0
 var _out := PlayerInput.new()
@@ -285,9 +285,10 @@ func think(m: BVMatch) -> PlayerInput:
 		_dig_lock -= 1
 
 	_out.clear()
-	if w.stun[me] > 0:
+	if w.stun[me] > 0 or w.knocked[me] > 0:
 		_up_held = false
 		_sp_held = false
+		_spin_arm = false
 		_dive_held = false
 		return _out
 
@@ -331,6 +332,16 @@ func think(m: BVMatch) -> PlayerInput:
 		up = true
 	if w.hold[me] > 0:
 		up = false
+	# giro: o botão é o mesmo do pulo, então solta um frame antes de bater
+	if _spin_arm and not _up_held:
+		up = true
+		_spin_arm = false
+	elif _want_spin(w, me, on_ground, p):
+		if _up_held:
+			up = false
+			_spin_arm = true
+		else:
+			up = true
 	_up_held = up
 
 	var special := _want_special(w, me, on_ground, p)
@@ -503,14 +514,19 @@ func _replan(m: BVMatch, p: Dictionary) -> void:
 				_probe(sx, j)
 
 	var dig := false
+	var dig_tight := false
 	if _b_ground and _best < -300.0:
 		var dxb := _px[_b_t] - _b_stand
 		var dyb := _py[_b_t] - (GROUND + LO_SPH)
-		dig = dxb * dxb + dyb * dyb < BV.DIG_REACH * BV.DIG_REACH * 0.8
+		var dd := dxb * dxb + dyb * dyb
+		dig = dd < BV.DIG_REACH * BV.DIG_REACH * 0.8
+		dig_tight = dd < BV.DIG_REACH * BV.DIG_REACH * 0.42
 
+	# cavada folgada resolve sentado; cavada no limite do braço é onde o mergulho
+	# vale a pena -- e é dele que sai a defesa que rende replay
 	var dive_dir := 0
 	var dive_t := 999
-	if _b_ground and not dig and _best < -300.0:
+	if _b_ground and not dig_tight and _best < -300.0:
 		for tt in range(_t0, _t1 + 1):
 			if _py[tt] < GROUND - 160.0:
 				continue
@@ -523,6 +539,8 @@ func _replan(m: BVMatch, p: Dictionary) -> void:
 			dive_dir = 1 if gap > 0.0 else -1
 			dive_t = tt - 6
 			break
+	if dive_dir != 0:
+		dig = false
 
 	_stand_x = _b_stand
 	_hit_t = _b_t
@@ -557,14 +575,26 @@ func _want_down(w: PhysicWorld, me: int, on_ground: bool) -> bool:
 		return true
 	return false
 
+## Giro no ar: o planejador já escolheu o ângulo do contato, e o giro manda a
+## bola nessa mesma direção só que muito mais forte. Então basta girar sempre
+## que o plano é bater no ar.
+func _want_spin(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> bool:
+	if on_ground or w.spin_t[me] > 0 or w.spin_cd[me] > 0 or w.hold[me] > 0:
+		return false
+	if w.super_frames > 0 or w.dive_frames[me] > 0 or w.block_t[me] > 0:
+		return false
+	if _b_ground or not _mine or _hit_t < 0 or _hit_t > BV.SPIN_FRAMES - 8:
+		return false
+	if _dir() * (w.ball_x - NET_X) > 0.0:
+		return false
+	return _rng() < 0.1 + float(p.attack) * 0.9
+
 func _want_special(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> bool:
 	if w.super_frames > 0 and w.super_owner != me:
 		return _want_parry(w, me, p)
 	if w.hold[me] > 0:
-		if _sp_hold <= 0:
-			return false
-		_sp_hold -= 1
-		return true
+		_sp_held = false
+		return false
 	var mine := _dir() * (w.ball_x - NET_X) < 0.0
 	if not (w.charge[me] >= BV.SPECIAL_FULL and not on_ground and mine):
 		_sp_held = false
@@ -578,22 +608,40 @@ func _want_special(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> b
 	if _sp_held:
 		return false
 	_sp_held = true
-	_sp_hold = int(floor(_rng() * float(p.attack) * 90.0))
 	return true
+
+## A rajada vem em três (ou seis): o parry mira a bola mais perto que ainda
+## está vindo, seja a principal ou uma das extras.
+func _threat(w: PhysicWorld, me: int) -> Vector3:
+	var best := Vector3(0.0, 0.0, -1.0)
+	var bd := 1e9
+	var dir := _dir()
+	var cands: Array = [[w.ball_x, w.ball_y, w.ball_vx, w.ball_vy]]
+	for i in BV.MAX_EX:
+		if w.ex_on[i] == 2:
+			cands.append([w.ex_x[i], w.ex_y[i], w.ex_vx[i], w.ex_vy[i]])
+	for c in cands:
+		if dir * float(c[2]) > 0.0:
+			continue
+		var dx: float = float(c[0]) - w.blob_x[me]
+		var dy: float = float(c[1]) - (w.blob_y[me] - UP_SPH)
+		var d := sqrt(dx * dx + dy * dy)
+		var v := sqrt(float(c[2]) * float(c[2]) + float(c[3]) * float(c[3]))
+		var eta := d / maxf(1.0, v)
+		if eta < bd:
+			bd = eta
+			best = Vector3(d, v, eta)
+	return best
 
 func _want_parry(w: PhysicWorld, me: int, p: Dictionary) -> bool:
 	if w.parry_cd[me] > 0 or w.parry_active[me] > 0:
 		_sp_held = false
 		return false
-	var closing := w.ball_vx < 0.0 if me == BV.LEFT else w.ball_vx > 0.0
-	if not closing:
+	var t := _threat(w, me)
+	if t.z < 0.0:
 		_sp_held = false
 		return false
-	var dx := w.ball_x - w.blob_x[me]
-	var dy := w.ball_y - (w.blob_y[me] - UP_SPH)
-	var d := sqrt(dx * dx + dy * dy)
-	var v := sqrt(w.ball_vx * w.ball_vx + w.ball_vy * w.ball_vy)
-	if not (d < BV.PARRY_REACH + v * 2.5 and _rng() < float(p.parry)):
+	if not (t.x < BV.PARRY_REACH + t.y * 2.5 and t.z < 6.0 and _rng() < float(p.parry)):
 		_sp_held = false
 		return false
 	if _sp_held:

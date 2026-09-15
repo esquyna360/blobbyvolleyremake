@@ -3,10 +3,17 @@ extends SceneTree
 ## Teste headless das mecânicas novas: mergulho com antecipação, batida na
 ## parede/rede com tontura e bloqueio na rede.
 
-func _inp(l := false, r := false, u := false, d := false, dive := false) -> PlayerInput:
+func _inp(l := false, r := false, u := false, d := false, dive := false, sp := false) -> PlayerInput:
 	var i := PlayerInput.new()
-	i.left = l; i.right = r; i.up = u; i.down = d; i.dive = dive
+	i.left = l; i.right = r; i.up = u; i.down = d; i.dive = dive; i.special = sp
 	return i
+
+func _count(seen: Array, kind: int) -> int:
+	var n := 0
+	for e in seen:
+		if e[1] == kind:
+			n += 1
+	return n
 
 func _events(out: EventBuf) -> Array:
 	var ks := []
@@ -118,6 +125,102 @@ func _init() -> void:
 	m.restore(st[0], st[1])
 	print("3 blobs: placar=", m.logic.scores, " frame=", m.frame, " nb=", m.world.nb, " checksum ok=", c1 == m.checksum())
 	if m.world.nb != 3 or c1 != m.checksum() or m.logic.scores[0] + m.logic.scores[1] == 0:
+		fails += 1
+	# 9. giro no ar: segundo toque no pulo vira ataque e a bola sai forte
+	w = PhysicWorld.new()
+	w.ball_x = w.blob_x[0] + 30.0
+	w.ball_y = 300.0
+	w.ball_vy = 0.0
+	seen = _run(w, 40, func(f): return _inp(false, false, f < 2 or (f > 8 and f < 11)),
+		func(_f): return _inp())
+	var spin := _has(seen, Ev.SPIN, 0)
+	var spin_hit := _has(seen, Ev.SPIN_HIT, 0)
+	print("giro frame=", spin, " acerto=", spin_hit, " v=", sqrt(w.ball_vx * w.ball_vx + w.ball_vy * w.ball_vy))
+	if spin < 0 or spin_hit < 0:
+		fails += 1
+	# 10. giro no chão não existe
+	w = PhysicWorld.new()
+	w.ball_y = 100.0
+	seen = _run(w, 30, func(f): return _inp(false, false, f < 3), func(_f): return _inp())
+	print("giro no chao=", _has(seen, Ev.SPIN, 0))
+	if _has(seen, Ev.SPIN, 0) >= 0:
+		fails += 1
+	# 11. um giro por pulo: apertar de novo no mesmo pulo não gira duas vezes
+	w = PhysicWorld.new()
+	w.ball_y = 100.0
+	seen = _run(w, 50, func(f): return _inp(false, false, f < 2 or f == 8 or f == 14),
+		func(_f): return _inp())
+	print("giros no mesmo pulo=", _count(seen, Ev.SPIN))
+	if _count(seen, Ev.SPIN) != 1:
+		fails += 1
+	# 12. especial: três bolas, congelamento e disparo
+	w = PhysicWorld.new()
+	w.charge[0] = BV.SPECIAL_FULL
+	w.ball_x = w.blob_x[0] + 40.0
+	w.ball_y = w.upper_y(0) - 40.0
+	seen = _run(w, 100, func(f): return _inp(false, false, false, false, false, f == 1),
+		func(_f): return _inp())
+	var hold_at := _has(seen, Ev.SPECIAL_HOLD, 0)
+	var fired := _has(seen, Ev.SPECIAL_FIRED, 0)
+	print("especial: pose=", hold_at, " disparo=", fired, " extras=", _count(seen, Ev.VOLLEY_FIRE),
+		" windup=", fired - hold_at)
+	if hold_at < 0 or fired < 0 or _count(seen, Ev.VOLLEY_FIRE) != BV.VOLLEY_N - 1 \
+			or fired - hold_at < BV.SUPER_WINDUP - 2:
+		fails += 1
+	# 13. mergulho em cima da bola toca uma vez só
+	w = PhysicWorld.new()
+	w.ball_x = w.blob_x[0] + 20.0
+	w.ball_y = w.lower_y(0)
+	w.ball_vx = 0.0
+	w.ball_vy = 0.0
+	seen = _run(w, 40, func(f): return _inp(false, true, false, false, f < 2), func(_f): return _inp())
+	var touches := _count(seen, Ev.DIVE_HIT) + _count(seen, Ev.BALL_HIT_BLOB)
+	print("toques no mergulho=", touches, " carga=", w.charge[0])
+	if touches > 2 or w.charge[0] > 0.2:
+		fails += 1
+	# 14. bola quente do giro derruba quem encosta
+	w = PhysicWorld.new()
+	w.hot = BV.HOT_FRAMES
+	w.hot_by = 0
+	w.ball_x = w.blob_x[1] - 10.0
+	w.ball_y = w.upper_y(1)
+	seen = _run(w, 6, func(_f): return _inp(), func(_f): return _inp())
+	print("tranco da bola quente=", _has(seen, Ev.STAGGER, 1), " stun=", w.stun[1])
+	if _has(seen, Ev.STAGGER, 1) < 0:
+		fails += 1
+	# 15. parry nas tres: a rajada volta com seis
+	w = PhysicWorld.new()
+	w.super_frames = 60
+	w.super_owner = 0
+	w.vol_owner = 0
+	w.vol_n = BV.VOLLEY_N
+	w.vol_parried = BV.VOLLEY_N - 1
+	w.ball_x = w.blob_x[1] - 24.0
+	w.ball_y = w.upper_y(1)
+	w.ball_vx = 22.0
+	w.ball_vy = 0.0
+	w.parry_active[1] = BV.PARRY_ACTIVE
+	seen = _run(w, 4, func(_f): return _inp(), func(_f): return _inp())
+	print("reversal=", _has(seen, Ev.REVERSAL, 1), " bolas=", w.vol_n, " dono=", w.vol_owner)
+	if _has(seen, Ev.REVERSAL, 1) < 0 or w.vol_n != BV.VOLLEY_REV or w.vol_owner != 1:
+		fails += 1
+	# 16. parry incompleto: a bola que passa derruba quem recebe
+	w = PhysicWorld.new()
+	w.super_frames = 60
+	w.super_owner = 0
+	w.vol_owner = 0
+	w.vol_n = BV.VOLLEY_N
+	w.vol_parried = 1
+	w.ex_on[0] = 2
+	w.ex_wait[0] = 0
+	w.ex_x[0] = w.blob_x[1] - 20.0
+	w.ex_y[0] = w.upper_y(1)
+	w.ex_vx[0] = 20.0
+	w.ex_vy[0] = 0.0
+	seen = _run(w, 6, func(_f): return _inp(), func(_f): return _inp())
+	print("levou a rajada=", _has(seen, Ev.SPECIAL_HIT, 1), " caido=", w.knocked[1], " bola do lado dele=",
+		w.ex_x[0] > BV.NET_POSITION_X)
+	if _has(seen, Ev.SPECIAL_HIT, 1) < 0 or w.knocked[1] <= 0:
 		fails += 1
 	print("FAILS=", fails)
 	quit(1 if fails > 0 else 0)
