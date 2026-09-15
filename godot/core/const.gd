@@ -152,12 +152,13 @@ const DIVE_SLIDE_DRAG := 0.9
 const DIVE_SLIDE_STOP := 0.3
 const DIVE_WIDE := 0.55
 const CROUCH_WIDE := 0.16
-const DIVE_VELOCITY := BALL_COLLISION_VELOCITY * 0.95
-const DIVE_TARGET_DEPTH := 0.42
+## Mergulho é defesa, não ataque: a bola sobe alta do lado de quem salvou,
+## dando tempo de levantar e atacar de verdade. Antes ele mirava o fundo do
+## adversário e virava um segundo golpe.
 const DIVE_NET_CLEARANCE := 26.0
-const DIVE_TIME_MIN := 40.0
-const DIVE_TIME_STEP := 3.0
-const DIVE_TIME_STEPS := 26
+const DIVE_POP := -14.2
+const DIVE_DRIFT := 0.035
+const DIVE_DRIFT_MAX := 3.4
 const DIVE_GAIN := 0.05
 
 ## Toque na diagonal entre a frente e o topo do blob: em vez de devolver a bola

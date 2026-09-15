@@ -50,7 +50,6 @@ var prev_down := PackedInt32Array()
 var prev_dive := PackedInt32Array()
 var dig_cd := PackedInt32Array()
 var dig_active := PackedInt32Array()
-var smash_cd := PackedInt32Array()
 var spin_t := PackedInt32Array()
 var spin_cd := PackedInt32Array()
 var hit_cd := PackedInt32Array()
@@ -75,11 +74,6 @@ var match_point := false
 var _no_input := PlayerInput.new()
 var _land := PackedInt32Array()
 
-const SMASH_REACH := 118.0
-const SMASH_CD := 22
-const SMASH_V := BV.BALL_COLLISION_VELOCITY * 1.18
-const SMASH_GAIN := 0.06
-const SMASH_CLEARANCE := 14.0
 
 func _init(params: MatchParams = null) -> void:
 	configure(params if params != null else MatchParams.new())
@@ -97,7 +91,7 @@ func configure(params: MatchParams) -> void:
 		a.fill(0.0)
 	for a in [stun, prev_up, prev_special, dive_frames, dive_dir, dive_cd, dive_recover,
 			dive_wind, dizzy, block_t, block_cd, hang, prev_jump, parry_active, parry_cd,
-			prev_down, prev_dive, dig_cd, dig_active, smash_cd, spin_t, spin_cd,
+			prev_down, prev_dive, dig_cd, dig_active, spin_t, spin_cd,
 			hit_cd, knocked, side, _land]:
 		a.resize(nb)
 		a.fill(0)
@@ -120,7 +114,7 @@ func float_count() -> int:
 	return nb * 10 + 8
 
 func int_count() -> int:
-	return nb * 24 + 6
+	return nb * 23 + 6
 
 func side_of(p: int) -> int:
 	return side[p]
@@ -472,8 +466,8 @@ func _try_block(p: int, raw: PlayerInput, out: EventBuf) -> bool:
 		return true
 	return false
 
-## Botão de ação: defende o especial do outro, ataca ou mergulha. O especial
-## agora mora num botão só dele -- ver `_try_special`.
+## Botão de ação: defende o especial do outro ou mergulha, e nada mais. Atacar
+## é questão de posição -- ver o toque na diagonal em `_handle_blob_ball_collision`.
 func _try_action(p: int, raw: PlayerInput, is_ball_valid: bool, out: EventBuf) -> void:
 	if stun[p] > 0 or dizzy[p] > 0:
 		return
@@ -484,8 +478,6 @@ func _try_action(p: int, raw: PlayerInput, is_ball_valid: bool, out: EventBuf) -
 		parry_cd[p] = BV.PARRY_CD
 		out.push(Ev.PARRY_TRY, p, 0.0)
 	if special_live(p) or not _action_pressed(p, raw):
-		return
-	if is_ball_valid and super_frames == 0 and _try_smash(p, raw, out):
 		return
 	_try_dive(p, raw, out)
 
@@ -519,42 +511,6 @@ func _fire_special(p: int, salt: int, out: EventBuf) -> void:
 	_aim_shot_scaled(p, vmax, 0.0, BV.SPECIAL_TARGET_DEPTH, BV.SPECIAL_NET_CLEARANCE,
 		BV.SPECIAL_TIME_MIN, BV.SPECIAL_TIME_STEP, BV.SPECIAL_TIME_STEPS, salt)
 	out.push(Ev.SPECIAL_FIRED, p, 0.5 if parry_chain > 0 else 1.0)
-
-func _try_smash(p: int, raw: PlayerInput, out: EventBuf) -> bool:
-	if smash_cd[p] > 0:
-		return false
-	var mine := dir_of(p) * (ball_x - net_x) < 0.0
-	if not mine:
-		return false
-	var cy := upper_y(p)
-	var dx := ball_x - blob_x[p]
-	var dy := ball_y - cy
-	var d2 := dx * dx + dy * dy
-	var reach := SMASH_REACH * bs[p]
-	if d2 > reach * reach:
-		return false
-	smash_cd[p] = SMASH_CD
-	var fwd := dir_of(p)
-	var push := (1.0 if raw.right else 0.0) - (1.0 if raw.left else 0.0)
-	var depth := 0.62
-	if push * fwd > 0.0:
-		depth = 0.88
-	elif push * fwd < 0.0:
-		depth = 0.30
-	var air := not blob_hit_ground(p)
-	_bump_tempo()
-	var v := SMASH_V * P.ball_hit * (1.12 if air else 1.0)
-	ball_spin = 0.0
-	if not _aim_shot(p, v, v * 0.75, depth, SMASH_CLEARANCE if air else BV.DIVE_NET_CLEARANCE,
-			14.0, 2.0, 30, 7, 0.08):
-		ball_vx = fwd * v * 0.28
-		ball_vy = -v * 0.96
-	_scale_ball_v()
-	_push_out(p, cy, dx, dy, sqrt(d2), upper_r(p))
-	add_charge(p, SMASH_GAIN, out)
-	out.push(Ev.BALL_HIT_BLOB, p, 1.0)
-	out.push(Ev.SMASH, p, 1.0 if air else 0.6)
-	return true
 
 ## Parry na bola principal -- a última da rajada. Se as extras já foram todas
 ## defendidas, isso fecha as três e vira o jogo: seis bolas de volta. Se ficou
@@ -723,9 +679,9 @@ func _handle_blob_ball_collision(p: int, out: EventBuf) -> bool:
 		var ddx := ball_x - blob_x[p]
 		var ddy := ball_y - cy
 		ball_spin = 0.0
-		_aim_shot_scaled(p, BV.DIVE_VELOCITY * P.ball_hit, BV.DIVE_VELOCITY * 0.7 * P.ball_hit,
-			BV.DIVE_TARGET_DEPTH, BV.DIVE_NET_CLEARANCE, BV.DIVE_TIME_MIN, BV.DIVE_TIME_STEP,
-			BV.DIVE_TIME_STEPS, 5)
+		var own := net_x * 0.5 if side[p] == BV.LEFT else net_x + (right_plane - net_x) * 0.5
+		ball_vx = clampf((own - ball_x) * BV.DIVE_DRIFT, -BV.DIVE_DRIFT_MAX, BV.DIVE_DRIFT_MAX) * tempo
+		ball_vy = BV.DIVE_POP * tempo
 		_push_out(p, cy, ddx, ddy, sqrt(ddx * ddx + ddy * ddy), cr)
 		add_charge(p, BV.DIVE_GAIN, out)
 		out.push(Ev.DIVE_HIT, p, 1.0)
@@ -909,7 +865,7 @@ func step(inputs: Array, is_ball_valid: bool, is_game_running: bool, out: EventB
 		if hot == 0:
 			hot_by = -1
 	for a in [dive_cd, dive_recover, dizzy, parry_active, parry_cd, dig_cd, dig_active,
-			smash_cd, spin_t, hit_cd, knocked]:
+			spin_t, hit_cd, knocked]:
 		_dec(a)
 
 	var eff: Array = []
@@ -1040,7 +996,7 @@ func reset_ball(s: int) -> void:
 	hot = 0
 	hot_by = -1
 	for a in [parry_active, parry_cd, stun, dig_active, dig_cd, dive_frames,
-			dive_recover, dive_cd, smash_cd, spin_t, spin_cd, hit_cd, knocked]:
+			dive_recover, dive_cd, spin_t, spin_cd, hit_cd, knocked]:
 		a.fill(0)
 	ball_spin = 0.0
 	tempo = 1.0
@@ -1082,5 +1038,5 @@ func restore(f: PackedFloat64Array, i: PackedInt32Array) -> int:
 func _int_arrays() -> Array:
 	return [stun, prev_up, prev_special, dive_frames, dive_dir, dive_cd, dive_recover,
 		dive_wind, dizzy, block_t, block_cd, hang, prev_jump, parry_active, parry_cd,
-		prev_down, prev_dive, dig_cd, dig_active, smash_cd, spin_t, spin_cd,
+		prev_down, prev_dive, dig_cd, dig_active, spin_t, spin_cd,
 		hit_cd, knocked]

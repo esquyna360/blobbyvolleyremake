@@ -92,15 +92,15 @@ func _init() -> void:
 	print("block frame=", blk, " hit=", _has(seen, Ev.DIVE_HIT, 1), " ball_vx=", w.ball_vx, " miss=", _has(seen, Ev.BLOCK_MISS, 1))
 	if blk < 0:
 		fails += 1
-	# 6. ataque: bola perto da cabeça + ação → SMASH cruzando a rede
+	# 6. acao perto da bola nao ataca: o botao so mergulha
 	w = PhysicWorld.new()
 	w.blob_x[0] = 300.0
-	w.ball_x = 330.0
-	w.ball_y = w.upper_y(0) - 40.0
+	w.ball_x = 400.0
+	w.ball_y = w.upper_y(0)
 	seen = _run(w, 40, func(f): return _inp(false, true, false, false, f < 2), func(_f): return _inp())
 	var sm := _has(seen, Ev.SMASH, 0)
-	print("smash frame=", sm, " vx=", w.ball_vx, " dive=", _has(seen, Ev.DIVE, 0))
-	if sm < 0 or w.ball_vx <= 0.0 or _has(seen, Ev.DIVE, 0) >= 0:
+	print("acao perto: smash=", sm, " dive=", _has(seen, Ev.DIVE, 0))
+	if sm >= 0 or _has(seen, Ev.DIVE, 0) < 0:
 		fails += 1
 	# 7. ação longe da bola → mergulho
 	w = PhysicWorld.new()
@@ -178,6 +178,17 @@ func _init() -> void:
 			break
 	print("especial cruzou=", crossed)
 	if not crossed:
+		fails += 1
+	# 13b. mergulho e defesa: levanta a bola do lado de quem salvou
+	w = PhysicWorld.new()
+	w.dive_frames[0] = 10
+	w.ball_x = w.blob_x[0] + 26.0
+	w.ball_y = w.lower_y(0) - 10.0
+	w.ball_vx = -5.0
+	w.ball_vy = 6.0
+	seen = _run(w, 1, func(_f): return _inp(), func(_f): return _inp())
+	print("mergulho: vy=", w.ball_vy, " vx=", w.ball_vx, " lado=", w.ball_side())
+	if _has(seen, Ev.DIVE_HIT, 0) < 0 or w.ball_vy > -9.0 or w.ball_side() != BV.LEFT:
 		fails += 1
 	# 13. mergulho em cima da bola toca uma vez só
 	w = PhysicWorld.new()
