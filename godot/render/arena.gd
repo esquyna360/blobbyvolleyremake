@@ -44,12 +44,10 @@ var trauma := 0.0
 var hitstop := 0.0
 var aberration := 0.0
 var flash := 0.0
-signal goo(color: Color)
 var _aura: Array[MeshInstance3D] = []
 var _stars: Array = []
 var outro_t := -1.0
 var _outro_winner := 0
-var _chunks: Array = []
 const OUTRO_LEN := 4.6
 var ball_speed := 0.0
 
@@ -142,17 +140,13 @@ var _cut := 0.0
 
 ## Fator de tempo do jogo: para no fim da partida (ver Game._process).
 func drama() -> float:
-	if outro_t >= 0.0 or freeze > 0.0:
+	if outro_t >= 0.0:
 		return 0.0
 	return 1.0
 
-## Relógio de verdade: o congelamento do especial não pode se congelar sozinho,
-## e o estouro de luz tem que apagar mesmo com o jogo parado.
 func tick_real(dt: float) -> void:
-	if freeze <= 0.0:
+	if outro_t < 0.0:
 		return
-	freeze = maxf(0.0, freeze - dt)
-	_freeze_k = minf(1.0, _freeze_k + dt * 9.0)
 	flash = maxf(0.0, flash - dt * 3.2)
 	aberration = maxf(0.0, aberration - dt * 5.0)
 	if _post != null:
@@ -189,25 +183,6 @@ func _lose_face() -> String:
 
 func outro_active() -> bool:
 	return outro_t >= 0.0
-
-func _step_chunks(dt: float) -> void:
-	var keep := []
-	for c in _chunks:
-		var n: MeshInstance3D = c.n
-		c.v.y -= 22.0 * dt
-		n.position += c.v * dt
-		n.rotation += c.spin * dt
-		c.t += dt
-		var d: float = camera.position.distance_to(n.position)
-		if d < 1.6:
-			goo.emit(n.material_override.albedo_color)
-			n.queue_free()
-			continue
-		if n.position.y < -2.0 or c.t > 4.0:
-			n.queue_free()
-			continue
-		keep.append(c)
-	_chunks = keep
 
 ## Fim de partida: plano médio nos dois, com a lente puxando pro lado de quem
 ## ganhou. Perto demais e a comemoração some pra fora do quadro.
@@ -252,11 +227,6 @@ var _squash_ang := 0.0
 var _gib := PackedInt32Array([0, 0])
 var _shadow: Array[MeshInstance3D] = []
 var _ball_shadow: MeshInstance3D
-var _ex_nodes: Array[MeshInstance3D] = []
-var _ex_shadow: Array[MeshInstance3D] = []
-var freeze := 0.0
-var _freeze_k := 0.0
-var _freeze_x := 0.0
 var rep_want := 0.0
 var _rep_k := 0.0
 var _rep_z := 1.0
@@ -268,6 +238,17 @@ var _kick_beat := 0
 var _win_beat := 0
 var _lead := [0, 1]
 var _blob_nodes: Array = []
+const TRAIL_N := 12
+const GHOST_N := 14
+var _trail: Array[MeshInstance3D] = []
+var _trail_t := PackedFloat64Array()
+var _trail_i := 0
+var _trail_acc := 0.0
+var _ghost: Array[MeshInstance3D] = []
+var _ghost_t := PackedFloat64Array()
+var _ghost_i := 0
+var _spin_acc := 0.0
+var _ghost_mesh: ArrayMesh
 var _post: ColorRect
 var _post_mat := ShaderMaterial.new()
 var _emotes: Array = []
@@ -333,8 +314,6 @@ func setup_blobs(w: PhysicWorld) -> void:
 	_blob_nodes.clear()
 	blobs.clear()
 	_shadow.clear()
-	_ex_nodes.clear()
-	_ex_shadow.clear()
 	_aura.clear()
 	_stars.clear()
 	var nb := 2 if w == null else w.nb
@@ -348,10 +327,6 @@ func setup_blobs(w: PhysicWorld) -> void:
 	_gib.fill(0)
 	outro_t = -1.0
 	intro_t = -1.0
-	for c in _chunks:
-		if is_instance_valid(c.n):
-			c.n.queue_free()
-	_chunks.clear()
 	trauma = 0.0
 	hitstop = 0.0
 	for a in [_ppx, _ppy, _pst, _cpx, _cpy, _cst]:
@@ -360,28 +335,7 @@ func setup_blobs(w: PhysicWorld) -> void:
 	ball = BallView.new(true, br, kind)
 	add_child(ball)
 	_blob_nodes.append(ball)
-
-	for i in BV.MAX_EX:
-		var em := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = br
-		sm.height = br * 2.0
-		sm.radial_segments = 14
-		sm.rings = 8
-		em.mesh = sm
-		var emat := StandardMaterial3D.new()
-		emat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		emat.albedo_color = Color(1.0, 0.8, 0.35)
-		em.material_override = emat
-		em.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		em.visible = false
-		add_child(em)
-		_blob_nodes.append(em)
-		_ex_nodes.append(em)
-		var es := _make_shadow()
-		es.visible = false
-		_ex_shadow.append(es)
-		_blob_nodes.append(es)
+	_build_afterimages(br)
 
 	for i in nb:
 		var side_i := i if w == null else w.side_of(i)
@@ -450,6 +404,104 @@ static func _shadow_texture() -> ImageTexture:
 	img.generate_mipmaps()
 	_shadow_tex = ImageTexture.create_from_image(img)
 	return _shadow_tex
+
+func _ghost_mat(col: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = col
+	mat.disable_fog = true
+	mat.cull_mode = BaseMaterial3D.CULL_BACK
+	return mat
+
+func _build_afterimages(br: float) -> void:
+	_trail.clear()
+	_ghost.clear()
+	_trail_t.resize(TRAIL_N)
+	_trail_t.fill(0.0)
+	_ghost_t.resize(GHOST_N)
+	_ghost_t.fill(0.0)
+	if _ghost_mesh == null:
+		_ghost_mesh = BlobMesh.build(28, 18)
+	var sm := SphereMesh.new()
+	sm.radius = br
+	sm.height = br * 2.0
+	sm.radial_segments = 16
+	sm.rings = 8
+	for i in TRAIL_N:
+		var mi := MeshInstance3D.new()
+		mi.mesh = sm
+		mi.material_override = _ghost_mat(Color(0.25, 0.55, 1.0, 0.5))
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visible = false
+		add_child(mi)
+		_blob_nodes.append(mi)
+		_trail.append(mi)
+	for i in GHOST_N:
+		var mi := MeshInstance3D.new()
+		mi.mesh = _ghost_mesh
+		mi.material_override = _ghost_mat(Color(0.25, 0.55, 1.0, 0.5))
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.custom_aabb = AABB(Vector3(-1.5, -1.5, -1.5), Vector3(3.0, 3.5, 3.0))
+		mi.visible = false
+		add_child(mi)
+		_blob_nodes.append(mi)
+		_ghost.append(mi)
+
+func _trail_push(bx: float, by: float, dt: float) -> void:
+	_trail_acc += dt
+	if _trail_acc < 0.026:
+		return
+	_trail_acc = 0.0
+	var mi := _trail[_trail_i]
+	_trail_t[_trail_i] = 1.0
+	_trail_i = (_trail_i + 1) % TRAIL_N
+	mi.position = Vector3(bx, by, -0.08)
+	mi.visible = true
+
+func _ghost_push(b: BlobView, col: Color, off := Vector3.ZERO, rot := 0.0) -> void:
+	var mi := _ghost[_ghost_i]
+	_ghost_t[_ghost_i] = 1.0
+	_ghost_i = (_ghost_i + 1) % GHOST_N
+	mi.position = b.position + off + Vector3(0, 0, -0.06)
+	mi.rotation = b.rotation + Vector3(0, 0, rot)
+	mi.scale = b.scale * b.sq_now * 1.1
+	var mat: StandardMaterial3D = mi.material_override
+	mat.albedo_color = col
+	mi.visible = true
+
+func _ghost_burst(p: int, w: PhysicWorld, col: Color, n := 6) -> void:
+	var b := blobs[p]
+	var back := Vector3(-w.dir_of(p), 0.0, 0.0)
+	for k in n:
+		_ghost_push(b, col, back * (0.22 * (k + 1)) + Vector3(0, 0.03 * k, 0))
+		_ghost_t[(_ghost_i - 1 + GHOST_N) % GHOST_N] = 1.0 - 0.12 * k
+
+func _trail_step(dt: float) -> void:
+	for i in TRAIL_N:
+		if _trail_t[i] <= 0.0:
+			continue
+		_trail_t[i] -= dt * 4.2
+		var mi := _trail[i]
+		if _trail_t[i] <= 0.0:
+			mi.visible = false
+			continue
+		var t := _trail_t[i]
+		mi.scale = Vector3.ONE * (0.55 + 0.45 * t)
+		var mat: StandardMaterial3D = mi.material_override
+		mat.albedo_color = Color(0.3 + 0.3 * t, 0.6 + 0.3 * t, 1.0, 0.5 * t)
+	for i in GHOST_N:
+		if _ghost_t[i] <= 0.0:
+			continue
+		_ghost_t[i] -= dt * 3.4
+		var mi := _ghost[i]
+		if _ghost_t[i] <= 0.0:
+			mi.visible = false
+			continue
+		var mat: StandardMaterial3D = mi.material_override
+		var c := mat.albedo_color
+		mat.albedo_color = Color(c.r, c.g, c.b, 0.55 * _ghost_t[i])
 
 func _make_shadow() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -555,8 +607,6 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			hitstop = maxf(hitstop, 0.035 * inten)
 			aberration = maxf(aberration, 0.5 * inten)
 			flash = maxf(flash, 0.035 * inten)
-			var away := Vector3(bx - Map.gx(w.blob_x[p]), by - Map.gy(w.blob_y[p]) - 0.4, 0.0).normalized()
-			fx.goo_burst(Vector3(bx, by, 0.15), away, blobs[p].body_color, inten)
 			blobs[p].kick(minf(1.4, blobs[p].wobble + 0.9 * inten), 1.6 * inten)
 			blobs[p].mouth = 1.0
 			blobs[p].flash = 0.5 * inten
@@ -611,15 +661,16 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			flash = maxf(flash, 0.06)
 			var fwd := Vector3(w.dir_of(p), 0.0, 0.0)
 			var muzzle := Vector3(bx, by, 0) + fwd * 1.3
-			fx.burst(muzzle, 300, 17.0, 0.45, 0.1, 0.7, 0.05,
-				blobs[p].body_color, 1.6, 0.35, true, fwd)
-			fx.burst(muzzle, 160, 26.0, 0.25, 0.1, 0.4, 0.07,
-				Color(1.0, 0.95, 0.7), 2.4, 0.0, true, fwd)
-			fx.burst(muzzle, 90, 6.0, 0.7, 0.3, 1.2, 0.035,
-				Color(1.0, 0.76, 0.2), 1.1, 0.25, true, fwd)
+			fx.burst(muzzle, 200, 14.0, 0.5, 0.2, 0.7, 0.05,
+				Color(0.35, 0.7, 1.0), 1.6, 0.35, true, fwd)
+			fx.burst(muzzle, 120, 22.0, 0.25, 0.1, 0.4, 0.07,
+				Color(0.8, 0.95, 1.0), 2.4, 0.0, true, fwd)
+			_ghost_burst(p, w, Color(0.3, 0.6, 1.0, 0.55), 7)
 			ball.flash(1.0)
-			blobs[p].kick(1.2, 2.4)
+			blobs[p].kick(0.9, 1.0)
 			blobs[p].recoil = 1.0
+			blobs[p].parry_glow = maxf(blobs[p].parry_glow, 0.8)
+			blobs[p].throw()
 			blobs[p].charge_k = 0.0
 			blobs[p].mouth = 1.0
 			blobs[p].flash = 0.4
@@ -685,29 +736,6 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 				Color(0.85, 0.66, 0.28), 2.0, 0.3)
 			blobs[p].kick(1.1, 1.4)
 
-		Ev.SPECIAL_HOLD:
-			var p := side
-			freeze = BV.SUPER_FREEZE
-			_freeze_k = 0.0
-			_freeze_x = Map.gx(w.blob_x[p])
-			trauma = minf(1.0, trauma + 0.55)
-			flash = maxf(flash, 0.42)
-			aberration = maxf(aberration, 3.0)
-			blobs[p].face.set_mood("strain", 1.6, 8)
-			blobs[p].charge_k = 1.0
-			blobs[p].flash = 1.0
-			var o := w.lead(BV.other(w.side_of(p)))
-			blobs[o].face.set_mood("shock", 1.4, 8)
-			var bp := Vector3(Map.gx(w.blob_x[p]), Map.gy(w.blob_y[p]) + 0.9, 0.2)
-			# o mundo trava e a partícula não anda: o anel já nasce aberto pra
-			# o quadro congelado ter o que mostrar, mas colado no blob -- anel
-			# grande vira halo e come a quadra inteira
-			fx.shock(bp, 1.9, 3.0, 0.5, Color(1.0, 0.86, 0.42), 1.0)
-			fx.shock(bp, 0.9, 1.7, 0.4, blobs[p].body_color.lightened(0.5), 0.9)
-			fx.burst(bp, 220, 5.5, PI, 0.4, 1.4, 0.055,
-				blobs[p].body_color.lightened(0.4), 2.2, 0.35)
-			fx.burst(bp, 90, 2.0, PI, 0.2, 1.0, 0.09, Color(1.0, 0.95, 0.78), 2.8, 0.1)
-
 		Ev.DIVE_LAND:
 			var p := side
 			blobs[p].dive_land()
@@ -761,6 +789,8 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			fx.shock(Vector3(px + pdir * 1.2, py, 0.2), 0.4, 2.2, 0.28, Color(0.1, 0.85, 1.8))
 			fx.burst(Vector3(px + pdir * 1.1, py, 0), 70, 13.0, 0.9, 0.4, 0.6, 0.05,
 				Color(0.36, 0.84, 1.0), 2.2, 0.3, true, Vector3(pdir, 0.0, 0.0))
+			blobs[p].parry_glow = 1.0
+			_ghost_burst(p, w, Color(0.3, 0.6, 1.0, 0.55), 4)
 			fx.burst(Vector3(px + pdir * 1.1, py, 0), 40, 22.0, 0.4, 0.1, 0.4, 0.062,
 				Color(0.85, 0.98, 1.0), 3.2, 0.0, true, Vector3(pdir, 0.0, 0.0))
 			ball.flash(2.0)
@@ -832,7 +862,9 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 			var px := Map.gx(w.blob_x[p])
 			var py := Map.gy(w.blob_y[p]) + 0.6
 			blobs[p].face.set_mood("strain", 0.45, 5)
-			fx.burst(Vector3(px, py, 0), 40, 3.6, PI, 0.4, 0.5, 0.03,
+			hitstop = maxf(hitstop, 0.03)
+			fx.shock(Vector3(px, py + 0.4, 0.2), 0.2, 2.4, 0.3, Color(1.4, 1.4, 1.6), 0.7)
+			fx.burst(Vector3(px, py, 0), 70, 5.0, PI, 0.4, 0.45, 0.03,
 				Color(0.95, 0.95, 1.0), 2.0, 0.15)
 
 		Ev.SPIN_HIT:
@@ -867,46 +899,6 @@ func _react(w: PhysicWorld, kind: int, side: int, intensity: float) -> void:
 				Color(1.0, 0.85, 0.5), 2.0, 0.3)
 			fx.burst(Vector3(px, 0.05, 0), 90, 3.0, 2.2, 1.0, 0.9, 0.02,
 				Color(0.82, 0.70, 0.52), 2.0, 0.2, false)
-
-		Ev.VOLLEY_FIRE:
-			var p := side
-			var bx := Map.gx(w.ball_x)
-			var by := Map.gy(w.ball_y)
-			trauma = minf(1.0, trauma + 0.22)
-			aberration = maxf(aberration, 0.7)
-			var fwd := Vector3(w.dir_of(p), 0.0, 0.0)
-			fx.burst(Vector3(bx, by, 0) + fwd * 1.1, 110, 16.0, 0.4, 0.1, 0.5, 0.045,
-				blobs[p].body_color.lightened(0.25), 2.0, 0.3, true, fwd)
-
-		Ev.VOLLEY_BLOCKED:
-			var p := side
-			var px := Map.gx(w.blob_x[p])
-			var py := Map.gy(w.blob_y[p]) + 1.2
-			trauma = minf(1.0, trauma + 0.25)
-			hitstop = maxf(hitstop, 0.05)
-			flash = maxf(flash, 0.1)
-			blobs[p].parry_glow = 1.0
-			fx.shock(Vector3(px + w.dir_of(p) * 0.9, py, 0.2), 0.3, 3.4, 0.3,
-				Color(0.2, 0.9, 1.9))
-
-		Ev.REVERSAL:
-			var p := side
-			var px := Map.gx(w.blob_x[p])
-			var py := Map.gy(w.blob_y[p]) + 1.2
-			trauma = 1.0
-			hitstop = maxf(hitstop, 0.14)
-			aberration = maxf(aberration, 2.4)
-			flash = maxf(flash, 0.3)
-			freeze = maxf(freeze, BV.SUPER_FREEZE * 0.7)
-			_freeze_k = 0.0
-			_freeze_x = Map.gx(w.blob_x[p])
-			blobs[p].parry_glow = 1.0
-			blobs[p].face.set_mood("slick", 1.6, 8)
-			var o := w.lead(BV.other(w.side_of(p)))
-			blobs[o].face.set_mood("shock", 1.6, 8)
-			fx.shock(Vector3(px, py, 0.2), 0.4, 9.0, 0.5, Color(0.25, 0.95, 2.0))
-			fx.burst(Vector3(px, py, 0), 260, 9.0, PI, 0.6, 1.4, 0.05,
-				Color(0.4, 0.86, 1.0), 2.4, 0.35)
 
 		Ev.KNOCKDOWN:
 			var p := side
@@ -999,45 +991,29 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 	var shy := (sin(t * 1.7 + 2.0) + sin(t * 3.1)) * 0.5 * sh * 0.30
 	var shr := sin(t * 1.3) * sh * 0.022
 
-	# o congelamento é o quadro que vira print: a lente fecha em cima de quem
-	# soltou o especial em vez de ficar no plano aberto da partida
-	if freeze <= 0.0:
-		_freeze_k = maxf(0.0, _freeze_k - dt * 2.4)
-	zoom *= lerpf(1.0, 0.74, _freeze_k)
 	var zc := _cam_z * zoom
 	var span := maxf(0.0, full_half - zc * tan(deg_to_rad(fov) * 0.5) * maxf(0.5, aspect))
-	var ftx := lerpf(_cam_target_x, _freeze_x * 0.55, _freeze_k)
-	var px := clampf(ftx, -span, span)
+	var px := clampf(_cam_target_x, -span, span)
 	if not _intro_cam(dt, w):
-		camera.position = Vector3(px + CAM_SIDE + sway + shx, CAM_EYE_Y + sway_y + shy,
+		var rk := _rep_k
+		camera.position = Vector3(px + CAM_SIDE + sway + shx + rk * 1.8, CAM_EYE_Y + sway_y + shy - rk * 1.0,
 			zc - trauma * 0.9)
-		camera.look_at(Vector3(px + CAM_SIDE * 0.45, _cam_ly - (_cam_z - zc) * 0.12, 0.0), Vector3.UP)
-		camera.rotate_object_local(Vector3.FORWARD, shr - px * 0.004)
+		camera.look_at(Vector3(px + CAM_SIDE * 0.45, _cam_ly - (_cam_z - zc) * 0.12 - rk * 0.45, 0.0), Vector3.UP)
+		camera.rotate_object_local(Vector3.FORWARD, shr - px * 0.004 + rk * 0.045)
 		camera.fov = fov
 		_outro_cam(dt, w)
 	_cut = maxf(0.0, _cut - dt * 6.0)
-	_step_chunks(dt)
 
 	ball.update(bx, by, brot, sin(time * 0.7) * 0.25, dt)
 	if stage.dark and stage.spot != null:
 		stage.spot.position = Vector3(bx, by + 1.2, 2.6)
 	_blob_shadow(_ball_shadow, bx, by, 1.5 * ball.R / (BV.BALL_RADIUS * Map.S))
 	if w.super_frames > 0:
-		var col := blobs[w.super_owner].body_color if w.super_owner >= 0 \
-			else Color(1.0, 0.7, 0.2)
-		var held := w.holding()
-		var fwd := Vector3(w.dir_of(w.super_owner) if w.super_owner >= 0 else 1.0, 0.0, 0.0)
-		ball.flash((0.3 if held else 0.55) + sin(time * 30.0) * 0.12)
-		ball.energy(true, col, 0.26 if held else 0.5, fwd * 1.0 if held else Vector3.ZERO)
-		if held:
-			fx.burst(Vector3(bx, by, 0) + fwd * 1.1, 8, 1.6, 0.5, 0.2, 0.5, 0.06, col.lightened(0.2), 2.4, 0.3, true, fwd)
-		else:
-			fx.burst(Vector3(bx, by, 0), 14, 2.2, PI, 1.2, 0.6, 0.09, col.lightened(0.2), 2.4, 0.3)
-			fx.burst(Vector3(bx, by, 0), 8, 0.8, PI, 0.4, 0.9, 0.14, Color(1.0, 0.55, 0.1), 1.8, 0.2)
-			if int(time * 40.0) % 4 == 0:
-				fx.shock(Vector3(bx, by, 0.2), 0.2, 1.2, 0.26, col * 1.4, 0.6)
-		fx.burst(Vector3(bx, by, 0), 5, 0.6, PI, 2.1, 1.4, 0.055,
-			Color(0.16, 0.13, 0.12), 1.4, 0.15, false)
+		var col := Color(0.35, 0.72, 1.0)
+		ball.flash(0.55 + sin(time * 30.0) * 0.12)
+		ball.energy(true, col, 0.5, Vector3.ZERO)
+		_trail_push(bx, by, dt)
+		fx.burst(Vector3(bx, by, 0), 6, 1.4, PI, 0.6, 0.5, 0.07, Color(0.6, 0.85, 1.0), 2.4, 0.3)
 	else:
 		ball.energy(false, Color.WHITE)
 
@@ -1068,6 +1044,17 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 			if int(time * 12.0 + i * 5) % 4 == 0:
 				fx.burst(b.position + Vector3((randf() - 0.5) * 1.2, 0.2, 0.3), 4, 1.2,
 					0.5, 1.0, 0.9, 0.05, c, 1.2, 0.2)
+		if w.spin_t[i] > 0 and b.visible:
+			_spin_acc += dt
+			if _spin_acc >= 0.03:
+				_spin_acc = 0.0
+				var c2 := b.body_color.lightened(0.3)
+				_ghost_push(b, Color(c2.r, c2.g, c2.b, 0.45), Vector3.ZERO, 0.55 * w.dir_of(i))
+				var a2 := time * 40.0
+				var tang := Vector3(cos(a2), sin(a2), 0.0)
+				fx.burst(b.position + Vector3(0, 0.9 * bsc, 0.2) + tang * 0.9 * bsc, 6, 5.0,
+					0.3, 0.0, 0.28, 0.035, Color(1.0, 1.0, 1.0), 3.0, 0.0, true,
+					Vector3(-tang.y, tang.x, 0.0) * -w.dir_of(i))
 		var stunned := w.stun[i] > 0 and b.visible
 		for k in 3:
 			var st: Label3D = _stars[i][k]
@@ -1076,7 +1063,7 @@ func render(m: BVMatch, alpha: float, dt: float) -> void:
 				var a := time * 5.0 + k * TAU / 3.0
 				st.position = b.position + Vector3(cos(a) * 0.55 * bsc, (1.75 + sin(a * 2.0) * 0.08) * bsc, sin(a) * 0.55 * bsc)
 				st.scale = Vector3.ONE * (0.8 + 0.25 * sin(time * 9.0 + k))
-	_update_extras(w, dt)
+	_trail_step(dt)
 	if outro_t >= 0.0:
 		_outro_pose(dt)
 
@@ -1237,29 +1224,6 @@ func _lose_pose(b: BlobView, bx: float, by: float, t: float, dt: float, half: fl
 	b.position = Vector3(x, y, 0.0)
 	b.rotation = Vector3(0.0, ry, rz)
 	b.scale = Vector3(sq.x, sq.y, sq.z) * b.body_scale
-
-## As bolas extras da rajada: a principal é a última, estas vêm na frente.
-func _update_extras(w: PhysicWorld, dt: float) -> void:
-	var col := Color(1.0, 0.8, 0.35)
-	if w.vol_owner >= 0 and w.vol_owner < blobs.size():
-		col = blobs[w.vol_owner].body_color.lightened(0.45)
-	for i in _ex_nodes.size():
-		var n := _ex_nodes[i]
-		var on: bool = i < BV.MAX_EX and w.ex_on[i] == 2
-		n.visible = on
-		_ex_shadow[i].visible = on
-		if not on:
-			continue
-		var x := Map.gx(w.ex_x[i])
-		var y := Map.gy(w.ex_y[i])
-		n.position = Vector3(x, y, 0.0)
-		var mat: StandardMaterial3D = n.material_override
-		mat.albedo_color = col
-		_blob_shadow(_ex_shadow[i], x, y, 1.5 * ball.R / (BV.BALL_RADIUS * Map.S))
-		if randf() < dt * 120.0:
-			fx.burst(Vector3(x, y, 0), 7, 2.0, PI, 0.8, 0.5, 0.055, col, 2.4, 0.25)
-			fx.burst(Vector3(x, y, 0), 3, 0.5, PI, 1.8, 1.2, 0.05,
-				Color(0.18, 0.14, 0.12), 1.3, 0.15, false)
 
 func _squash_ball(w: PhysicWorld, k: float) -> void:
 	var v := sqrt(w.ball_vx * w.ball_vx + w.ball_vy * w.ball_vy)

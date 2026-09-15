@@ -89,9 +89,10 @@ static func style(b: Button, base := GOLD, size := 22) -> Button:
 	b.focus_mode = Control.FOCUS_ALL
 	return b
 
-static func label(text: String, size := 18, col := Color(1, 1, 1, 0.85)) -> Label:
+static func label(text: String, size := 16, col := Color(1, 1, 1, 0.85)) -> Label:
 	var l := Label.new()
 	l.text = text
+	l.add_theme_font_override("font", font(0.5, 0))
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", col)
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
@@ -147,7 +148,7 @@ static func heading(text: String, size := 52, col := Color(1, 1, 1, 0.97)) -> La
 	l.add_theme_constant_override("shadow_offset_y", 3)
 	return l
 
-static func eyebrow(text: String, col := GOLD, size := 14) -> Label:
+static func eyebrow(text: String, col := GOLD, size := 12) -> Label:
 	var l := Label.new()
 	l.text = text.to_upper()
 	l.add_theme_font_override("font", font(0.4, 5))
@@ -170,7 +171,7 @@ static func _focus_of(base: StyleBoxFlat, accent: Color) -> StyleBoxFlat:
 	return f
 
 ## Item de lista: sem caixa, texto à esquerda, barra de destaque ao passar.
-static func item(b: Button, accent := GOLD, size := 22) -> Button:
+static func item(b: Button, accent := GOLD, size := 18) -> Button:
 	for k in 3:
 		var s := StyleBoxFlat.new()
 		var lit: float = [0.0, 0.10, 0.16][k]
@@ -186,9 +187,9 @@ static func item(b: Button, accent := GOLD, size := 22) -> Button:
 		if k == 1:
 			b.add_theme_stylebox_override("focus", _focus_of(s, accent))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	b.add_theme_font_override("font", font(0.5, 1))
+	b.add_theme_font_override("font", font(0.9, 1))
 	b.add_theme_font_size_override("font_size", size)
-	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.80))
+	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.86))
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
 	b.add_theme_color_override("font_focus_color", Color(1, 1, 1))
 	b.add_theme_color_override("font_pressed_color", accent.lightened(0.3))
@@ -219,7 +220,7 @@ static func solid(b: Button, base := GOLD, size := 18) -> Button:
 	return b
 
 ## Segmento de controle (qualidade): pílula com o ativo aceso.
-static func chip(b: Button, on: bool, size := 15) -> Button:
+static func chip(b: Button, on: bool, size := 13) -> Button:
 	for k in 3:
 		var s := StyleBoxFlat.new()
 		s.bg_color = GOLD if on else Color(1, 1, 1, [0.06, 0.14, 0.2][k])

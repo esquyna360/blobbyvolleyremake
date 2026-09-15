@@ -255,18 +255,8 @@ func on_event(kind: int, side: int, intensity: float, w: PhysicWorld,
 				play("special_ready")
 		Ev.SMASH:
 			play("dive_hit", 0.9, 1.15 if intensity >= 1.0 else 0.95)
-		Ev.SPECIAL_HOLD:
-			play("shinkuu", 1.2)
 		Ev.SPECIAL_FIRED:
 			play("special_fired")
-		Ev.VOLLEY_FIRE:
-			play("volley", 0.85, 1.0 + intensity * 0.12)
-		Ev.VOLLEY_BLOCKED:
-			play("parry", 1.0, 1.0 + intensity * 0.25)
-		Ev.VOLLEY_PASS:
-			play("knockdown", 0.9)
-		Ev.REVERSAL:
-			play("reversal", 1.15)
 		Ev.SPIN:
 			play("spin", 0.7)
 		Ev.SPIN_HIT:
@@ -289,8 +279,6 @@ func on_event(kind: int, side: int, intensity: float, w: PhysicWorld,
 			play("block", 0.7)
 		Ev.DIVE_LAND:
 			play("hit_ground", 0.35, 0.8)
-		Ev.APEX_HIT:
-			play("apex")
 		Ev.SPECIAL_WASTED:
 			play("special_wasted")
 		Ev.PARRY:

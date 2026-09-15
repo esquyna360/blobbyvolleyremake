@@ -28,6 +28,8 @@ uniform vec3 rim_color : source_color = vec3(1.0, 0.85, 0.63);
 uniform float toon = 1.0;
 uniform float dizzy = 0.0;
 uniform float parry_glow = 0.0;
+uniform float twist = 0.0;
+uniform float twist_phase = 0.0;
 
 varying vec3 base_pos;
 
@@ -41,7 +43,19 @@ void vertex() {
 	float w = 1.0 + wobble_amp * sin(p.y * 7.0 + wobble_phase) * 0.14
 	              + wobble_amp * sin(p.x * 9.0 - wobble_phase * 1.3) * 0.09;
 	base_pos = p;
-	VERTEX = p * w * squash;
+	vec3 q = p * w * squash;
+	if (twist > 0.001) {
+		vec2 c2 = q.xy - vec2(0.0, 0.55);
+		float r = length(c2);
+		float ang = atan(c2.y, c2.x);
+		float lobes = 1.0 + twist * 0.5 * sin(4.0 * ang - twist_phase * 3.0) * smoothstep(0.1, 0.6, r);
+		float a = twist * (r * 7.0 + twist_phase);
+		float c = cos(a), s = sin(a);
+		c2 = mat2(vec2(c, -s), vec2(s, c)) * c2 * lobes;
+		q.xy = c2 + vec2(0.0, 0.55);
+		q.z *= 1.0 - twist * 0.25;
+	}
+	VERTEX = q;
 	NORMAL = normalize(NORMAL / squash);
 }
 

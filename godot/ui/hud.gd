@@ -19,12 +19,21 @@ var _big: Label
 var _mark: Label
 var _card: Label
 var _card_t := 0.0
-var _goo: Control
-var _splats: Array = []
 var names := ["", ""]
 var _mark_a := 0.0
 var _big_t := 0.0
 var _big_pop := 0.0
+var _point_k := 0.0
+var _point_side := -1
+var _fit_k := 1.0
+var _rep_on := false
+var _rep_k := 0.0
+var _rep_lbl: Label
+var _rep_tag: Label
+var _rep_skip: Label
+var _tv: ColorRect
+var _tv_mat := ShaderMaterial.new()
+var _time := 0.0
 var _pulse := [0.0, 0.0]
 var _rally_shown := -1
 var _rally_base := 0
@@ -215,6 +224,7 @@ func build(left: Color, right: Color) -> void:
 	_mark.modulate.a = 0.0
 	_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_mark)
+	_build_replay()
 	_card = Label.new()
 	_card.set_anchors_preset(Control.PRESET_CENTER)
 	_card.anchor_left = 0.5
@@ -233,11 +243,6 @@ func build(left: Color, right: Color) -> void:
 	_card.modulate.a = 0.0
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_card)
-	_goo = Control.new()
-	_goo.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_goo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_goo.draw.connect(_draw_goo)
-	add_child(_goo)
 	_bub = Control.new()
 	_bub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bub.draw.connect(_draw_bubble)
@@ -294,8 +299,89 @@ func _place_bubble() -> void:
 ## Placar some na abertura; cartões e balões continuam visíveis.
 ## Celular: o placar de 500 px de largura comia um quarto da tela. Encolhe o
 ## painel e solta o botão de pausa no canto, onde o dedo alcança.
+func _build_replay() -> void:
+	var sh := Shader.new()
+	sh.code = """shader_type canvas_item;
+render_mode unshaded;
+uniform float k = 0.0;
+void fragment() {
+	vec2 uv = SCREEN_UV;
+	float line = 0.5 + 0.5 * sin(uv.y * 1100.0);
+	float d = length((uv - 0.5) * vec2(1.15, 1.0));
+	float vig = smoothstep(0.32, 0.92, d);
+	float roll = 1.0 - smoothstep(0.0, 0.10, abs(fract(uv.y + TIME * 0.09) - 0.5));
+	float noise = fract(sin(dot(floor(uv * vec2(320.0, 180.0)) + floor(TIME * 24.0), vec2(12.9898, 78.233))) * 43758.5453);
+	float a = k * (0.20 * line + 0.55 * vig + 0.10 * roll + 0.08 * noise);
+	COLOR = vec4(vec3(0.03, 0.05, 0.09), clamp(a, 0.0, 0.9));
+}
+"""
+	_tv_mat.shader = sh
+	_tv = ColorRect.new()
+	_tv.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_tv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tv.material = _tv_mat
+	_tv.visible = false
+	add_child(_tv)
+	move_child(_tv, 0)
+	_rep_lbl = Label.new()
+	_rep_lbl.text = "● REPLAY"
+	_rep_lbl.position = Vector2(26, 18)
+	_rep_lbl.add_theme_font_override("font", UiTheme.display_font(2))
+	_rep_lbl.add_theme_font_size_override("font_size", 34)
+	_rep_lbl.add_theme_color_override("font_color", Color(1.0, 0.28, 0.22))
+	_rep_lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.02, 0.9))
+	_rep_lbl.add_theme_constant_override("outline_size", 8)
+	_rep_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rep_lbl.visible = false
+	add_child(_rep_lbl)
+	_rep_tag = Label.new()
+	_rep_tag.position = Vector2(30, 58)
+	_rep_tag.add_theme_font_override("font", UiTheme.font(0.6, 2))
+	_rep_tag.add_theme_font_size_override("font_size", 15)
+	_rep_tag.add_theme_color_override("font_color", UiTheme.GOLD)
+	_rep_tag.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.02, 0.9))
+	_rep_tag.add_theme_constant_override("outline_size", 5)
+	_rep_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rep_tag.visible = false
+	add_child(_rep_tag)
+	_rep_skip = Label.new()
+	_rep_skip.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_rep_skip.anchor_left = 0.5
+	_rep_skip.anchor_right = 0.5
+	_rep_skip.offset_left = -300
+	_rep_skip.offset_right = 300
+	_rep_skip.offset_top = -46
+	_rep_skip.offset_bottom = -20
+	_rep_skip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_rep_skip.add_theme_font_override("font", UiTheme.font(0.6, 3))
+	_rep_skip.add_theme_font_size_override("font_size", 14)
+	_rep_skip.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
+	_rep_skip.add_theme_color_override("font_outline_color", Color(0.05, 0.02, 0.02, 0.9))
+	_rep_skip.add_theme_constant_override("outline_size", 5)
+	_rep_skip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rep_skip.visible = false
+	add_child(_rep_skip)
+
+func replay(on: bool, tag := "", touch := false) -> void:
+	_rep_on = on
+	if on:
+		_rep_tag.text = tag if tag != "REPLAY" else ""
+		_rep_skip.text = "TAP TO SKIP" if touch else "PRESS ANY BUTTON TO SKIP"
+		_tv.visible = true
+		_rep_lbl.visible = true
+		_rep_tag.visible = true
+		_rep_skip.visible = true
+
+func point(side: int) -> void:
+	_point_k = 1.0
+	_point_side = side
+	_pulse[side] = 1.0
+	var col: Color = _score[side].get_theme_color("font_color")
+	shout("POINT", col, 1.5)
+
 func fit(compact: bool) -> void:
 	var k := 0.86 if compact else 1.0
+	_fit_k = k
 	_panel.scale = Vector2(k, k)
 	_panel.pivot_offset = Vector2(BAR_W, 0.0)
 	_info.offset_top = 56.0 * k
@@ -331,26 +417,6 @@ func card(text: String, color: Color, hold := 1.2) -> void:
 	_card_t = hold
 	_card.modulate.a = 0.0
 
-func splat(color: Color) -> void:
-	var vs := size
-	var n := 3 + randi() % 4
-	var cx := randf_range(vs.x * 0.15, vs.x * 0.85)
-	var cy := randf_range(vs.y * 0.15, vs.y * 0.85)
-	for k in n:
-		_splats.append({"p": Vector2(cx + randf_range(-90, 90), cy + randf_range(-70, 70)),
-			"r": randf_range(22, 70) * (1.6 if k == 0 else 1.0), "c": color, "t": 0.0,
-			"vy": randf_range(6.0, 22.0)})
-	_goo.queue_redraw()
-
-func _draw_goo() -> void:
-	for s in _splats:
-		var a: float = 0.86 * clampf(1.0 - (s.t - 2.2) / 1.6, 0.0, 1.0)
-		var c: Color = s.c
-		_goo.draw_circle(s.p, s.r, Color(c.r, c.g, c.b, a))
-		_goo.draw_circle(s.p + Vector2(-s.r * 0.3, -s.r * 0.3), s.r * 0.3,
-			Color(1, 1, 1, a * 0.35))
-		_goo.draw_circle(s.p + Vector2(0, s.r * 0.9), s.r * 0.45, Color(c.r, c.g, c.b, a))
-
 func ball_hint(h: Vector3, dt: float) -> void:
 	var want := 1.0 if h.z > 0.5 else 0.0
 	_mark_a += (want - _mark_a) * (1.0 - exp(-dt * 10.0))
@@ -376,8 +442,9 @@ func update(m: BVMatch, dt: float) -> void:
 		if _score[i].text != s:
 			_score[i].text = s
 			_pulse[i] = 1.0
-		_pulse[i] = maxf(0.0, _pulse[i] - dt * 3.0)
-		_score[i].scale = Vector2.ONE * (1.0 + _pulse[i] * 0.22)
+		_pulse[i] = maxf(0.0, _pulse[i] - dt * (1.2 if _point_k > 0.0 and i == _point_side else 3.0))
+		var big := 0.65 if _point_k > 0.0 and i == _point_side else 0.22
+		_score[i].scale = Vector2.ONE * (1.0 + _pulse[i] * big)
 		_score[i].pivot_offset = _score[i].size * 0.5
 		if _disc[i].text != names[i]:
 			_disc[i].text = names[i]
@@ -427,15 +494,6 @@ func update(m: BVMatch, dt: float) -> void:
 		_card.scale = Vector2.ONE * (1.0 + clampf(_card_t - 0.9, 0.0, 0.3) * 0.15)
 	elif _card.modulate.a > 0.0:
 		_card.modulate.a = 0.0
-	if _splats.size() > 0:
-		var keep := []
-		for s in _splats:
-			s.t += dt
-			s.p.y += s.vy * dt * (1.0 + s.t)
-			if s.t < 3.8:
-				keep.append(s)
-		_splats = keep
-		_goo.queue_redraw()
 	if _bub_t > 0.0:
 		_bub_t -= dt
 		_bub_pop = maxf(0.0, _bub_pop - dt * 6.0)
@@ -445,6 +503,21 @@ func update(m: BVMatch, dt: float) -> void:
 		_place_bubble()
 	elif _bub.visible:
 		_bub.visible = false
+	_time += dt
+	_point_k = maxf(0.0, _point_k - dt / 2.1)
+	var pk := 1.0 - pow(1.0 - _point_k, 3.0)
+	_panel.scale = Vector2.ONE * _fit_k * (1.0 + 0.30 * pk)
+	_rep_k += ((1.0 if _rep_on else 0.0) - _rep_k) * (1.0 - exp(-dt * 6.0))
+	if _tv.visible:
+		_tv_mat.set_shader_parameter("k", _rep_k)
+		_rep_lbl.modulate.a = _rep_k * (1.0 if int(_time * 2.4) % 2 == 0 else 0.15)
+		_rep_tag.modulate.a = _rep_k
+		_rep_skip.modulate.a = _rep_k * (0.55 + 0.45 * (0.5 + 0.5 * sin(_time * 5.0)))
+		if not _rep_on and _rep_k < 0.02:
+			_tv.visible = false
+			_rep_lbl.visible = false
+			_rep_tag.visible = false
+			_rep_skip.visible = false
 	if _big_t > 0.0:
 		_big_t -= dt
 		_big_pop = maxf(0.0, _big_pop - dt * 5.0)

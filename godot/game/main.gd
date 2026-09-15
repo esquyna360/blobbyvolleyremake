@@ -22,6 +22,7 @@ var _intro_was := false
 var _net_pending := false
 var _pause_ui: PanelContainer
 var _pause_first: Button
+var _dev_nopause := false
 var _paused := false
 var _result_ui: PanelContainer
 var _result_eyebrow: Label
@@ -96,7 +97,7 @@ func _ready() -> void:
 	_refit_ui()
 	game.match_over.connect(_on_match_over)
 	game.replay.connect(_on_replay)
-	game.arena.goo.connect(hud.splat)
+	game.point.connect(_on_point)
 	_dev_net()
 	_dev_shot()
 
@@ -210,10 +211,18 @@ func _play_versus(stw: int) -> void:
 	game.touch_slot = [-1, -1]
 	var lk: Array = [settings.look.duplicate(), Looks.roll_look(settings.look[0])]
 	lk[1][0] = Looks.pair_body(lk[0][0], lk[1][0])
+	var cpu := settings.versus_cpu
 	game.start(MatchParams.classic("default", stw, true), settings.quality,
-		Game.Source.LOCAL_P1, Game.Source.LOCAL_P2, "normal", lk)
-	Rumble.setup([true, true])
-	hud.names = ["P1", "P2"]
+		Game.Source.LOCAL_SOLO if cpu else Game.Source.LOCAL_P1,
+		Game.Source.BOT if cpu else Game.Source.LOCAL_P2,
+		settings.versus_diff if cpu else "normal", lk)
+	if cpu:
+		var sk: float = {"easy": 0.8, "normal": 1.6, "hard": 2.6, "insane": 3.4}.get(settings.versus_diff, 1.6)
+		for bt in game.bots:
+			if bt != null:
+				bt.set_skill(sk)
+	Rumble.setup([true, not cpu])
+	hud.names = ["P1", "CPU" if cpu else "P2"]
 	hud.sub_text = ""
 	_nat_tag = ["", ""]
 	_foe = {}
@@ -267,8 +276,10 @@ func _on_closed() -> void:
 
 ## Replay: o placar some, sobra a lente colada no lance.
 func _on_replay(tag: String, on: bool) -> void:
-	if on:
-		hud.shout("● " + tag, UiTheme.GOLD, 2.4)
+	hud.replay(on, tag, DisplayServer.is_touchscreen_available() and not Controls.has_pad())
+
+func _on_point(side: int) -> void:
+	hud.point(side)
 
 func _on_match_over(winner: int) -> void:
 	if not _in_match or _over_t >= 0.0:
@@ -439,12 +450,10 @@ func _requality(q: int) -> void:
 	_setup_touch()
 	if _in_match:
 		game.rebuild_arena(q)
-		game.arena.goo.connect(hud.splat)
 		if touch != null:
 			touch.visible = true
 		return
 	game.reset_arena()
-	game.arena.goo.connect(hud.splat)
 	game.bv = null
 	_demo()
 
@@ -522,7 +531,7 @@ func _process(dt: float) -> void:
 		var dim := intro or game.replaying()
 		hud.top_alpha(clampf(hud._top.modulate.a + ((-1.0 if dim else 1.0) * dt * 3.0), 0.0, 1.0))
 		if touch != null:
-			touch.visible = not cine and not _paused
+			touch.visible = not cine and not _paused and not game.replaying()
 		if intro:
 			var it: float = game.arena.intro_t
 			var step := 1 if it >= 0.3 and it < 1.9 else (2 if it >= 1.9 and it < 3.3 else (3 if it >= 3.3 and it < 4.7 else 0))
@@ -592,7 +601,8 @@ func _notification(what: int) -> void:
 		elif menu.visible and menu.page() != "main":
 			menu.show_page("main")
 	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
-		if _in_match and not _paused and game.net_side == BV.NO_PLAYER and _over_t < 0.0:
+		if _in_match and not _paused and game.net_side == BV.NO_PLAYER and _over_t < 0.0 \
+				and not _dev_nopause:
 			_set_pause(true)
 
 func _build_pause() -> void:
@@ -688,6 +698,7 @@ func _dev_shot() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			path = a.substr(7)
+			_dev_nopause = true
 		elif a.begins_with("--wait="):
 			wait = int(a.substr(7))
 		elif a == "--nomenu":
@@ -777,6 +788,7 @@ func _dev_trig(kind: String) -> bool:
 	match kind:
 		"super": return game.bv.world.super_frames > 0
 		"replay": return game.replaying()
+		"point": return game._point_t > 0.0
 		"parry":
 			for q in game.bv.world.nb:
 				if game.bv.world.parry_active[q] > 0:
@@ -799,9 +811,6 @@ func _dev_pose(kind: String) -> void:
 			w.blob_vy[0] = 4.0
 			w.spin_t[0] = 300
 			game.bv.events.push(Ev.SPIN, 0, 1.0)
-		"hold":
-			w.hold[0] = 300
-			game.bv.events.push(Ev.SPECIAL_HOLD, 0, 1.0)
 		"parry":
 			w.parry_active[1] = BV.PARRY_ACTIVE
 			game.bv.events.push(Ev.PARRY, 1, 1.0)

@@ -43,18 +43,17 @@ const SPECIAL_FULL := 1.0
 const SPECIAL_GAIN_TOUCH := 0.04
 const SPECIAL_GAIN_FRAME := 0.0003
 const SPECIAL_REACH := 165.0
-const SPECIAL_VELOCITY := BALL_COLLISION_VELOCITY * 2.45
+const SPECIAL_VELOCITY := BALL_COLLISION_VELOCITY * 3.2
 const SPECIAL_BALL_FRAMES := 150
 const STUN_FRAMES := 112
 const SPECIAL_KNOCKBACK := 11.0
 const SPECIAL_POP := -9.0
 const KNOCK_DECAY := 0.9
-const SPECIAL_NET_CLEARANCE := 48.0
-const SPECIAL_GRAVITY_MUL := 4.2
+const SPECIAL_NET_CLEARANCE := 16.0
 const SPECIAL_TARGET_DEPTH := 0.72
-const SPECIAL_TIME_MIN := 18.0
-const SPECIAL_TIME_STEP := 1.25
-const SPECIAL_TIME_STEPS := 30
+const SPECIAL_TIME_MIN := 12.0
+const SPECIAL_TIME_STEP := 1.5
+const SPECIAL_TIME_STEPS := 50
 const SPECIAL_COMEBACK_STEP := 0.22
 const SPECIAL_COMEBACK_MIN := 0.6
 const SPECIAL_COMEBACK_MAX := 2.2
@@ -69,8 +68,6 @@ const PARRY_CD := 12
 const PARRY_REACH := 124.0
 const PARRY_BOOST := 0.1
 const PARRY_CHAIN_MAX := 4
-const PARRY_HOLD := 60
-const SPECIAL_HOLD := 120
 
 ## Ataque no ar: aperta o pulo de novo e o blob gira. Sem bola perto, nao
 ## acontece nada -- e so a animacao, e o giro nao repete no mesmo pulo.
@@ -79,6 +76,17 @@ const SPIN_REACH := 128.0
 const SPIN_V := BALL_COLLISION_VELOCITY * 1.74
 const SPIN_GAIN := 0.075
 const SPIN_LOCK := 255
+const SPIN_DOWN_NY := 0.35
+const SPIN_TARGET_DEPTH := 0.7
+const SPIN_NET_CLEARANCE := 22.0
+const SPIN_TIME_MIN := 13.0
+const SPIN_TIME_STEP := 1.0
+const SPIN_TIME_STEPS := 26
+const PARRY_POP := -13.5
+const PARRY_POP_DRIFT := 0.03
+const PARRY_GAIN := 0.12
+const SPECIAL_DROP_VX := 2.6
+const SPECIAL_DROP_VY := -5.5
 
 ## Bola batida no giro sai "quente": se relar no adversario, empurra e tira
 ## ele do lugar por um tempinho. Blob grande aguenta melhor o tranco.
@@ -87,20 +95,8 @@ const HOT_KNOCK := 10.5
 const HOT_POP := -4.6
 const HOT_STAGGER := 32
 
-## Especial: congela a tela, o blob carrega a pose e solta tres bolas em fila.
-## Parry nas tres devolve seis. As bolas do especial quase nao caem -- e um
-## projetil, nao um saque.
-const SUPER_FREEZE := 0.34
-const SUPER_WINDUP := 40
-const VOLLEY_N := 3
-const VOLLEY_REV := 6
-const VOLLEY_REV_WINDUP := 22
-const VOLLEY_GAP := 11
-const VOLLEY_GAP_JIT := 7
-const VOLLEY_V := BALL_COLLISION_VELOCITY * 2.35
-const VOLLEY_G := 0.85
-const VOLLEY_SPREAD := 0.055
-const MAX_EX := 5
+## Especial: uma bola em parabola pro campo do outro. Nunca volta sozinha;
+## so o parry devolve, e devolve como especial de quem aparou.
 
 const CROUCH_RATE := 0.16
 const CROUCH_RATE_AIR := 0.09

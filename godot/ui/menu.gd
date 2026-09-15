@@ -79,7 +79,7 @@ func build(s: Settings) -> void:
 	_left.offset_top = 30
 	_left.offset_bottom = -52
 	_left.alignment = BoxContainer.ALIGNMENT_CENTER
-	_left.add_theme_constant_override("separation", 6)
+	_left.add_theme_constant_override("separation", 4)
 	add_child(_left)
 
 	_eyebrow = UiTheme.eyebrow("")
@@ -93,7 +93,7 @@ func build(s: Settings) -> void:
 	_rule.custom_minimum_size = Vector2(56, 3)
 	_rule.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_left.add_child(_rule)
-	_sub = UiTheme.label("", 15, MUTED)
+	_sub = UiTheme.label("", 13, MUTED)
 	_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_left.add_child(_sub)
@@ -222,7 +222,7 @@ func show_page(p: String) -> void:
 	_sub.visible = true
 	_shade.modulate.a = 1.0
 	_sub.text = ""
-	_heading.add_theme_font_size_override("font_size", 38 if _compact() else 52)
+	_heading.add_theme_font_size_override("font_size", 30 if _compact() else 40)
 	var touch := DisplayServer.is_touchscreen_available() or _compact()
 	var hint := "Enter · select      Esc · back" if p != "main" else "Enter · select"
 	if Controls.has_pad():
@@ -293,7 +293,7 @@ func _btn(text: String, cb: Callable, _sub := "", col := UiTheme.GOLD) -> Button
 	var b := UiTheme.item(Button.new(), col)
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	b.custom_minimum_size = Vector2(260.0 if _compact() else 320.0, 0)
+	b.custom_minimum_size = Vector2(230.0 if _compact() else 280.0, 0)
 	for k in ["normal", "hover", "pressed", "focus"]:
 		var sb: StyleBoxFlat = b.get_theme_stylebox(k)
 		sb.border_width_left = 0
@@ -302,8 +302,8 @@ func _btn(text: String, cb: Callable, _sub := "", col := UiTheme.GOLD) -> Button
 			sb.bg_color = Color(1, 1, 1, 0.09)
 			sb.set_border_width_all(2)
 			sb.border_color = col
-		sb.content_margin_top = 8.0 if _compact() else 9.0
-		sb.content_margin_bottom = 8.0 if _compact() else 9.0
+		sb.content_margin_top = 6.0 if _compact() else 7.0
+		sb.content_margin_bottom = 6.0 if _compact() else 7.0
 	b.text = text
 	b.pressed.connect(func():
 		Aud.play("ui", 0.6)
@@ -350,10 +350,10 @@ func _logo() -> void:
 	var box := HBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", -6)
-	var pr := Portrait.new(settings.look, "laugh", 44 if c else 104, BV.LEFT)
+	var pr := Portrait.new(settings.look, "laugh", 36 if c else 60, BV.LEFT)
 	pr.size_flags_vertical = Control.SIZE_SHRINK_END
 	box.add_child(pr)
-	var l := UiTheme.display("BLORP", 46 if c else 110, UiTheme.GOLD)
+	var l := UiTheme.display("BLORP", 38 if c else 62, UiTheme.GOLD)
 	l.size_flags_vertical = Control.SIZE_SHRINK_END
 	box.add_child(l)
 	var top_gap := Control.new()
@@ -361,17 +361,17 @@ func _logo() -> void:
 	_list.add_child(top_gap)
 	_list.move_child(top_gap, 0)
 	_list.add_child(box)
-	var tag := UiTheme.eyebrow("Volleyball, but goo.", MUTED, 12)
+	var tag := UiTheme.eyebrow("Volleyball, but goo.", MUTED, 11)
 	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var tm := MarginContainer.new()
 	tm.add_theme_constant_override("margin_top", 2)
-	tm.add_theme_constant_override("margin_bottom", 14)
+	tm.add_theme_constant_override("margin_bottom", 8)
 	tm.add_child(tag)
 	_list.add_child(tm)
 
 func _campaign() -> void:
 	var c := _compact()
-	_heading.add_theme_font_size_override("font_size", 36 if c else 46)
+	_heading.add_theme_font_size_override("font_size", 30 if c else 38)
 	_title("The Hundred", "world championship", "")
 	_sel_level = clampi(settings.campaign_level, 1, Campaign.LAST)
 	if not _page_pinned:
@@ -526,7 +526,8 @@ func _fill_detail() -> void:
 	_detail.add_child(gm)
 
 func _versus() -> void:
-	_title("Versus", "two players", "same keyboard (WASD + arrows) or two gamepads")
+	_title("Versus", "local match", "")
+	_versus_sub()
 	var hero := HBoxContainer.new()
 	hero.alignment = BoxContainer.ALIGNMENT_CENTER
 	hero.add_theme_constant_override("separation", 16)
@@ -553,10 +554,48 @@ func _versus() -> void:
 		row.add_child(b)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_list.add_child(row)
+	_spacer(6)
+	var who := HBoxContainer.new()
+	who.add_theme_constant_override("separation", 6)
+	who.alignment = BoxContainer.ALIGNMENT_CENTER
+	var diff := HBoxContainer.new()
+	diff.add_theme_constant_override("separation", 6)
+	diff.alignment = BoxContainer.ALIGNMENT_CENTER
+	diff.visible = settings.versus_cpu
+	var wchips := []
+	for opt in [["2 players", false], ["vs CPU", true]]:
+		var b := UiTheme.chip(Button.new(), settings.versus_cpu == opt[1], 13)
+		b.text = opt[0]
+		b.pressed.connect(func():
+			settings.versus_cpu = opt[1]
+			settings.save()
+			diff.visible = opt[1]
+			_versus_sub()
+			for c in wchips:
+				UiTheme.chip(c, (c.text == "vs CPU") == opt[1], 13))
+		wchips.append(b)
+		who.add_child(b)
+	_list.add_child(who)
+	var dchips := []
+	for opt in [["Chill", "easy"], ["Normal", "normal"], ["Hard", "hard"], ["Insane", "insane"]]:
+		var b := UiTheme.chip(Button.new(), settings.versus_diff == opt[1], 13)
+		b.text = opt[0]
+		b.pressed.connect(func():
+			settings.versus_diff = opt[1]
+			settings.save()
+			for c in dchips:
+				UiTheme.chip(c, c.text == opt[0], 13))
+		dchips.append(b)
+		diff.add_child(b)
+	_list.add_child(diff)
 	_spacer(10)
 	_btn("Play", func(): play_versus.emit(stw[0]), "", UiTheme.LEAF)
 	_spacer()
 	_back()
+
+func _versus_sub() -> void:
+	_sub.text = "you against the computer" if settings.versus_cpu \
+		else "same keyboard (WASD + arrows) or two gamepads"
 
 ## CPU vs CPU: só escolhe o nível de habilidade e assiste. As partidas se
 ## emendam sozinhas, com países e modificadores sorteados a cada uma.

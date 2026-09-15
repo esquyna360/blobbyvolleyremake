@@ -1,8 +1,7 @@
 extends SceneTree
 
 const WATCH := {
-	"especial": Ev.SPECIAL_FIRED, "rajada": Ev.VOLLEY_FIRE, "acertou": Ev.SPECIAL_HIT,
-	"parry": Ev.PARRY, "aparou": Ev.VOLLEY_BLOCKED, "reversal": Ev.REVERSAL,
+	"especial": Ev.SPECIAL_FIRED, "acertou": Ev.SPECIAL_HIT, "parry": Ev.PARRY,
 	"giro": Ev.SPIN, "giro_ok": Ev.SPIN_HIT, "tranco": Ev.STAGGER,
 	"mergulho": Ev.DIVE_HIT, "smash": Ev.SMASH, "bloqueio": Ev.BLOCK,
 	"cavada": Ev.DIG,

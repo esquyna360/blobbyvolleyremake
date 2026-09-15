@@ -173,15 +173,6 @@ static func apply_events(rigs: Array, events: EventBuf, scores: PackedInt32Array
 			Ev.STAGGER, Ev.KNOCKDOWN:
 				rigs[s].set_mood("hurt", 1.4, 5)
 				rigs[o].set_mood("laugh", 1.0, 3)
-			Ev.VOLLEY_BLOCKED:
-				rigs[s].set_mood("smug", 0.7, 4)
-				rigs[o].set_mood("shock", 0.7, 3)
-			Ev.REVERSAL:
-				rigs[s].set_mood("slick", 1.6, 6)
-				rigs[o].set_mood("panic", 1.6, 6)
-			Ev.SPECIAL_HOLD:
-				rigs[s].set_mood("strain", 1.2, 6)
-				rigs[o].set_mood("shock", 1.2, 6)
 
 ## Agachar não é evento, é estado: a cara tem que acompanhar o frame inteiro.
 static func crouch_moods(rigs: Array, crouch: PackedFloat64Array) -> void:

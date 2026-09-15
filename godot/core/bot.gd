@@ -179,7 +179,7 @@ func _simulate(m: BVMatch, horizon: int) -> int:
 	var vy := w.ball_vy if running else 0.0
 	var g := 0.0
 	if running:
-		g = BALL_G * BV.SPECIAL_GRAVITY_MUL if w.super_frames > 0 else BALL_G
+		g = BALL_G
 	var wind := w.P.wind
 
 	for t in range(1, n + 1):
@@ -330,8 +330,6 @@ func think(m: BVMatch) -> PlayerInput:
 		up = true
 	if not on_ground and w.blob_vy[me] < 0.0 and (_up_held or w.charge[me] < BV.SPECIAL_FULL):
 		up = true
-	if w.hold[me] > 0:
-		up = false
 	# giro: o botão é o mesmo do pulo, então solta um frame antes de bater
 	if _spin_arm and not _up_held:
 		up = true
@@ -579,7 +577,7 @@ func _want_down(w: PhysicWorld, me: int, on_ground: bool) -> bool:
 ## bola nessa mesma direção só que muito mais forte. Então basta girar sempre
 ## que o plano é bater no ar.
 func _want_spin(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> bool:
-	if on_ground or w.spin_t[me] > 0 or w.spin_cd[me] > 0 or w.hold[me] > 0:
+	if on_ground or w.spin_t[me] > 0 or w.spin_cd[me] > 0:
 		return false
 	if w.super_frames > 0 or w.dive_frames[me] > 0 or w.block_t[me] > 0:
 		return false
@@ -590,11 +588,8 @@ func _want_spin(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> bool
 	return _rng() < 0.1 + float(p.attack) * 0.9
 
 func _want_special(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> bool:
-	if w.super_frames > 0 and w.super_owner != me:
+	if w.special_live(me) or w.hot_live(me):
 		return _want_parry(w, me, p)
-	if w.hold[me] > 0:
-		_sp_held = false
-		return false
 	var mine := _dir() * (w.ball_x - NET_X) < 0.0
 	if not (w.charge[me] >= BV.SPECIAL_FULL and not on_ground and mine):
 		_sp_held = false
@@ -610,28 +605,14 @@ func _want_special(w: PhysicWorld, me: int, on_ground: bool, p: Dictionary) -> b
 	_sp_held = true
 	return true
 
-## A rajada vem em três (ou seis): o parry mira a bola mais perto que ainda
-## está vindo, seja a principal ou uma das extras.
 func _threat(w: PhysicWorld, me: int) -> Vector3:
-	var best := Vector3(0.0, 0.0, -1.0)
-	var bd := 1e9
-	var dir := _dir()
-	var cands: Array = [[w.ball_x, w.ball_y, w.ball_vx, w.ball_vy]]
-	for i in BV.MAX_EX:
-		if w.ex_on[i] == 2:
-			cands.append([w.ex_x[i], w.ex_y[i], w.ex_vx[i], w.ex_vy[i]])
-	for c in cands:
-		if dir * float(c[2]) > 0.0:
-			continue
-		var dx: float = float(c[0]) - w.blob_x[me]
-		var dy: float = float(c[1]) - (w.blob_y[me] - UP_SPH)
-		var d := sqrt(dx * dx + dy * dy)
-		var v := sqrt(float(c[2]) * float(c[2]) + float(c[3]) * float(c[3]))
-		var eta := d / maxf(1.0, v)
-		if eta < bd:
-			bd = eta
-			best = Vector3(d, v, eta)
-	return best
+	if _dir() * w.ball_vx > 0.0:
+		return Vector3(0.0, 0.0, -1.0)
+	var dx := w.ball_x - w.blob_x[me]
+	var dy := w.ball_y - (w.blob_y[me] - UP_SPH)
+	var d := sqrt(dx * dx + dy * dy)
+	var v := sqrt(w.ball_vx * w.ball_vx + w.ball_vy * w.ball_vy)
+	return Vector3(d, v, d / maxf(1.0, v))
 
 func _want_parry(w: PhysicWorld, me: int, p: Dictionary) -> bool:
 	if w.parry_cd[me] > 0 or w.parry_active[me] > 0:

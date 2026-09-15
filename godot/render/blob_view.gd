@@ -42,6 +42,7 @@ var dive_face := 0.0
 var parry_glow := 0.0
 var knock_face := 0.0
 var _spin_roll := 0.0
+var sq_now := Vector3.ONE
 var _spin_k := 0.0
 var _down := 0.0
 var _throw := 0.0
@@ -108,6 +109,9 @@ func dive_land() -> void:
 	_land_hold = 0.9
 	squash_vel -= 9.0
 
+func throw() -> void:
+	_throw = 1.0
+
 func kick(w: float, sv: float) -> void:
 	wobble = maxf(wobble, w)
 	squash_vel -= sv * 1.5
@@ -167,9 +171,11 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	var sp := 1.0 if w.spin_t[i] > 0 else 0.0
 	_spin_k += (sp - _spin_k) * (1.0 - exp(-dt * (26.0 if sp > _spin_k else 12.0)))
 	if sp > 0.0:
-		_spin_roll += dt * TAU * 3.1
+		_spin_roll += dt * TAU * 5.5
 	elif _spin_k < 0.02:
 		_spin_roll = 0.0
+	_mat.set_shader_parameter("twist", _spin_k)
+	_mat.set_shader_parameter("twist_phase", _spin_roll * 2.0)
 
 	# levou a rajada: deita no chão como personagem de luta
 	var kd := 1.0 if w.knocked[i] > 0 else 0.0
@@ -184,6 +190,7 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	sxz += -_spin_k * 0.07 + _down * 0.10
 	var sq := Vector3(sxz + dive * 0.72, sy, sxz - dive * 0.14)
 	spread = sxz
+	sq_now = sq
 	_mat.set_shader_parameter("squash", sq)
 
 	# o acessório segue o topo do corpo com mola e atraso, mas nunca a escala
@@ -198,9 +205,8 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	# descola do chão em vez de afundar nele
 	# carregar o especial recua o corpo; o arremesso joga tudo pra frente
 	var dirf := 1.0 if side == BV.LEFT else -1.0
-	var hk := clampf(float(w.hold[i]) / 40.0, 0.0, 1.0)
-	_throw = 0.0 if w.hold[i] == 0 else clampf((0.45 - hk) / 0.45, 0.0, 1.0)
-	var lunge := (_throw * 0.6 - hk * 0.32) * bsc
+	_throw = maxf(0.0, _throw - dt * 3.2)
+	var lunge := _throw * 0.6 * bsc
 	recoil = maxf(0.0, recoil - dt * 4.0)
 	position = Vector3(
 		wx + lunge * dirf + (w.dive_dir[i] * dive * 0.16 - (1.0 if side == BV.LEFT else -1.0) * recoil * 0.35) * bsc,
@@ -216,10 +222,10 @@ func update(w: PhysicWorld, gxp: float, gyp: float, st: float, bx: float, by: fl
 	_lean = lerpf(_lean, lean, 1.0 - exp(-dt * (17.0 if air else 9.0)))
 	rotation.z = _lean + sin(time * 0.9 + i * 2.4) * 0.035 * _idle
 	rotation.y = sin(time * 0.6 + i * 1.3) * 0.12 * _idle
-	rotation.z += dirf * (hk * 0.24 - _throw * 0.38)
+	rotation.z += dirf * (-_throw * 0.38)
 	var away := 1.0 if side == BV.LEFT else -1.0
 	if _spin_k > 0.004:
-		rotation.z = lerpf(rotation.z, _spin_roll * away, _spin_k)
+		rotation.z = lerpf(rotation.z, -_spin_roll * away, _spin_k)
 	if _down > 0.004:
 		rotation.z = lerpf(rotation.z, away * 1.62, _down)
 		position.y -= 0.22 * _down * bsc

@@ -55,6 +55,11 @@ var _rep_score := 0
 var _rep_tag := ""
 var _rep_last := -9000
 signal replay(tag: String, on: bool)
+signal point(side: int)
+const POINT_HOLD := 2.1
+var _point_t := 0.0
+var _rep_pending := false
+var _rep_tag_pend := ""
 
 ## Cenário ou preset novo no meio da partida: troca só o palco, a simulação
 ## nem percebe.
@@ -180,6 +185,13 @@ func _process(dt: float) -> void:
 	if _rep_at < _rep_end and not _paused:
 		_rep_step(dt)
 		return
+	if _point_t > 0.0 and not _paused:
+		_point_t -= dt
+		arena.render(bv, 1.0, dt)
+		if _point_t <= 0.0 and _rep_pending:
+			_rep_pending = false
+			_start_replay(_rep_tag_pend)
+		return
 	if _paused or _last_winner != BV.NO_PLAYER or arena.intro_active():
 		arena.render(bv, 1.0, dt)
 		return
@@ -253,13 +265,10 @@ func _record() -> void:
 	_hn += 1
 	for j in ev.n:
 		if ev.kind[j] == Ev.PLAYER_ERROR:
-			_maybe_replay()
+			_on_point(ev.side[j])
 
 func _score_event(kind: int, inten: float) -> void:
 	match kind:
-		Ev.REVERSAL:
-			_rep_score += 5
-			_rep_tag = "PARRY x3"
 		Ev.PARRY:
 			_rep_score += 3 if inten >= 1.0 else 1
 			if inten >= 1.0 and _rep_tag == "":
@@ -285,16 +294,34 @@ func _score_event(kind: int, inten: float) -> void:
 			else:
 				_rep_score += 1
 
-func _maybe_replay() -> void:
+func _on_point(err: int) -> void:
 	var score := _rep_score
 	var tag := _rep_tag if _rep_tag != "" else "REPLAY"
 	_rep_score = 0
 	_rep_tag = ""
-	if rb != null or score < 6 or _hn < 60 or _last_winner != BV.NO_PLAYER:
+	if rb != null or bv.logic.winner != BV.NO_PLAYER or _last_winner != BV.NO_PLAYER:
 		return
-	if _hn - _rep_last < 900:
+	_point_t = POINT_HOLD
+	point.emit(BV.other(err))
+	if score < 6 or _hn < 60 or _hn - _rep_last < 900:
 		return
 	_rep_last = _hn
+	_rep_pending = true
+	_rep_tag_pend = tag
+
+func skip_replay() -> void:
+	if _rep_at >= _rep_end:
+		return
+	_rep_at = _rep_end
+	_rep_finish()
+
+func _rep_finish() -> void:
+	arena.rep_want = 0.0
+	arena.capture(bv)
+	arena.capture(bv)
+	replay.emit("", false)
+
+func _start_replay(tag: String) -> void:
 	if _rep == null:
 		_rep = BVMatch.new(params, BV.LEFT)
 	_rep_end = _hn
@@ -319,10 +346,7 @@ func _rep_step(dt: float) -> void:
 		_rep_at += 1
 	arena.render(_rep, clampf(_rep_acc / STEP, 0.0, 1.0), dt)
 	if _rep_at >= _rep_end:
-		arena.rep_want = 0.0
-		arena.capture(bv)
-		arena.capture(bv)
-		replay.emit("", false)
+		_rep_finish()
 
 ## A janela de entradas sai todo quadro, inclusive quando o lado local está
 ## esperando o outro. Mandar só dentro do passo trancava os dois: quem espera
@@ -425,6 +449,12 @@ func stalled() -> bool:
 
 func _unhandled_input(e: InputEvent) -> void:
 	if bv == null or not e.is_pressed() or e.is_echo():
+		return
+	if replaying() and not e.is_action_pressed("pause"):
+		skip_replay()
+		get_viewport().set_input_as_handled()
+		return
+	if _point_t > 0.0:
 		return
 	for i in 5:
 		if e.is_action_pressed("emote_%d" % i):

@@ -12,6 +12,8 @@ var bots_skill := 2.4
 var rumble := true
 var walls := true
 var difficulty := "normal"
+var versus_cpu := false
+var versus_diff := "normal"
 var scene := "anoitecer"
 var player_name := ""
 var campaign_level := 1
@@ -30,6 +32,8 @@ func load_all() -> void:
 		rumble = c.get_value("v", "rumble", true)
 		walls = c.get_value("v", "walls", true)
 		difficulty = c.get_value("v", "diff", "normal")
+		versus_cpu = c.get_value("v", "vcpu", false)
+		versus_diff = c.get_value("v", "vdiff", "normal")
 		scene = c.get_value("v", "scene", "anoitecer")
 		player_name = c.get_value("v", "name", "")
 		campaign_level = c.get_value("v", "clevel", 1)
@@ -49,6 +53,8 @@ func save() -> void:
 	c.set_value("v", "rumble", rumble)
 	c.set_value("v", "walls", walls)
 	c.set_value("v", "diff", difficulty)
+	c.set_value("v", "vcpu", versus_cpu)
+	c.set_value("v", "vdiff", versus_diff)
 	c.set_value("v", "scene", scene)
 	c.set_value("v", "name", player_name)
 	c.set_value("v", "clevel", campaign_level)

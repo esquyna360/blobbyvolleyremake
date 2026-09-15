@@ -153,19 +153,31 @@ func _init() -> void:
 	print("giros no mesmo pulo=", _count(seen, Ev.SPIN))
 	if _count(seen, Ev.SPIN) != 1:
 		fails += 1
-	# 12. especial: três bolas, congelamento e disparo
+	# 12. especial: dispara na hora, uma bola, parabola pro outro lado
 	w = PhysicWorld.new()
 	w.charge[0] = BV.SPECIAL_FULL
 	w.ball_x = w.blob_x[0] + 40.0
 	w.ball_y = w.upper_y(0) - 40.0
-	seen = _run(w, 100, func(f): return _inp(false, false, false, false, false, f == 1),
+	seen = _run(w, 2, func(f): return _inp(false, false, false, false, false, f == 1),
 		func(_f): return _inp())
-	var hold_at := _has(seen, Ev.SPECIAL_HOLD, 0)
 	var fired := _has(seen, Ev.SPECIAL_FIRED, 0)
-	print("especial: pose=", hold_at, " disparo=", fired, " extras=", _count(seen, Ev.VOLLEY_FIRE),
-		" windup=", fired - hold_at)
-	if hold_at < 0 or fired < 0 or _count(seen, Ev.VOLLEY_FIRE) != BV.VOLLEY_N - 1 \
-			or fired - hold_at < BV.SUPER_WINDUP - 2:
+	print("especial: disparo=", fired, " vx=", w.ball_vx, " vy=", w.ball_vy, " super=", w.super_frames)
+	if fired < 0 or w.ball_vx <= 0.0 or w.ball_vy >= 0.0 or w.super_owner != 0:
+		fails += 1
+	# 12b. especial nunca volta pro campo do dono: bate na rede como parede
+	var crossed := false
+	for f in 140:
+		if w.super_frames <= 0:
+			break
+		w.step([_inp(), _inp()], true, true, EventBuf.new())
+		if w.ball_x > BV.NET_POSITION_X:
+			crossed = true
+		if crossed and w.ball_x < BV.NET_POSITION_X:
+			fails += 1
+			print("especial voltou pro dono")
+			break
+	print("especial cruzou=", crossed)
+	if not crossed:
 		fails += 1
 	# 13. mergulho em cima da bola toca uma vez só
 	w = PhysicWorld.new()
@@ -188,39 +200,55 @@ func _init() -> void:
 	print("tranco da bola quente=", _has(seen, Ev.STAGGER, 1), " stun=", w.stun[1])
 	if _has(seen, Ev.STAGGER, 1) < 0:
 		fails += 1
-	# 15. parry nas tres: a rajada volta com seis
+	# 15. parry no especial: vira especial de quem aparou
 	w = PhysicWorld.new()
 	w.super_frames = 60
 	w.super_owner = 0
-	w.vol_owner = 0
-	w.vol_n = BV.VOLLEY_N
-	w.vol_parried = BV.VOLLEY_N - 1
 	w.ball_x = w.blob_x[1] - 24.0
 	w.ball_y = w.upper_y(1)
 	w.ball_vx = 22.0
 	w.ball_vy = 0.0
 	w.parry_active[1] = BV.PARRY_ACTIVE
 	seen = _run(w, 4, func(_f): return _inp(), func(_f): return _inp())
-	print("reversal=", _has(seen, Ev.REVERSAL, 1), " bolas=", w.vol_n, " dono=", w.vol_owner)
-	if _has(seen, Ev.REVERSAL, 1) < 0 or w.vol_n != BV.VOLLEY_REV or w.vol_owner != 1:
+	print("parry=", _has(seen, Ev.PARRY, 1), " dono=", w.super_owner, " vx=", w.ball_vx)
+	if _has(seen, Ev.PARRY, 1) < 0 or w.super_owner != 1 or w.ball_vx >= 0.0:
 		fails += 1
-	# 16. parry incompleto: a bola que passa derruba quem recebe
+	# 16. toque normal no especial: derruba e a bola fica do lado dele
 	w = PhysicWorld.new()
 	w.super_frames = 60
 	w.super_owner = 0
-	w.vol_owner = 0
-	w.vol_n = BV.VOLLEY_N
-	w.vol_parried = 1
-	w.ex_on[0] = 2
-	w.ex_wait[0] = 0
-	w.ex_x[0] = w.blob_x[1] - 20.0
-	w.ex_y[0] = w.upper_y(1)
-	w.ex_vx[0] = 20.0
-	w.ex_vy[0] = 0.0
+	w.ball_x = w.blob_x[1] - 20.0
+	w.ball_y = w.upper_y(1)
+	w.ball_vx = 20.0
+	w.ball_vy = 0.0
 	seen = _run(w, 6, func(_f): return _inp(), func(_f): return _inp())
-	print("levou a rajada=", _has(seen, Ev.SPECIAL_HIT, 1), " caido=", w.knocked[1], " bola do lado dele=",
-		w.ex_x[0] > BV.NET_POSITION_X)
-	if _has(seen, Ev.SPECIAL_HIT, 1) < 0 or w.knocked[1] <= 0:
+	print("levou o especial=", _has(seen, Ev.SPECIAL_HIT, 1), " caido=", w.knocked[1],
+		" vx=", w.ball_vx)
+	if _has(seen, Ev.SPECIAL_HIT, 1) < 0 or w.knocked[1] <= 0 or w.ball_vx <= 0.0:
+		fails += 1
+	# 17. parry na bola quente: sobe acima de quem aparou
+	w = PhysicWorld.new()
+	w.hot = BV.HOT_FRAMES
+	w.hot_by = 0
+	w.ball_x = w.blob_x[1] - 30.0
+	w.ball_y = w.upper_y(1)
+	w.ball_vx = 18.0
+	w.ball_vy = 2.0
+	w.parry_active[1] = BV.PARRY_ACTIVE
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	print("parry quente=", _has(seen, Ev.PARRY, 1), " vy=", w.ball_vy, " stun=", w.stun[1])
+	if _has(seen, Ev.PARRY, 1) < 0 or w.ball_vy >= -8.0 or w.stun[1] > 0:
+		fails += 1
+	# 18. giro pra cima vira parabola em vez de foguete
+	w = PhysicWorld.new()
+	w.blob_y[0] = 300.0
+	w.blob_vy[0] = 1.0
+	w.spin_t[0] = 10
+	w.ball_x = w.blob_x[0] + 30.0
+	w.ball_y = w.upper_y(0) - 60.0
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	print("giro: vy=", w.ball_vy, " vx=", w.ball_vx)
+	if _has(seen, Ev.SPIN_HIT, 0) < 0 or w.ball_vy < -16.0 or w.ball_vx <= 0.0:
 		fails += 1
 	print("FAILS=", fails)
 	quit(1 if fails > 0 else 0)
