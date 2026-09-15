@@ -250,6 +250,26 @@ func _init() -> void:
 	print("giro: vy=", w.ball_vy, " vx=", w.ball_vx)
 	if _has(seen, Ev.SPIN_HIT, 0) < 0 or w.ball_vy < -16.0 or w.ball_vx <= 0.0:
 		fails += 1
+	# 18b. giro nao alcanca bola longe nem bola atras das costas
+	w = PhysicWorld.new()
+	w.blob_y[0] = 300.0
+	w.blob_vy[0] = 1.0
+	w.spin_t[0] = 10
+	w.ball_x = w.blob_x[0] + 110.0
+	w.ball_y = w.upper_y(0)
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	var longe := _has(seen, Ev.SPIN_HIT, 0)
+	w = PhysicWorld.new()
+	w.blob_y[0] = 300.0
+	w.blob_vy[0] = 1.0
+	w.spin_t[0] = 10
+	w.ball_x = w.blob_x[0] - 55.0
+	w.ball_y = w.upper_y(0) + 10.0
+	seen = _run(w, 2, func(_f): return _inp(), func(_f): return _inp())
+	var atras := _has(seen, Ev.SPIN_HIT, 0)
+	print("giro longe=", longe, " giro atras=", atras)
+	if longe >= 0 or atras >= 0:
+		fails += 1
 	# 19. toque na diagonal frente/topo: parabola rapida pro fundo do outro lado
 	w = PhysicWorld.new()
 	w.blob_y[0] = 300.0

@@ -375,6 +375,8 @@ func _spin_hit(p: int, out: EventBuf) -> bool:
 		dx = dir_of(p)
 		dy = -0.4
 		l = sqrt(dx * dx + dy * dy)
+	elif (dx / l) * dir_of(p) < BV.SPIN_FRONT_MIN and dy / l > -0.6:
+		return false
 	spin_t[p] = 0
 	hit_cd[p] = 10
 	_bump_tempo()
@@ -834,7 +836,11 @@ func _handle_ball_world_collisions(out: EventBuf) -> void:
 		ball_x = net_x + (ball_r + BV.NET_RADIUS if right else -ball_r - BV.NET_RADIUS)
 		ball_spin = 0.0
 		out.push(Ev.BALL_HIT_NET, BV.RIGHT if right else BV.LEFT, 0.0)
-	elif ball_y > net_top and absf(ball_x - net_x) < ball_r + BV.NET_RADIUS:
+	# a bola so bate na rede quando esta entrando nela: sem essa checagem ela
+	# ficava presa no poste invertendo a velocidade quadro a quadro, e o
+	# tlim-tlim-tlim virava aquele chocalho de moedas
+	elif ball_y > net_top and absf(ball_x - net_x) < ball_r + BV.NET_RADIUS \
+			and (ball_x - net_x) * ball_vx < 0.0:
 		var right := ball_x - net_x > 0.0
 		ball_vx = -ball_vx
 		ball_x = net_x + (ball_r + BV.NET_RADIUS if right else -ball_r - BV.NET_RADIUS)
@@ -848,22 +854,27 @@ func _handle_ball_world_collisions(out: EventBuf) -> void:
 			var dd := d if d != 0.0 else 1.0
 			var nx := dx / dd
 			var ny := dy / dd
-			var perp := nx * ball_vx + ny * ball_vy
+			# separar sempre, para o mesmo lado em que a bola ja esta; o sinal
+			# trocado jogava a bola para o outro lado do poste e ela batia de
+			# novo no quadro seguinte, de novo e de novo
+			ball_x = net_x + nx * (BV.NET_RADIUS + ball_r)
+			ball_y = net_top + ny * (BV.NET_RADIUS + ball_r)
+			var into := nx * ball_vx + ny * ball_vy
+			if into >= 0.0:
+				return
+			var perp := into
 			perp *= perp
 			var para := ball_vx * ball_vx + ball_vy * ball_vy - perp
 			perp *= 0.7
 			para *= 0.9
 			var speed := sqrt(perp + para)
-			var dot := ball_vx * nx + ball_vy * ny
-			var rx := ball_vx - 2.0 * dot * nx
-			var ry := ball_vy - 2.0 * dot * ny
+			var rx := ball_vx - 2.0 * into * nx
+			var ry := ball_vy - 2.0 * into * ny
 			var rl := sqrt(rx * rx + ry * ry)
 			if rl == 0.0:
 				rl = 1.0
 			ball_vx = (rx / rl) * speed
 			ball_vy = (ry / rl) * speed
-			ball_x = net_x - nx * (BV.NET_RADIUS + ball_r)
-			ball_y = net_top - ny * (BV.NET_RADIUS + ball_r)
 			out.push(Ev.BALL_HIT_NET_TOP, -1, 0.0)
 
 func _dec(a: PackedInt32Array) -> void:
