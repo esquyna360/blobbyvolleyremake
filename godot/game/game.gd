@@ -56,6 +56,7 @@ var _rep_tag := ""
 var _rep_last := -9000
 signal replay(tag: String, on: bool)
 signal point(side: int)
+signal cut()
 const POINT_HOLD := 2.1
 var _point_t := 0.0
 var _rep_pending := false
@@ -187,11 +188,13 @@ func _process(dt: float) -> void:
 		return
 	if _point_t > 0.0 and not _paused:
 		_point_t -= dt
-		arena.render(bv, 1.0, dt)
-		if _point_t <= 0.0 and _rep_pending:
-			_rep_pending = false
-			_start_replay(_rep_tag_pend)
-		return
+		if _point_t <= 0.0:
+			if _rep_pending:
+				_rep_pending = false
+				_start_replay(_rep_tag_pend)
+				return
+			cut.emit()
+	bv.hold_serve = _point_t > 0.0
 	if _paused or _last_winner != BV.NO_PLAYER or arena.intro_active():
 		arena.render(bv, 1.0, dt)
 		return
@@ -225,6 +228,8 @@ func _tick() -> void:
 		return
 	for i in bv.world.nb:
 		_read_side(i)
+		if _point_t > 0.0:
+			_in[i].clear()
 	_step()
 
 func _step() -> void:
@@ -252,7 +257,7 @@ func _step() -> void:
 ## Grava o rally inteiro num anel de estados. Quando o ponto acaba, se o lance
 ## valeu a pena, ele volta em câmera lenta e com a lente colada na bola.
 func _record() -> void:
-	if _hf.is_empty():
+	if _hf.is_empty() or _point_t > 0.0:
 		return
 	var k := _hn % HIST
 	bv.save(_hf[k], _hi[k])
@@ -302,6 +307,7 @@ func _on_point(err: int) -> void:
 	if rb != null or bv.logic.winner != BV.NO_PLAYER or _last_winner != BV.NO_PLAYER:
 		return
 	_point_t = POINT_HOLD
+	cut.emit()
 	point.emit(BV.other(err))
 	if score < 6 or _hn < 60 or _hn - _rep_last < 900:
 		return
@@ -317,6 +323,7 @@ func skip_replay() -> void:
 
 func _rep_finish() -> void:
 	arena.rep_want = 0.0
+	cut.emit()
 	arena.capture(bv)
 	arena.capture(bv)
 	replay.emit("", false)
@@ -328,6 +335,7 @@ func _start_replay(tag: String) -> void:
 	_rep_at = _hn - mini(_hn, REP_LEN)
 	_rep_acc = 0.0
 	arena.rep_want = 1.0
+	cut.emit()
 	replay.emit(tag, true)
 
 func _rep_step(dt: float) -> void:

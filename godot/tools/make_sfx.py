@@ -206,7 +206,7 @@ def build(name, mx):
         crack(mx, 0, 1200, 0.04, 0.4, 1.8, "bandpass")
         body(mx, 0, 270, 120, 0.05, 0.10, 0.5, "sine", 0.18)
         sub(mx, 0, 70, 0.07, 0.32)
-        ring(mx, 0.01, 1245.0, 0.22, 0.10)
+        ring(mx, 0.01, 620.0, 0.14, 0.06, ((1.0, 1.0), (2.0, 0.2)), 0.2)
     elif name == "bonk":
         crack(mx, 0, 3400, 0.010, 0.4)
         body(mx, 0, 200, 120, 0.05, 0.10, 0.42, "sine")
@@ -239,9 +239,9 @@ def build(name, mx):
         body(mx, 0, 210, 140, 0.04, 0.07, 0.3, "triangle")
         sub(mx, 0, 76, 0.05, 0.16)
     elif name == "ball_out":
-        crack(mx, 0, 5000, 0.009, 0.3)
-        ring(mx, 0.0, 1660.0, 0.16, 0.16)
-        ring(mx, 0.09, 1108.7, 0.26, 0.14)
+        crack(mx, 0, 4200, 0.009, 0.26)
+        ring(mx, 0.0, 830.0, 0.16, 0.12, ((1.0, 1.0), (2.0, 0.25)), 0.25)
+        ring(mx, 0.09, 554.4, 0.26, 0.11, ((1.0, 1.0), (2.0, 0.2)), 0.25)
     elif name == "whistle":
         whistle_ref(mx, 0, 0.30, 0.62)
     elif name == "cheer":
@@ -284,11 +284,12 @@ def build(name, mx):
         mx.add(bq_sweep(mx.noise_at(len(e)), "bandpass", 700.0, 3400.0, 0.30, 2.6) * e, 0, 0.25)
         body(mx, 0.02, 180, 620, 0.22, 0.26, 0.10, "triangle", 0.3)
     elif name == "spin_hit":
-        crack(mx, 0, 5200, 0.009, 0.55)
-        crack(mx, 0, 1400, 0.045, 0.42, 1.6, "bandpass")
+        # a cauda de sino em 1760 tocava dezenas de vezes por partida e virava
+        # barulho de ferro: sai o sino, fica o baque com um estalo curto
+        crack(mx, 0, 3800, 0.008, 0.38)
+        crack(mx, 0, 1200, 0.040, 0.40, 1.4, "bandpass")
         body(mx, 0, 320, 110, 0.06, 0.13, 0.52, "sine", 0.2)
-        sub(mx, 0, 62, 0.11, 0.38)
-        ring(mx, 0.012, 1760.0, 0.26, 0.14, ((1.0, 1.0), (2.4, 0.35)), 0.5)
+        sub(mx, 0, 62, 0.12, 0.42)
     elif name == "knockdown":
         # o corpo batendo no chao: baque grave, sem estalo agudo
         crack(mx, 0, 900, 0.03, 0.30, 0.9, "lowpass")
@@ -297,6 +298,11 @@ def build(name, mx):
         e = denv(0.22, 0.34, 0.01)
         mx.add(bq(mx.noise_at(len(e)), "lowpass", 620.0, 0.6) * e, 0.01, 0.3)
         groan(mx, 0.06, 0.5, 0.2)
+    elif name == "whoosh_cut":
+        # a faixa atravessando a tela: sopro curto que passa e some
+        e = denv(0.5, 0.26, 0.015)
+        mx.add(bq_sweep(mx.noise_at(len(e)), "bandpass", 500.0, 4200.0, 0.26, 2.2) * e, 0, 0.3)
+        body(mx, 0.01, 140, 520, 0.18, 0.20, 0.12, "triangle", 0.25)
     elif name == "volley":
         # cada bola do especial passando: curto, seco e agudo
         crack(mx, 0, 3600, 0.012, 0.42, 1.4, "bandpass")
@@ -329,8 +335,8 @@ SOUNDS = {
     "whistle": (0.45, 0.85), "cheer": (2.6, 0.8), "thunder": (2.6, 0.95),
     "glitch": (0.4, 0.75), "fatality": (2.2, 0.98), "finish_win": (2.8, 0.95),
     "finish_lose": (2.4, 0.85),
-    "spin": (0.42, 0.7), "spin_hit": (0.6, 0.98), "knockdown": (0.9, 0.9),
-    "volley": (0.3, 0.92), "reversal": (1.3, 0.96),
+    "spin": (0.42, 0.7), "spin_hit": (0.45, 0.95), "knockdown": (0.9, 0.9),
+    "whoosh_cut": (0.45, 0.7),
 }
 
 

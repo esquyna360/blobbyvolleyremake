@@ -9,6 +9,10 @@ var logic: GameLogic
 var events := EventBuf.new()
 var frame := 0
 
+## Segura o saque enquanto a apresentação do ponto roda: a física continua
+## andando, então os blobs caem e pousam em vez de travar no ar.
+var hold_serve := false
+
 func _init(p: MatchParams = null, serving_player: int = BV.LEFT) -> void:
 	params = p if p != null else MatchParams.new()
 	world = PhysicWorld.new(params)
@@ -74,7 +78,7 @@ func step(inputs: Array) -> void:
 		w.ball_vx *= 0.6
 		w.ball_vy *= 0.6
 
-	if not g.is_ball_valid and _can_start_round(g.serving_player):
+	if not g.is_ball_valid and not hold_serve and _can_start_round(g.serving_player):
 		w.reset_ball(g.serving_player)
 		g.on_serve()
 		events.push(Ev.RESET_BALL, BV.NO_PLAYER, 0.0)

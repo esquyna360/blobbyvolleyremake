@@ -12,10 +12,10 @@ const NAMES := [
 	"ui", "blip", "hit_blob", "hit_ground", "hit_net", "hit_wall", "land",
 	"serve", "point_win", "point_lose", "emote_0", "emote_1", "emote_2",
 	"special_ready", "special_fired", "special_hit", "ground_burn", "dive",
-	"dive_hit", "bonk", "block", "apex", "special_wasted", "parry",
+	"dive_hit", "bonk", "block", "special_wasted", "parry",
 	"parry_whiff", "dig", "ball_out", "whistle", "cheer", "thunder", "glitch",
 	"fatality", "finish_win", "finish_lose",
-	"shinkuu", "spin", "spin_hit", "knockdown", "volley", "reversal",
+	"shinkuu", "spin", "spin_hit", "knockdown", "whoosh_cut",
 ]
 
 

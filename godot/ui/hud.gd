@@ -33,6 +33,11 @@ var _rep_tag: Label
 var _rep_skip: Label
 var _tv: ColorRect
 var _tv_mat := ShaderMaterial.new()
+var _wipe: ColorRect
+var _wipe_mat := ShaderMaterial.new()
+var _wipe_t := -1.0
+var _wipe_dir := 1.0
+const WIPE_DUR := 0.52
 var _time := 0.0
 var _pulse := [0.0, 0.0]
 var _rally_shown := -1
@@ -316,6 +321,33 @@ void fragment() {
 }
 """
 	_tv_mat.shader = sh
+	var ws := Shader.new()
+	ws.code = """shader_type canvas_item;
+render_mode unshaded;
+uniform float t = -1.0;
+uniform float dir = 1.0;
+void fragment() {
+	if (t < 0.0) { COLOR = vec4(0.0); }
+	else {
+		vec2 uv = SCREEN_UV;
+		float x = mix(uv.x, 1.0 - uv.x, step(dir, 0.0));
+		float p = x + uv.y * 0.22;
+		float head = t * 1.9 - 0.25;
+		float d = head - p;
+		float band = smoothstep(0.0, 0.05, d) * (1.0 - smoothstep(0.30, 0.52, d));
+		float edge = (1.0 - smoothstep(0.0, 0.045, abs(d))) * 0.9;
+		vec3 col = mix(vec3(0.02, 0.03, 0.06), vec3(1.0, 0.82, 0.30), edge);
+		COLOR = vec4(col, clamp(band * 0.96 + edge, 0.0, 1.0));
+	}
+}
+"""
+	_wipe_mat.shader = ws
+	_wipe = ColorRect.new()
+	_wipe.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_wipe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wipe.material = _wipe_mat
+	_wipe.visible = false
+	add_child(_wipe)
 	_tv = ColorRect.new()
 	_tv.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_tv.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -361,6 +393,15 @@ void fragment() {
 	_rep_skip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rep_skip.visible = false
 	add_child(_rep_skip)
+
+## Corte entre um momento e outro: uma faixa atravessa a tela e esconde a
+## troca de câmera. Sem ela, replay e ponto entram e saem sem aviso.
+func cut() -> void:
+	_wipe_t = 0.0
+	_wipe_dir = -_wipe_dir
+	_wipe.visible = true
+	_wipe.move_to_front()
+	Aud.play("whoosh_cut", 0.5)
 
 func replay(on: bool, tag := "", touch := false) -> void:
 	_rep_on = on
@@ -507,6 +548,13 @@ func update(m: BVMatch, dt: float) -> void:
 	_point_k = maxf(0.0, _point_k - dt / 2.1)
 	var pk := 1.0 - pow(1.0 - _point_k, 3.0)
 	_panel.scale = Vector2.ONE * _fit_k * (1.0 + 0.30 * pk)
+	if _wipe_t >= 0.0:
+		_wipe_t += dt / WIPE_DUR
+		_wipe_mat.set_shader_parameter("t", _wipe_t)
+		_wipe_mat.set_shader_parameter("dir", _wipe_dir)
+		if _wipe_t >= 1.35:
+			_wipe_t = -1.0
+			_wipe.visible = false
 	_rep_k += ((1.0 if _rep_on else 0.0) - _rep_k) * (1.0 - exp(-dt * 6.0))
 	if _tv.visible:
 		_tv_mat.set_shader_parameter("k", _rep_k)

@@ -1198,23 +1198,26 @@ func _lose_pose(b: BlobView, bx: float, by: float, t: float, dt: float, half: fl
 	var sq := Vector3.ONE
 	match _lose_move:
 		0:
-			var k := minf(1.0, t * 1.1)
+			var k := _ease(minf(1.0, t * 0.5))
 			y += 0.32 * k
 			sq = Vector3(1.0 + 0.36 * k, 1.0 - 0.38 * k, 1.0 + 0.22 * k)
-			rz = sin(t * 3.0) * 0.06 * k
-			if randf() < dt * 16.0 * k:
+			rz = sin(t * 1.3) * 0.05 * k
+			if randf() < dt * 7.0 * k:
 				fx.burst(b.position + Vector3((randf() - 0.5) * 0.6, 0.85, 0.4), 5,
 					1.2, 0.5, 1.7, 1.2, 0.035, Color(0.45, 0.78, 1.0), 2.4, 0.3)
 		1:
-			ry = sin(t * 6.2) * 0.6
-			rz = sin(t * 3.1) * 0.07
-			sq = Vector3(1.0 + 0.05 * sin(t * 6.2), 1.0, 1.0)
+			var k1 := _ease(minf(1.0, t * 0.8))
+			ry = sin(t * 2.3) * 0.62 * k1
+			rz = sin(t * 1.15) * 0.08 * k1
+			y += 0.10 * k1
+			sq = Vector3(1.0 + 0.06 * k1, 1.0 - 0.08 * k1, 1.0)
 		_:
 			var dir := -1.0 if bx < 0.0 else 1.0
-			x = bx + dir * t * 2.2
-			y -= absf(sin(t * 7.0)) * 0.24
-			rz = -dir * 0.14 + sin(t * 7.0) * 0.1
-			var beat := int(t * 3.5)
+			var k2 := _ease(minf(1.0, t * 0.9))
+			x = bx + dir * maxf(0.0, t - 0.5) * 0.95
+			y -= absf(sin(t * 3.1)) * 0.16 * k2
+			rz = (-dir * 0.16 + sin(t * 3.1) * 0.08) * k2
+			var beat := int(t * 1.55)
 			if beat != _kick_beat:
 				_kick_beat = beat
 				trauma = minf(1.0, trauma + 0.07)

@@ -98,6 +98,7 @@ func _ready() -> void:
 	game.match_over.connect(_on_match_over)
 	game.replay.connect(_on_replay)
 	game.point.connect(_on_point)
+	game.cut.connect(func(): hud.cut())
 	_dev_net()
 	_dev_shot()
 
