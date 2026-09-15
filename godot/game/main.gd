@@ -12,7 +12,7 @@ var touch: TouchPad
 var link := NetLink.new()
 
 var _ui := CanvasLayer.new()
-const MATCH_SONGS := ["luau", "fundo", "praia"]
+const MATCH_SONGS := ["rally", "blitz", "sunset"]
 
 enum Mode { NONE, CAMPAIGN, VERSUS, NET, BOTS }
 var mode := Mode.NONE
@@ -39,6 +39,9 @@ var _voice_left := 0
 var _voice_t := 0.0
 var _last_foe_score := 0
 var _rotate_ui: Control
+var _nat_tag := ["", ""]
+var _bots_skill := 2.4
+var _bots_run := 0
 
 func _ready() -> void:
 	UiTheme.install_glyphs()
@@ -69,6 +72,7 @@ func _ready() -> void:
 	menu.build(settings)
 	menu.play_campaign.connect(_play_campaign)
 	menu.play_versus.connect(_play_versus)
+	menu.play_bots.connect(_play_bots)
 	menu.quality_changed.connect(_requality)
 	menu.look_changed.connect(_relook)
 	menu.quit_game.connect(func(): get_tree().quit())
@@ -156,7 +160,7 @@ func _finish_enter() -> void:
 	else:
 		hud.shout("GO!", UiTheme.GOLD, 1.4)
 	if touch != null:
-		touch.visible = true
+		touch.visible = mode != Mode.BOTS
 		Controls.clear_touch()
 
 ## Campanha: o nível escolhe o país, os modificadores e a regra. O bot recebe
@@ -179,8 +183,9 @@ func _play_campaign(n: int) -> void:
 	for b in game.bots:
 		if b != null:
 			b.set_skill(k)
-	hud.names = [settings.player_name if settings.player_name != "" else "YOU", _foe.n]
-	hud.sub_text = "LEVEL %d · %s" % [level, info.rule]
+	hud.names = [settings.player_name if settings.player_name != "" else "YOU", _foe.p]
+	hud.sub_text = "LEVEL %d · %s of %s" % [level, _foe.p, _foe.n]
+	_nat_tag = ["", str(_foe.n)]
 	_finish_enter()
 
 func _play_versus(stw: int) -> void:
@@ -197,6 +202,7 @@ func _play_versus(stw: int) -> void:
 		Game.Source.LOCAL_P1, Game.Source.LOCAL_P2, "normal", lk)
 	hud.names = ["P1", "P2"]
 	hud.sub_text = ""
+	_nat_tag = ["", ""]
 	_foe = {}
 	_finish_enter()
 
@@ -233,6 +239,7 @@ func _start_net(side: int, looks: Array, rules: String, stw: int, walls: bool) -
 	_net_pending = false
 	hud.names = ["", ""]
 	hud.sub_text = ""
+	_nat_tag = ["", ""]
 	_finish_enter()
 	hud.shout("ONLINE", Color(0.36, 0.82, 1.0), 1.4)
 
@@ -278,6 +285,9 @@ func _step_over(dt: float) -> void:
 			_say(Campaign.line(_foe, "lose" if mine else "win", level + game.bv.frame), 3.4)
 	if _over_t >= 3.6 and not _over_shown:
 		_over_shown = true
+		if mode == Mode.BOTS and not _paused:
+			_play_bots(_bots_skill)
+			return
 		game.set_paused(true)
 		_show_result(winner, mine)
 
@@ -292,7 +302,7 @@ func _show_result(winner: int, mine: bool) -> void:
 	_result_again.text = "Rematch"
 	match mode:
 		Mode.CAMPAIGN:
-			eyebrow = "level %d · %s" % [level, _foe.n]
+			eyebrow = "level %d · %s of %s" % [level, _foe.p, _foe.n]
 			if mine:
 				if level >= Campaign.LAST:
 					title = "WORLD CHAMPION"
@@ -301,13 +311,14 @@ func _show_result(winner: int, mine: bool) -> void:
 					_result_again.text = "Play again"
 				else:
 					title = "LEVEL %d CLEAR" % level
-					line = "Next: %s" % Campaign.nation(level + 1).n
+					var nx := Campaign.nation(level + 1)
+					line = "Next: %s of %s" % [nx.p, nx.n]
 					_result_next.visible = true
 					_result_next.text = "Next level"
 					_result_again.text = "Replay"
 			else:
 				title = "DEFEATED"
-				line = "%s stays in the bracket." % _foe.n
+				line = "%s stays in the bracket." % _foe.p
 				_result_again.text = "Retry"
 		Mode.VERSUS:
 			title = "P1 WINS" if winner == BV.LEFT else "P2 WINS"
@@ -341,7 +352,7 @@ func _restart() -> void:
 		Mode.VERSUS:
 			_play_versus(settings.score_to_win)
 		Mode.BOTS:
-			_dev_bots()
+			_play_bots(_bots_skill)
 		_:
 			_to_menu()
 
@@ -529,10 +540,10 @@ func _intro_step(step: int) -> void:
 				hud.shout("FIRST TO %d" % game.bv.logic.score_to_win, UiTheme.GOLD, 1.6)
 		2:
 			if hud.names[0] != "":
-				hud.card(hud.names[0], game.arena.lead_blob(0).body_color.lightened(0.35), 1.3)
+				hud.card(_name_card(0), game.arena.lead_blob(0).body_color.lightened(0.35), 1.3)
 		3:
 			if hud.names[1] != "":
-				hud.card(hud.names[1].to_upper(), game.arena.lead_blob(1).body_color.lightened(0.35), 1.3)
+				hud.card(_name_card(1), game.arena.lead_blob(1).body_color.lightened(0.35), 1.3)
 			if mode == Mode.CAMPAIGN:
 				_say(Campaign.line(_foe, "say", level), 2.4)
 
@@ -658,7 +669,7 @@ func _dev_shot() -> void:
 		elif a.begins_with("--quality="):
 			_requality(int(a.substr(10)))
 		elif a == "--bots":
-			_dev_bots()
+			_play_bots(settings.bots_skill)
 		elif a == "--paused":
 			_set_pause.call_deferred(true)
 		elif a == "--skipintro":
@@ -685,17 +696,51 @@ func _dev_shot() -> void:
 	get_tree().quit()
 
 
-func _dev_bots() -> void:
+## CPU contra CPU: dois países sorteados, regra e modificadores de um nível
+## qualquer, e no fim começa outra sozinha. Serve de demo e de tela de espera.
+func _play_bots(sk: float) -> void:
 	mode = Mode.BOTS
+	_bots_skill = clampf(sk, 0.4, 3.6)
+	_bots_run += 1
 	game.net_side = BV.NO_PLAYER
+	game.link = null
+	game.rb = null
 	game.touch_slot = [-1, -1]
-	game.start(MatchParams.classic("default", settings.score_to_win, true), settings.quality,
-		Game.Source.BOT, Game.Source.BOT, "hard", [Looks.roll_look(-1), Looks.roll_look(-1)])
-	hud.names = ["BOT A", "BOT B"]
-	hud.sub_text = ""
+	var pool: Array = Campaign.NATIONS
+	var a: Dictionary = pool[randi() % pool.size()]
+	var b: Dictionary = pool[randi() % pool.size()]
+	# dois times da mesma cor viram uma bola de confusão: sorteia até separar
+	for _i in 40:
+		if b.c != a.c and _far_apart(Color(a.b), Color(b.b)):
+			break
+		b = pool[randi() % pool.size()]
+	var lv := 1 + randi() % Campaign.LAST
+	var p := Campaign.params(lv)
+	var k := _bots_skill
+	var tier := "easy" if k < 1.0 else ("normal" if k < 2.0 else ("hard" if k < 3.0 else "insane"))
+	game.start(p, settings.quality, Game.Source.BOT, Game.Source.BOT, tier,
+		[Campaign.look_of(a), Campaign.look_of(b)])
+	for bot in game.bots:
+		if bot != null:
+			bot.set_skill(clampf(k + randf_range(-0.35, 0.35), 0.3, 3.6))
+	hud.names = [a.p, b.p]
+	hud.sub_text = "CPU vs CPU · match %d · %s" % [_bots_run, Campaign.rule_of(lv).name]
+	_nat_tag = [str(a.n), str(b.n)]
 	_foe = {}
 	_finish_enter()
 	mode = Mode.BOTS
+
+func _far_apart(x: Color, y: Color) -> bool:
+	var dh: float = absf(x.h - y.h)
+	dh = minf(dh, 1.0 - dh)
+	return dh > 0.09 or absf(x.get_luminance() - y.get_luminance()) > 0.18
+
+
+func _name_card(i: int) -> String:
+	var nm: String = str(hud.names[i]).to_upper()
+	if _nat_tag[i] != "":
+		nm += "  ·  " + _nat_tag[i].to_upper()
+	return nm
 
 func _dev_net() -> void:
 	var m := ""

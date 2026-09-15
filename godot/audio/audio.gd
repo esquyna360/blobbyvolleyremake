@@ -210,12 +210,20 @@ func _update_mix(force: bool) -> void:
 
 # ------------------------------------------------------------------ efeitos
 
+## O mesmo arquivo tocado 200 vezes soa sintético mesmo estando perfeito. Cada
+## disparo sai com um empurrãozinho de altura e de volume.
+const WOBBLE := ["hit_blob", "hit_ground", "hit_net", "hit_wall", "land", "dive",
+	"dive_hit", "block", "dig", "bonk", "apex", "parry", "parry_whiff"]
+
 func play(name: String, vol := 1.0, pitch := 1.0) -> void:
 	var s: AudioStream = _bank.get(name)
 	if s == null:
 		return
 	var p := _pool[_slot]
 	_slot = (_slot + 1) % POOL
+	if name in WOBBLE:
+		pitch *= pow(2.0, randf_range(-0.08, 0.08) / 1.2)
+		vol *= randf_range(0.88, 1.12)
 	p.stream = s
 	p.volume_db = linear_to_db(clampf(vol * 3.0, 0.02, 8.0))
 	p.pitch_scale = clampf(pitch, 0.4, 2.5)

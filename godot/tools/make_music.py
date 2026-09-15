@@ -114,6 +114,33 @@ def pluck(mx, t, hz, v, dur):
     mx.add(bq(osc("sawtooth", hz, n), "lowpass", hz * 5 + 400, 1.2) * e, t, 0.25)
 
 
+def clap(mx, t, hz, v, dur):
+    """Palma. Em cima da caixa no 2 e no 4 e o que separa trilha de esporte de
+    trilha generica, e custa quatro batidinhas coladas."""
+    for k, off in enumerate((0.0, 0.009, 0.019, 0.030)):
+        d = 0.06 if k == 3 else 0.015
+        e = denv(v * (0.34 if k == 3 else 0.22), d, 0.0006)
+        mx.add(bq(mx.noise_at(len(e)), "bandpass", 1150.0, 1.3) * e, t + off, 0.25)
+
+
+def brass(mx, t, hz, v, dur):
+    """Metal de arcade: serras destoadas com filtro fechando. Tocado curto e em
+    resposta a melodia -- e o recurso numero um da trilha de esporte."""
+    e = env(v * 0.26, 0.008, 0.06, 0.6, dur, 0.1)
+    n = len(e)
+    sig = (osc("sawtooth", hz, n, -8) + osc("sawtooth", hz, n, 8)
+           + osc("square", hz * 2, n) * 0.3)
+    mx.add(bq_sweep(sig, "lowpass", hz * 10 + 2400, hz * 3 + 800, max(dur, 0.12), 1.2) * e, t, 0.25)
+
+
+def organ(mx, t, hz, v, dur):
+    e = env(v * 0.14, 0.012, 0.06, 0.9, dur, 0.06)
+    n = len(e)
+    sig = (osc("sine", hz, n) + osc("sine", hz * 2, n) * 0.5
+           + osc("sine", hz * 3, n) * 0.3 + osc("sine", hz * 4, n) * 0.16)
+    mx.add(sig * e, t, 0.2)
+
+
 def kick(mx, t, hz, v, dur):
     boom(mx, t, 150, 42, 0.075, 0.3, v * 0.9)
     hiss(mx, t, "lowpass", 2200, 0.7, 0.02, v * 0.14)
@@ -184,7 +211,8 @@ VOICES = {
     "whistle": whistle, "pluck": pluck, "kick": kick, "snare": snare, "hat": hat,
     "crash": crash, "ride": ride, "stick": stick, "tom": tom, "conga_hi": conga_hi,
     "conga_low": conga_low, "maracas": maracas, "shaker": shaker,
-    "tambourine": tambourine, "agogo": agogo,
+    "tambourine": tambourine, "agogo": agogo, "clap": clap, "brass": brass,
+    "organ": organ,
 }
 
 TAIL = 5.0

@@ -6,13 +6,14 @@ extends Control
 
 signal play_campaign(level: int)
 signal play_versus(stw: int)
+signal play_bots(skill: float)
 signal quality_changed(q: int)
 signal look_changed(look: Array)
 signal quit_game()
 
 const QUALS := ["Low", "Medium", "High", "Ultra"]
 const MUTED := Color(1, 1, 1, 0.55)
-const VERSION := "0.3"
+const VERSION := "0.4"
 
 var settings: Settings
 
@@ -206,6 +207,7 @@ func show_page(p: String) -> void:
 		"main": _main()
 		"campaign": _campaign()
 		"versus": _versus()
+		"cpu": _cpu()
 		"online": _online()
 		"look": _look()
 		"options": _options()
@@ -279,6 +281,7 @@ func _main() -> void:
 		"world championship · level %d of 100" % mini(lvl, 100) if settings.campaign_best > 0 else "world championship · 100 levels")
 	_btn("Versus", func(): show_page("versus"), "two players, one keyboard or two pads", UiTheme.LEAF)
 	_btn("Online", func(): show_page("online"), "coming soon", Color(0.36, 0.72, 1.0))
+	_btn("CPU vs CPU", func(): show_page("cpu"), "sit back and watch the goo fight", Color(1.0, 0.62, 0.26))
 	_spacer()
 	_btn("You", func(): show_page("look"), "", Color(0.9, 0.45, 0.8))
 	_btn("Settings", func(): show_page("options"), "", Color(0.7, 0.75, 0.8))
@@ -454,7 +457,8 @@ func _fill_detail() -> void:
 	v.add_theme_constant_override("separation", 0)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	v.add_child(UiTheme.eyebrow(("BOSS · " if info.boss else "") + "LEVEL %d" % n, Color(nat.h).lightened(0.2), 12))
-	v.add_child(UiTheme.display(nat.n, 30 if _compact() else 40, Color(nat.b).lightened(0.35)))
+	v.add_child(UiTheme.display(nat.p, 30 if _compact() else 40, Color(nat.b).lightened(0.35)))
+	v.add_child(UiTheme.label(str(nat.n).to_upper(), 13, Color(nat.h).lightened(0.25)))
 	v.add_child(UiTheme.label(info.rule, 14, Color(1, 1, 1, 0.8)))
 	row.add_child(v)
 	_detail.add_child(row)
@@ -519,6 +523,50 @@ func _versus() -> void:
 	h.add_child(UiTheme.display("VS", 48 if _compact() else 72, UiTheme.GOLD))
 	h.add_child(Portrait.new(Looks.roll_look(settings.look[0]), "focus", ps, BV.RIGHT))
 	v.add_child(h)
+	_side_box.add_child(v)
+
+## CPU vs CPU: só escolhe o nível de habilidade e assiste. As partidas se
+## emendam sozinhas, com países e modificadores sorteados a cada uma.
+func _cpu() -> void:
+	_title("CPU vs CPU", "no hands", "two bots, random nations and modifiers, one match after another")
+	var sk := [settings.bots_skill]
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var chips := []
+	var opts := [["Chill", 1.0], ["Pro", 2.4], ["Insane", 3.6]]
+	for o in opts:
+		var b := UiTheme.chip(Button.new(), absf(float(o[1]) - sk[0]) < 0.01, 15)
+		b.text = str(o[0])
+		b.pressed.connect(func():
+			sk[0] = float(o[1])
+			settings.bots_skill = sk[0]
+			settings.save()
+			for c in chips:
+				UiTheme.chip(c, c.text == str(o[0]), 15))
+		chips.append(b)
+		row.add_child(b)
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 22)
+	m.add_theme_constant_override("margin_bottom", 10)
+	m.add_child(row)
+	_list.add_child(m)
+	_btn("Watch", func(): play_bots.emit(sk[0]), "", Color(1.0, 0.62, 0.26))
+	_spacer()
+	_back()
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 18)
+	var ps := 130 if _compact() else 220
+	var a: Dictionary = Campaign.NATIONS[randi() % Campaign.NATIONS.size()]
+	var b2: Dictionary = Campaign.NATIONS[randi() % Campaign.NATIONS.size()]
+	h.add_child(Portrait.new(Campaign.look_of(a), "focus", ps, BV.LEFT))
+	h.add_child(UiTheme.display("VS", 48 if _compact() else 72, Color(1.0, 0.62, 0.26)))
+	h.add_child(Portrait.new(Campaign.look_of(b2), "smug", ps, BV.RIGHT))
+	v.add_child(h)
+	var t := UiTheme.eyebrow("%s  vs  %s" % [a.p, b2.p], MUTED, 14)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
 	_side_box.add_child(v)
 
 func _online() -> void:

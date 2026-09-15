@@ -1,0 +1,57 @@
+<!doctype html><meta charset="utf-8"><title>classic</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{image-rendering:pixelated;display:block;margin:0 auto;height:100vh}
+</style>
+<canvas id="c" width="320" height="240"></canvas>
+<script>
+// Homenagem genérica aos jogos de vôlei de blob do começo dos anos 2000.
+// Arte original: formas simples, paleta própria, sem assets de terceiros.
+const c = document.getElementById('c'), g = c.getContext('2d')
+const W = 320, H = 240, GY = 196, NETX = 160
+let t = 0
+const blob = (x, y, r, body, dark, face) => {
+  for (let yy = -r; yy <= 0; yy++) {
+    const w = Math.floor(Math.sqrt(Math.max(0, r*r - yy*yy)))
+    g.fillStyle = yy < -r*0.55 ? dark : body
+    g.fillRect(Math.round(x-w), Math.round(y+yy), w*2, 1)
+  }
+  g.fillStyle = '#fff'; g.fillRect(Math.round(x+face*r*0.34)-2, Math.round(y-r*0.62), 4, 4)
+  g.fillStyle = '#111'; g.fillRect(Math.round(x+face*r*0.34), Math.round(y-r*0.6), 2, 2)
+}
+function frame() {
+  t += 1/60
+  // céu chapado com faixa de horizonte
+  g.fillStyle = '#5aa7e0'; g.fillRect(0,0,W,H)
+  g.fillStyle = '#79bdee'; g.fillRect(0,60,W,40)
+  g.fillStyle = '#d9c27a'; g.fillRect(0,GY,W,H-GY)
+  g.fillStyle = '#c2a95f'; g.fillRect(0,GY,W,2)
+  // rede
+  g.fillStyle = '#efefef'; g.fillRect(NETX-1,120,3,GY-120)
+  g.fillStyle = '#cfcfcf'
+  for (let y=124;y<GY;y+=5) g.fillRect(NETX-1,y,3,1)
+  g.fillStyle='#fff'; g.fillRect(NETX-3,117,7,4)
+  // rally lento e sem graça: a bola vai e volta num arco só
+  const per = 2.6, ph = (t % (per*2)) / per, leg = Math.floor((t % (per*2)) / per)
+  const x0 = leg ? 236 : 84, x1 = leg ? 84 : 236
+  const bx = x0 + (x1-x0)*ph
+  const by = GY - 12 - Math.sin(ph*Math.PI)*84
+  const hopL = leg===0 && ph>0.72 ? Math.sin((ph-0.72)/0.28*Math.PI)*16 : 0
+  const hopR = leg===1 && ph>0.72 ? Math.sin((ph-0.72)/0.28*Math.PI)*16 : 0
+  blob(84, GY-hopL, 26, '#e0722e', '#b8541c', 1)
+  blob(236, GY-hopR, 26, '#2e9e8f', '#1d7268', -1)
+  // sombras chapadas
+  g.fillStyle='rgba(0,0,0,0.16)'
+  g.fillRect(84-18,GY,36,3); g.fillRect(236-18,GY,36,3)
+  // bola
+  g.fillStyle='#f4f4f4'
+  for(let yy=-6;yy<=6;yy++){const w=Math.floor(Math.sqrt(Math.max(0,36-yy*yy)));g.fillRect(Math.round(bx-w),Math.round(by+yy),w*2,1)}
+  g.fillStyle='#d23b3b'; g.fillRect(Math.round(bx)-5,Math.round(by)-1,10,2)
+  // placar de época
+  g.fillStyle='#00000055'; g.fillRect(120,6,80,18)
+  g.fillStyle='#fff'; g.font='12px monospace'; g.textAlign='center'
+  g.fillText('3   :   2', 160, 19)
+  requestAnimationFrame(frame)
+}
+frame()
+</script>
