@@ -57,8 +57,14 @@ var _rep_last := -9000
 signal replay(tag: String, on: bool)
 signal point(side: int)
 signal cut()
+
+## Contagem depois do replay: o saque voltava no mesmo quadro em que a câmera
+## cortava, e ninguém tinha tempo de se recolocar.
+signal countdown(t: float)
 const POINT_HOLD := 2.1
+const REP_TAIL := 3.0
 var _point_t := 0.0
+var _count_t := 0.0
 var _rep_pending := false
 var _rep_tag_pend := ""
 
@@ -194,7 +200,9 @@ func _process(dt: float) -> void:
 				_start_replay(_rep_tag_pend)
 				return
 			cut.emit()
-	bv.hold_serve = _point_t > 0.0
+	if _count_t > 0.0 and not _paused:
+		_count_t = maxf(0.0, _count_t - dt)
+	bv.hold_serve = _point_t > 0.0 or _count_t > 0.0
 	if _paused or _last_winner != BV.NO_PLAYER or arena.intro_active():
 		arena.render(bv, 1.0, dt)
 		return
@@ -228,7 +236,7 @@ func _tick() -> void:
 		return
 	for i in bv.world.nb:
 		_read_side(i)
-		if _point_t > 0.0:
+		if _point_t > 0.0 or _count_t > 0.0:
 			_in[i].clear()
 	_step()
 
@@ -257,7 +265,7 @@ func _step() -> void:
 ## Grava o rally inteiro num anel de estados. Quando o ponto acaba, se o lance
 ## valeu a pena, ele volta em câmera lenta e com a lente colada na bola.
 func _record() -> void:
-	if _hf.is_empty() or _point_t > 0.0:
+	if _hf.is_empty() or _point_t > 0.0 or _count_t > 0.0:
 		return
 	var k := _hn % HIST
 	bv.save(_hf[k], _hi[k])
@@ -323,6 +331,8 @@ func skip_replay() -> void:
 
 func _rep_finish() -> void:
 	arena.rep_want = 0.0
+	_count_t = REP_TAIL
+	countdown.emit(REP_TAIL)
 	cut.emit()
 	arena.capture(bv)
 	arena.capture(bv)

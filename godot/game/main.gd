@@ -99,6 +99,7 @@ func _ready() -> void:
 	game.replay.connect(_on_replay)
 	game.point.connect(_on_point)
 	game.cut.connect(func(): hud.cut())
+	game.countdown.connect(func(t: float): hud.countdown(t))
 	_dev_net()
 	_dev_shot()
 
@@ -799,6 +800,7 @@ func _dev_trig(kind: String) -> bool:
 		"super": return game.bv.world.super_frames > 0
 		"replay": return game.replaying()
 		"point": return game._point_t > 0.0
+		"countdown": return game._count_t > 0.0
 		"parry":
 			for q in game.bv.world.nb:
 				if game.bv.world.parry_active[q] > 0:

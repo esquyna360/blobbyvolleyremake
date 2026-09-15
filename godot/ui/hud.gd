@@ -16,12 +16,16 @@ var _fill := [null, null]
 var _rally: Label
 var _info: Label
 var _big: Label
+var _cd: Label
 var _mark: Label
 var _card: Label
 var _card_t := 0.0
 var names := ["", ""]
 var _mark_a := 0.0
 var _big_t := 0.0
+var _cd_t := 0.0
+var _cd_n := -1
+const CD_STEP := 0.6
 var _big_pop := 0.0
 var _point_k := 0.0
 var _point_side := -1
@@ -218,6 +222,25 @@ func build(left: Color, right: Color) -> void:
 	_big.modulate.a = 0.0
 	_big.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_big)
+	_cd = Label.new()
+	_cd.set_anchors_preset(Control.PRESET_CENTER)
+	_cd.anchor_left = 0.5
+	_cd.anchor_right = 0.5
+	_cd.anchor_top = 0.44
+	_cd.anchor_bottom = 0.44
+	_cd.offset_left = -300
+	_cd.offset_right = 300
+	_cd.offset_top = -80
+	_cd.offset_bottom = 80
+	_cd.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_cd.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_cd.add_theme_font_override("font", UiTheme.display_font(2))
+	_cd.add_theme_font_size_override("font_size", 104)
+	_cd.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.03, 0.85))
+	_cd.add_theme_constant_override("outline_size", 10)
+	_cd.modulate.a = 0.0
+	_cd.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_cd)
 	_mark = Label.new()
 	_mark.text = "▲"
 	_mark.add_theme_font_size_override("font_size", 30)
@@ -420,6 +443,41 @@ func point(side: int) -> void:
 	var col: Color = _score[side].get_theme_color("font_color")
 	shout("POINT", col, 1.5)
 
+## Três, dois, um, vai: cada número entra grande e encolhe, e o saque só sai
+## quando o VAI apaga.
+func countdown(t: float) -> void:
+	_cd_t = t
+	_cd_n = -1
+	_cd.modulate.a = 0.0
+
+func _cd_update(dt: float) -> void:
+	if _cd_t <= 0.0:
+		if _cd.modulate.a > 0.0:
+			_cd.modulate.a = 0.0
+		return
+	_cd_t = maxf(0.0, _cd_t - dt)
+	var n := int(ceil(_cd_t / CD_STEP))
+	# o primeiro passo cobre a faixa de corte: sem ele o "3" nasce escondido
+	if n > 4:
+		_cd.modulate.a = 0.0
+		return
+	if n != _cd_n:
+		_cd_n = n
+		if n <= 0:
+			_cd.modulate.a = 0.0
+			return
+		_cd.text = "VAI!" if n == 1 else str(n - 1)
+		_cd.add_theme_color_override("font_color",
+			UiTheme.GOLD if n == 1 else Color(0.95, 0.93, 0.88))
+		Aud.play("whistle" if n == 1 else "blip", 0.5 if n == 1 else 0.6,
+			1.0 if n == 1 else 0.9 + 0.1 * float(4 - n))
+	if _cd_n <= 0:
+		return
+	var k: float = _cd_t / CD_STEP - float(_cd_n - 1)
+	_cd.pivot_offset = _cd.size * 0.5
+	_cd.scale = Vector2.ONE * (1.0 + k * k * 0.55)
+	_cd.modulate.a = clampf(k * 7.0, 0.0, 1.0)
+
 func fit(compact: bool) -> void:
 	var k := 0.86 if compact else 1.0
 	_fit_k = k
@@ -566,6 +624,7 @@ func update(m: BVMatch, dt: float) -> void:
 			_rep_lbl.visible = false
 			_rep_tag.visible = false
 			_rep_skip.visible = false
+	_cd_update(dt)
 	if _big_t > 0.0:
 		_big_t -= dt
 		_big_pop = maxf(0.0, _big_pop - dt * 5.0)
