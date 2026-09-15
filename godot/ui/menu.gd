@@ -241,8 +241,25 @@ func show_page(p: String) -> void:
 	_animate()
 	if _scroll != null:
 		_scroll.set_deferred("scroll_vertical", 0)
-	if _first != null and not touch and is_inside_tree():
-		_first.grab_focus()
+	var target := _first if _first != null else _focusable(_list)
+	if _page == "options" or _page == "look":
+		target = _focusable(_list)
+	if target != null and is_inside_tree() and (not touch or Controls.has_pad()):
+		target.grab_focus()
+		_first = target
+
+## Primeiro controle que aceita foco, em ordem de tela. Páginas feitas de chips
+## e barras não passam por `_btn`, então sem isto o foco nascia no "Back". O
+## campo de nome fica de fora: quem está no controle não tem como digitar nele.
+func _focusable(n: Node) -> Control:
+	for c in n.get_children():
+		if c is Control and c.focus_mode == Control.FOCUS_ALL and c.visible \
+				and not (c is BaseButton and c.disabled) and not c is LineEdit:
+			return c
+		var deep := _focusable(c)
+		if deep != null:
+			return deep
+	return null
 
 func _unhandled_input(e: InputEvent) -> void:
 	if not visible:
@@ -250,6 +267,16 @@ func _unhandled_input(e: InputEvent) -> void:
 	if e.is_action_pressed("ui_back") and _page != "main":
 		show_page("main")
 		get_viewport().set_input_as_handled()
+		return
+	# sem foco o controle e as setas viram enfeite: qualquer tecla de navegação
+	# devolve o cursor para o primeiro item em vez de não fazer nada
+	if _first == null or get_viewport().gui_get_focus_owner() != null:
+		return
+	for a in ["ui_up", "ui_down", "ui_left", "ui_right", "ui_accept"]:
+		if e.is_action_pressed(a):
+			_first.grab_focus()
+			get_viewport().set_input_as_handled()
+			return
 
 func _animate() -> void:
 	_left.modulate.a = 0.0
@@ -396,7 +423,6 @@ func _pager(last: int) -> Control:
 		var b := UiTheme.chip(Button.new(), false, 20)
 		b.text = "‹" if d < 0 else "›"
 		b.disabled = (_grid_page + d) < 0 or (_grid_page + d) > last
-		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(func():
 			_grid_page = clampi(_grid_page + d, 0, last)
 			_page_pinned = true
@@ -491,7 +517,6 @@ func _fill_detail() -> void:
 	var go := UiTheme.solid(Button.new(), Color(nat.b) if open else Color(0.3, 0.32, 0.34), 20)
 	go.text = ("PLAY LEVEL %d" % n) if open else "LOCKED"
 	go.disabled = not open
-	go.focus_mode = Control.FOCUS_NONE
 	go.pressed.connect(func():
 		Aud.play("ui", 0.6)
 		play_campaign.emit(n))

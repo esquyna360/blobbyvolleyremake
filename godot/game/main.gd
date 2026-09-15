@@ -21,6 +21,7 @@ var _in_match := false
 var _intro_was := false
 var _net_pending := false
 var _pause_ui: PanelContainer
+var _pause_first: Button
 var _paused := false
 var _result_ui: PanelContainer
 var _result_eyebrow: Label
@@ -359,7 +360,7 @@ func _show_result(winner: int, mine: bool) -> void:
 	tw.tween_property(_result_ui, "scale", Vector2.ONE, 0.3) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_property(_result_ui, "modulate:a", 1.0, 0.25)
-	if not DisplayServer.is_touchscreen_available():
+	if not DisplayServer.is_touchscreen_available() or Controls.has_pad():
 		(_result_next if _result_next.visible else _result_again).grab_focus.call_deferred()
 	Aud.finish(mine if mode != Mode.VERSUS else true)
 
@@ -578,6 +579,11 @@ func _unhandled_input(e: InputEvent) -> void:
 		if _in_match and not _result_ui.visible:
 			_set_pause(not _paused)
 		get_viewport().set_input_as_handled()
+	# B no controle fecha a pausa como em qualquer console: sem isto só o Start
+	# saía de lá e o botão de voltar não fazia nada na tela toda.
+	elif _paused and e.is_action_pressed("ui_back"):
+		_set_pause(false)
+		get_viewport().set_input_as_handled()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
@@ -641,7 +647,7 @@ func _build_pause() -> void:
 		_set_pause(false)
 		_to_menu())
 	v.add_child(q)
-	c.grab_focus.call_deferred()
+	_pause_first = c
 	_pause_ui.visible = false
 	_ui.add_child(_pause_ui)
 
@@ -650,12 +656,16 @@ func _build_pause_refresh() -> void:
 	_pause_ui.queue_free()
 	_build_pause()
 	_pause_ui.visible = true
+	_pause_first.grab_focus.call_deferred()
 
 func _set_pause(p: bool) -> void:
 	_paused = p
 	_pause_ui.visible = p
 	if p:
 		Rumble.stop()
+		_pause_first.grab_focus.call_deferred()
+	elif _pause_first.has_focus():
+		_pause_first.release_focus()
 	if game.net_side == BV.NO_PLAYER:
 		game.set_paused(p)
 	if touch != null:

@@ -157,6 +157,18 @@ static func eyebrow(text: String, col := GOLD, size := 14) -> Label:
 	l.add_theme_constant_override("shadow_offset_y", 1)
 	return l
 
+## Quem joga de controle não tem ponteiro: se o item focado for igual ao item
+## sob o mouse, não dá para saber onde o cursor está. O foco ganha contorno
+## inteiro e fundo mais claro que o hover.
+static func _focus_of(base: StyleBoxFlat, accent: Color) -> StyleBoxFlat:
+	var f: StyleBoxFlat = base.duplicate()
+	f.bg_color = Color(1, 1, 1, minf(0.24, base.bg_color.a + 0.08)) \
+		if base.bg_color.a < 0.5 else base.bg_color.lightened(0.12)
+	f.set_border_width_all(2)
+	f.border_width_left = maxi(2, base.border_width_left)
+	f.border_color = accent
+	return f
+
 ## Item de lista: sem caixa, texto à esquerda, barra de destaque ao passar.
 static func item(b: Button, accent := GOLD, size := 22) -> Button:
 	for k in 3:
@@ -172,7 +184,7 @@ static func item(b: Button, accent := GOLD, size := 22) -> Button:
 		s.content_margin_bottom = pad(8)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
-			b.add_theme_stylebox_override("focus", s)
+			b.add_theme_stylebox_override("focus", _focus_of(s, accent))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.add_theme_font_override("font", font(0.5, 1))
 	b.add_theme_font_size_override("font_size", size)
@@ -197,7 +209,7 @@ static func solid(b: Button, base := GOLD, size := 18) -> Button:
 		s.content_margin_bottom = pad(10)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
-			b.add_theme_stylebox_override("focus", s)
+			b.add_theme_stylebox_override("focus", _focus_of(s, Color(1, 1, 1)))
 	b.add_theme_font_override("font", font(0.7, 2))
 	b.add_theme_font_size_override("font_size", size)
 	var ink := Color(0.06, 0.05, 0.03) if base.get_luminance() > 0.45 else Color(1, 1, 1)
@@ -220,7 +232,7 @@ static func chip(b: Button, on: bool, size := 15) -> Button:
 		s.content_margin_bottom = pad(8)
 		b.add_theme_stylebox_override(["normal", "hover", "pressed"][k], s)
 		if k == 1:
-			b.add_theme_stylebox_override("focus", s)
+			b.add_theme_stylebox_override("focus", _focus_of(s, GOLD))
 	b.add_theme_font_override("font", font(0.6, 1))
 	b.add_theme_font_size_override("font_size", size)
 	var ink := Color(0.06, 0.05, 0.03) if on else Color(1, 1, 1, 0.85)

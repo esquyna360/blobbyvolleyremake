@@ -103,7 +103,8 @@ static func _pad_binds() -> void:
 		_joy_btn(p + "special", SPECIAL_BTNS, d)
 
 	for a in ["solo_left", "solo_right", "solo_up", "solo_down", "solo_dive",
-			"solo_special", "ui_ok", "ui_back", "pause"]:
+			"solo_special", "ui_ok", "ui_back", "pause",
+			"ui_accept", "ui_cancel", "ui_up", "ui_down", "ui_left", "ui_right"]:
 		_clear_joy(a)
 	_joy_btn("solo_left", [JOY_BUTTON_DPAD_LEFT], PAD_ANY)
 	_joy_axis("solo_left", JOY_AXIS_LEFT_X, -1, PAD_ANY)
@@ -118,6 +119,21 @@ static func _pad_binds() -> void:
 	_joy_btn("ui_ok", [JOY_BUTTON_A], PAD_ANY)
 	_joy_btn("ui_back", [JOY_BUTTON_B], PAD_ANY)
 	_joy_btn("pause", [JOY_BUTTON_START, JOY_BUTTON_BACK], PAD_ANY)
+	_ui_nav()
+
+## As ações de navegação do Godot vêm sem controle amarrado: o menu andava no
+## teclado e morria no gamepad. O d-pad, o manche e A/B entram aqui.
+static func _ui_nav() -> void:
+	_joy_btn("ui_accept", [JOY_BUTTON_A], PAD_ANY)
+	_joy_btn("ui_cancel", [JOY_BUTTON_B], PAD_ANY)
+	_joy_btn("ui_up", [JOY_BUTTON_DPAD_UP], PAD_ANY)
+	_joy_axis("ui_up", JOY_AXIS_LEFT_Y, -1, PAD_ANY)
+	_joy_btn("ui_down", [JOY_BUTTON_DPAD_DOWN], PAD_ANY)
+	_joy_axis("ui_down", JOY_AXIS_LEFT_Y, 1, PAD_ANY)
+	_joy_btn("ui_left", [JOY_BUTTON_DPAD_LEFT], PAD_ANY)
+	_joy_axis("ui_left", JOY_AXIS_LEFT_X, -1, PAD_ANY)
+	_joy_btn("ui_right", [JOY_BUTTON_DPAD_RIGHT], PAD_ANY)
+	_joy_axis("ui_right", JOY_AXIS_LEFT_X, 1, PAD_ANY)
 
 ## X e B no Xbox, Quadrado e Círculo no DualSense, mais os dois ombros e os dois
 ## gatilhos: muita gente aperta o gatilho por reflexo, e ficar sem resposta ali
